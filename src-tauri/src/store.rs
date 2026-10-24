@@ -1,4 +1,5 @@
 use crate::{
+    journal::{Journal, Mutation, COMPACT_BYTES},
     model::{Entry, Location, Root},
     search::{normalize, Index},
 };
@@ -8,7 +9,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
-    io::Write,
+    io::{BufWriter, Write},
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -25,11 +26,66 @@ pub struct Snapshot {
     pub root: Root,
     pub entries: Vec<Entry>,
 }
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    #[test]
+    fn idle_checkpoint_replays_and_an_older_worker_cannot_restore_a_removed_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("files");
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("original.txt"), "original").unwrap();
+        let engine = Engine::new(temp.path().join("data")).unwrap();
+        let id = engine.scan(&json!({"absolutePath":root})).unwrap().id;
+        let copy = || {
+            crate::dispatch(&engine,"operation",json!({"action":"copy","entries":[{"rootId":id,"path":"original.txt"}],"destination":{"rootId":id,"path":"target"}})).unwrap()
+        };
+        copy();
+        let operation = engine.operations.lock().unwrap();
+        engine.journal.lock().unwrap().bytes = COMPACT_BYTES;
+        engine.schedule_checkpoint();
+        let timeout = std::time::Instant::now() + Duration::from_secs(8);
+        while engine.journal.lock().unwrap().pending.is_some() {
+            assert!(
+                std::time::Instant::now() < timeout,
+                "idle checkpoint did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let saved: DiskIndex =
+            serde_json::from_slice(&fs::read(engine.data.join("index.json")).unwrap()).unwrap();
+        assert!(saved.sequence > 0);
+        assert_eq!(
+            fs::metadata(engine.data.join("index-journal.jsonl"))
+                .unwrap()
+                .len(),
+            0
+        );
+        assert!(saved.snapshots[0]
+            .entries
+            .iter()
+            .any(|e| e.path == "target/original.txt"));
+        drop(operation);
+        copy();
+        engine.journal.lock().unwrap().bytes = COMPACT_BYTES;
+        engine.schedule_checkpoint();
+        engine.remove(&id).unwrap();
+        std::thread::sleep(Duration::from_millis(2200));
+        let reopened = Engine::new(temp.path().join("data")).unwrap();
+        assert!(reopened.roots().is_empty());
+    }
+}
 // 기존 로컬 서버 인덱스도 읽을 수 있는 저장 형식이다.
 #[derive(Serialize, Deserialize)]
 pub struct DiskIndex {
     pub format: u8,
     pub snapshots: Vec<Snapshot>,
+    #[serde(default)]
+    pub generation: String,
+    #[serde(default)]
+    pub sequence: u64,
 }
 // 검색 스냅샷을 짧은 잠금 안에서 공유한다.
 #[derive(Default)]
@@ -50,6 +106,8 @@ pub struct Engine {
     pub analysis_busy: AtomicBool,
     pub analysis_cancel: AtomicBool,
     pub analysis_progress: Mutex<Value>,
+    journal: Mutex<Journal>,
+    checkpoint_write: Mutex<()>,
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
     pub instance: String,
 }
@@ -78,8 +136,12 @@ pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let parent = path.parent().ok_or("저장 경로가 올바르지 않습니다.")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-    serde_json::to_writer(file.as_file_mut(), value).map_err(|e| e.to_string())?;
-    file.flush().map_err(|e| e.to_string())?;
+    {
+        // JSON emits many tiny fragments; buffer them instead of issuing a syscall per token.
+        let mut writer = BufWriter::with_capacity(256 * 1024, file.as_file_mut());
+        serde_json::to_writer(&mut writer, value).map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())?;
+    }
     file.as_file().sync_all().map_err(|e| e.to_string())?;
     file.persist(path).map_err(|e| e.to_string())?;
     Ok(())
@@ -92,24 +154,30 @@ impl Engine {
         let data = data.canonicalize().map_err(|e| e.to_string())?;
         let mut store = Store::default();
         let path = data.join("index.json");
-        if path.exists() {
-            let saved: DiskIndex =
-                serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-            if saved.format != 1 {
-                return Err("지원하지 않는 인덱스 형식입니다.".into());
+        let mut saved = if path.exists() {
+            serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+        } else {
+            DiskIndex {
+                format: 1,
+                snapshots: vec![],
+                generation: String::new(),
+                sequence: 0,
             }
-            store.snapshots = saved.snapshots;
-            // 웹 버전/이전 버전의 일반 Windows 경로도 내부 canonical 경로와 맞춘다.
-            for snapshot in &mut store.snapshots {
-                if let Ok(path) = Path::new(&snapshot.root.absolute_path).canonicalize() {
-                    snapshot.root.absolute_path = path.to_string_lossy().into_owned();
-                }
-                snapshot.root.name =
-                    crate::file_clipboard::path_text(Path::new(&snapshot.root.name));
-            }
-            Self::rebuild(&mut store);
+        };
+        if saved.format != 1 {
+            return Err("지원하지 않는 인덱스 형식입니다.".into());
         }
+        let journal = Journal::load(&data, &mut saved)?;
+        store.snapshots = saved.snapshots;
+        // 웹 버전/이전 버전의 일반 Windows 경로도 내부 canonical 경로와 맞춘다.
+        for snapshot in &mut store.snapshots {
+            if let Ok(path) = Path::new(&snapshot.root.absolute_path).canonicalize() {
+                snapshot.root.absolute_path = path.to_string_lossy().into_owned();
+            }
+            snapshot.root.name = crate::file_clipboard::path_text(Path::new(&snapshot.root.name));
+        }
+        Self::rebuild(&mut store);
         let engine = Arc::new(Self {
             data,
             store: Mutex::new(store),
@@ -121,12 +189,15 @@ impl Engine {
             analysis_busy: AtomicBool::new(false),
             analysis_cancel: AtomicBool::new(false),
             analysis_progress: Mutex::new(Value::Null),
+            journal: Mutex::new(journal),
+            checkpoint_write: Mutex::new(()),
             watchers: Mutex::new(HashMap::new()),
             instance: Uuid::new_v4().to_string(),
         });
         for root in engine.roots() {
             engine.watch(&root);
         }
+        engine.schedule_checkpoint();
         Ok(engine)
     }
 
@@ -172,13 +243,74 @@ impl Engine {
     }
     // 완성된 스냅샷을 디스크에 원자적으로 저장한다.
     pub fn persist(&self, snapshots: Vec<Snapshot>) -> Result<(), String> {
+        let _write = self.checkpoint_write.lock().unwrap();
+        let generation = Uuid::new_v4().to_string();
         write_json(
             &self.data.join("index.json"),
             &DiskIndex {
                 format: 1,
                 snapshots,
+                generation: generation.clone(),
+                sequence: 0,
             },
-        )
+        )?;
+        self.journal.lock().unwrap().reset(&self.data, generation);
+        Ok(())
+    }
+
+    // Fold a large journal into a checkpoint while new operations keep appending durable records.
+    fn schedule_checkpoint(self: &Arc<Self>) {
+        let generation = {
+            let mut journal = self.journal.lock().unwrap();
+            if journal.bytes < COMPACT_BYTES || journal.pending.is_some() {
+                return;
+            }
+            let generation = journal.generation.clone();
+            journal.pending = Some(generation.clone());
+            generation
+        };
+        let weak = Arc::downgrade(self);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let Some(engine) = weak.upgrade() else {
+                return;
+            };
+            let write = engine.checkpoint_write.lock().unwrap();
+            let checkpoint = {
+                let store = engine.store.lock().unwrap();
+                let journal = engine.journal.lock().unwrap();
+                if journal.generation != generation {
+                    return;
+                }
+                if journal.changed.elapsed() < Duration::from_secs(2) {
+                    continue;
+                }
+                DiskIndex {
+                    format: 1,
+                    snapshots: store.snapshots.clone(),
+                    generation: generation.clone(),
+                    sequence: journal.sequence,
+                }
+            };
+            let sequence = checkpoint.sequence;
+            let result = write_json(&engine.data.join("index.json"), &checkpoint);
+            drop(checkpoint);
+            {
+                let mut journal = engine.journal.lock().unwrap();
+                if journal.generation == generation {
+                    if result.is_ok() {
+                        let _ = journal.compact(&engine.data, sequence);
+                    }
+                    journal.pending = None;
+                }
+            }
+            drop(write);
+            // A failed checkpoint leaves the durable journal intact; retry on a later change.
+            if result.is_ok() {
+                engine.schedule_checkpoint();
+            }
+            return;
+        });
     }
 
     // 폴더를 순회하며 심볼릭 링크와 내부 작업 경로를 제외한다.
@@ -406,9 +538,9 @@ impl Engine {
                 }
             })
             .collect();
-        let mut next = self.store.lock().unwrap().snapshots.clone();
-        for snapshot in &mut next {
-            let base = Path::new(&snapshot.root.absolute_path);
+        let mut gathered = vec![];
+        for root in self.roots() {
+            let base = Path::new(&root.absolute_path);
             let relevant: Vec<_> = paths
                 .iter()
                 .filter(|p| p.starts_with(base) && !excluded(p, &self.data))
@@ -424,32 +556,76 @@ impl Engine {
                 changed.retain(|p| !p.starts_with(path));
                 changed.push(path.clone());
             }
+            let mut relatives = vec![];
+            let mut entries = vec![];
             for path in changed {
                 let relative = path
                     .strip_prefix(base)
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/");
-                snapshot.entries.retain(|e| {
-                    !(relative.is_empty()
-                        || e.path == relative
-                        || e.path.starts_with(&format!("{relative}/")))
-                });
+                relatives.push(relative);
                 if path.exists()
                     && !fs::symlink_metadata(&path)
                         .map_err(|e| e.to_string())?
                         .file_type()
                         .is_symlink()
                 {
-                    let (entries, _) = self.collect(&snapshot.root, &path);
-                    snapshot.entries.extend(entries);
+                    let (updated, _) = self.collect(&root, &path);
+                    entries.extend(updated);
                 }
             }
-            snapshot.root.count = snapshot.entries.len();
-            snapshot.root.last_indexed = now();
+            gathered.push((root.id, relatives, entries));
         }
-        self.persist(next.clone())?;
-        self.install(next);
+        let mut store = self.store.lock().unwrap();
+        let mut mutation = Mutation::default();
+        for (root_id, relatives, entries) in gathered {
+            let Some(snapshot) = store.snapshots.iter().find(|s| s.root.id == root_id) else {
+                continue;
+            };
+            let mut incoming: HashMap<_, _> = entries
+                .into_iter()
+                .map(|entry| (entry.id.clone(), entry))
+                .collect();
+            let prefixes: Vec<_> = relatives.iter().map(|p| format!("{p}/")).collect();
+            let previous_removed = mutation.removed.len();
+            let previous_entries = mutation.entries.len();
+            for entry in &snapshot.entries {
+                if !relatives.iter().any(|p| p.is_empty() || entry.path == *p)
+                    && !prefixes.iter().any(|p| entry.path.starts_with(p))
+                {
+                    continue;
+                }
+                match incoming.remove(&entry.id) {
+                    Some(next) if next == *entry => {}
+                    Some(next) => mutation.entries.push(next),
+                    None => mutation.removed.push(entry.id.clone()),
+                }
+            }
+            let added = incoming.len();
+            mutation.entries.extend(incoming.into_values());
+            if mutation.removed.len() != previous_removed
+                || mutation.entries.len() != previous_entries
+            {
+                let mut root = snapshot.root.clone();
+                root.count =
+                    snapshot.entries.len() - (mutation.removed.len() - previous_removed) + added;
+                root.last_indexed = now();
+                mutation.roots.push(root);
+            }
+        }
+        // Duplicate OS notifications do not clone, serialize, or rebuild the index.
+        if mutation.roots.is_empty() {
+            return Ok(());
+        }
+        self.journal.lock().unwrap().append(&self.data, &mutation)?;
+        store
+            .index
+            .update(&mutation.removed, mutation.entries.clone());
+        mutation.apply(&mut store.snapshots);
+        store.version += 1;
+        drop(store);
+        self.schedule_checkpoint();
         Ok(())
     }
 

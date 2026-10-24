@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // 화면과 Rust에서 공유하는 파일 메타데이터다.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     pub id: String,

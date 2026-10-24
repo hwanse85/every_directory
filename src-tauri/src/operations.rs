@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Arc,
-    time::UNIX_EPOCH,
+    time::{Instant, UNIX_EPOCH},
 };
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
@@ -127,14 +127,31 @@ fn move_unused(source: &Path, target: &Path) -> Result<(), String> {
 }
 // 외부 파일이 끼어들지 않도록 새 파일을 생성해 내용을 복사한다.
 fn copy_file(source: &Path, target: &Path) -> Result<(), String> {
-    let mut input = File::open(source).map_err(|e| e.to_string())?;
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(target)
-        .map_err(|e| e.to_string())?;
-    std::io::copy(&mut input, &mut output).map_err(|e| e.to_string())?;
-    Ok(())
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let from: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let to: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        // Let Windows optimize local/SMB copies and preserve metadata, without replacement.
+        if unsafe {
+            windows_sys::Win32::Storage::FileSystem::CopyFileW(from.as_ptr(), to.as_ptr(), 1)
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let mut input = File::open(source).map_err(|e| e.to_string())?;
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+            .map_err(|e| e.to_string())?;
+        std::io::copy(&mut input, &mut output).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 // 사용자가 OS 클립보드에 복사한 외부 파일을 기존 파일을 덮어쓰지 않고 가져온다.
 pub fn paste_external(
@@ -870,6 +887,7 @@ fn check_opener(command: &mut Command) -> Result<(), String> {
 }
 // 검증된 연결 폴더 안에서 파일 작업을 직렬 실행한다.
 pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String> {
+    let started = Instant::now();
     if ["properties", "hash"].contains(&request.action.as_str()) {
         return properties(engine, &request);
     }
@@ -932,6 +950,7 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         return Ok(json!({"count":1}));
     }
     let _operation = engine.operations.lock().unwrap();
+    let acquired = Instant::now();
     if request.entries.len() > 200 {
         return Err("한 번에 200개까지 선택해 주세요.".into());
     }
@@ -1214,13 +1233,26 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         }
         Ok(json!({"count":sources.len()}))
     })();
+    let transferred = Instant::now();
     if !changed.is_empty() {
         let refreshed = engine.refresh(&changed);
         if result.is_ok() {
             refreshed?;
         }
     }
-    result
+    result.map(|mut result| {
+        if let Some(object) = result.as_object_mut() {
+            object.insert(
+                "timings".into(),
+                json!({
+                    "queueMs":(acquired-started).as_secs_f64()*1000.0,
+                    "fileMs":(transferred-acquired).as_secs_f64()*1000.0,
+                    "indexMs":transferred.elapsed().as_secs_f64()*1000.0,
+                }),
+            );
+        }
+        result
+    })
 }
 
 // LiteralPath와 작은따옴표 이스케이프로 UNC·공백·대괄호·따옴표가 든 경로를 연다.

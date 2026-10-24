@@ -519,6 +519,7 @@ export function Explorer({
     if (!paneTransfer || !otherPane || transferring) return;
     setTransferError("");
     setTransferring(true);
+    const started = performance.now();
     try {
       await client.request("operation", {
         action: paneTransfer,
@@ -527,7 +528,7 @@ export function Explorer({
       });
       onChanged();
       setPaneTransfer(undefined);
-      onMessage("다른 탐색창으로 전송했습니다.");
+      onMessage(`${selection.length}개 항목 ${paneTransfer === "copy" ? "복사" : "이동"} 완료 · ${((performance.now()-started)/1000).toFixed(1)}초`);
     } catch (cause) {
       setTransferError(String(cause));
       onChanged();
@@ -996,7 +997,9 @@ export function Explorer({
               </div>
             </div>
             <p className="modal-footnote">
-              같은 이름이 있으면 원본을 덮어쓰지 않고 오류를 표시합니다.
+              {paneTransfer === "copy"
+                ? "같은 이름이 있으면 (1), (2) 순서로 사본을 만듭니다."
+                : "같은 이름이 있으면 기존 파일을 보호하고 안내합니다."}
             </p>
             {transferError && (
               <p className="operation-error" role="alert">

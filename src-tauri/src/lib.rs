@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod desktop;
 pub mod file_clipboard;
+mod journal;
 pub mod model;
 pub mod operations;
 pub mod query;
@@ -548,6 +549,10 @@ pub fn run() {
             }
             #[cfg(not(feature = "smoke-test"))]
             let _ = (webview, payload);
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("transfer") {
+                let _ = webview.eval(include_str!("../../scripts/transfer-e2e.js"));
+            }
             #[cfg(all(windows, feature = "smoke-test"))]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("drag") {
                 let _ = webview.eval(include_str!("../../scripts/drag-e2e.js"));

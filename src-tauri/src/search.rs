@@ -243,6 +243,81 @@ impl Index {
         self.entries = entries;
     }
 
+    // Keep unchanged normalized keys and postings; repair only removed/moved slots and new entries.
+    pub fn update(&mut self, removed: &[String], entries: Vec<Entry>) {
+        let ids: HashSet<&str> = removed
+            .iter()
+            .map(String::as_str)
+            .chain(entries.iter().map(|entry| entry.id.as_str()))
+            .collect();
+        let positions: Vec<usize> = if ids.is_empty() {
+            vec![]
+        } else {
+            self.entries
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| ids.contains(e.id.as_str()).then_some(i))
+                .collect()
+        };
+        let mut moved_from = HashMap::new();
+        let mut remap: HashMap<u32, Option<u32>> = HashMap::new();
+        let mut changed_names = HashSet::new();
+        let mut changed_initials = HashSet::new();
+        for position in positions.into_iter().rev() {
+            let last = self.entries.len() - 1;
+            for slot in [position, last] {
+                changed_names.extend(grams(&self.names[slot]));
+                changed_initials.extend(initial_grams(&initials(&self.paths[slot])));
+            }
+            remap.insert(position as u32, None);
+            if position != last {
+                let original = moved_from.remove(&last).unwrap_or(last as u32);
+                moved_from.insert(position, original);
+                remap.insert(original, Some(position as u32));
+            }
+            self.entries.swap_remove(position);
+            self.names.swap_remove(position);
+            self.paths.swap_remove(position);
+        }
+        fn repair(
+            index: &mut HashMap<String, Vec<u32>>,
+            keys: HashSet<String>,
+            remap: &HashMap<u32, Option<u32>>,
+        ) {
+            for key in keys {
+                if let Some(list) = index.get_mut(&key) {
+                    list.retain_mut(|position| match remap.get(position) {
+                        Some(Some(next)) => {
+                            *position = *next;
+                            true
+                        }
+                        Some(None) => false,
+                        None => true,
+                    });
+                    if list.is_empty() {
+                        index.remove(&key);
+                    }
+                }
+            }
+        }
+        repair(&mut self.grams, changed_names, &remap);
+        repair(&mut self.initial_grams, changed_initials, &remap);
+        for entry in entries {
+            let i = self.entries.len() as u32;
+            let name = normalize(&entry.name);
+            let path = normalize(&entry.path);
+            for gram in grams(&name) {
+                self.grams.entry(gram).or_default().push(i);
+            }
+            for gram in initial_grams(&initials(&path)) {
+                self.initial_grams.entry(gram).or_default().push(i);
+            }
+            self.names.push(name);
+            self.paths.push(path);
+            self.entries.push(entry);
+        }
+    }
+
     // AND는 가장 작은 필수 후보, OR는 각 분기의 합집합을 사용한다.
     // 제외 조건이나 인덱스로 제한할 수 없는 분기는 전체 검사로 되돌린다.
     fn candidates<'a>(&'a self, query: &Query, full_path: bool) -> Option<Cow<'a, [u32]>> {

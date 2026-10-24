@@ -4,11 +4,11 @@
 
 로컬 파일 검색과 다중 탐색창을 결합한 **React + Tauri 2 + Rust 데스크톱 앱**입니다. Windows와 macOS용 빌드 구성을 제공합니다. 배포 앱은 Node.js나 HTTP 서버 없이 실행됩니다.
 
-현재 0.7.6 소스는 [Windows 호환성 개선](docs/windows-compatibility.md), [초성 입력·번호 사본·Windows 단축키·드롭 및 E2E 검증](docs/e2e-v0.7.6.md), [앱 정보·라이선스 고지 구분](docs/licensing.md)을 포함합니다. 이전 배포 파일에는 새 변경이 소급 반영되지 않습니다.
+현재 0.7.7 소스는 [탐색창 복사·이동 성능 개선과 검증](docs/transfer-performance-v0.7.7.md)을 포함합니다. 기존 [Windows 호환성 개선](docs/windows-compatibility.md), [초성 입력·번호 사본·Windows 단축키·드롭](docs/e2e-v0.7.6.md), [앱 정보·라이선스 고지 구분](docs/licensing.md)도 유지합니다. 이전 배포 파일에는 새 변경이 소급 반영되지 않습니다.
 
 ## 실행
 
-0.7.6 Windows 설치본 빌드와 검증 범위는 [0.7.6 안내](docs/e2e-v0.7.6.md)를 참고하세요. 개인 빌드 경로가 포함됐던 v0.7.4 설치 파일은 소스 저장소와 이력에서 제거했습니다. 새 배포 파일은 아래 명령으로 빌드하거나 저장소의 [Actions](https://github.com/hwanse85/every_directory/actions)에서 개인정보 검사를 통과한 빌드의 아티팩트를 이용하세요.
+0.7.7 Windows 설치본의 성능 측정과 검증 범위는 [0.7.7 안내](docs/transfer-performance-v0.7.7.md)를 참고하세요. 개인 빌드 경로가 포함됐던 v0.7.4 설치 파일은 소스 저장소와 이력에서 제거했습니다. 새 배포 파일은 아래 명령으로 빌드하거나 저장소의 [Actions](https://github.com/hwanse85/every_directory/actions)에서 개인정보 검사를 통과한 빌드의 아티팩트를 이용하세요.
 
 빌드된 macOS 앱은 `src-tauri/target/release/bundle/macos/Every Directory.app`, 설치 이미지는 `src-tauri/target/release/bundle/dmg/`에 생성됩니다. Windows 빌드는 `.msi` 또는 `-setup.exe`를 생성합니다. 각 운영체제와 CPU에 맞는 파일을 사용합니다.
 

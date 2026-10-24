@@ -32,6 +32,7 @@ for (const suite of [
   "grid",
   "clipboard",
   "drag",
+  "transfer",
   "empty",
   "windows",
 ]) {

@@ -4,7 +4,7 @@
 
 A **React + Tauri 2 + Rust desktop app** combining local file search with multiple explorer panes. Build configurations are available for Windows and macOS. Packaged desktop apps run without Node.js or an HTTP server.
 
-Version 0.7.6 includes Windows path fixes, Korean initial-consonant input improvements, numbered copies, standard keyboard shortcuts, drag and drop, uncolored new tabs, and app/license information. See the [Windows compatibility notes](docs/windows-compatibility.md), [0.7.6 verification record](docs/e2e-v0.7.6.md), and [license documentation](docs/licensing.md). These detailed records are currently in Korean.
+Version 0.7.7 speeds up explorer copy/move operations by updating only changed index entries, persisting a small durable journal, and using native Windows file copies. The [performance and verification record](docs/transfer-performance-v0.7.7.md) includes an English summary. Windows path fixes, Korean initial-consonant input, numbered copies, keyboard shortcuts, drag and drop, uncolored new tabs, and app/license information remain available. See the [Windows compatibility notes](docs/windows-compatibility.md), [0.7.6 verification record](docs/e2e-v0.7.6.md), and [license documentation](docs/licensing.md).
 
 ## Getting started
 
