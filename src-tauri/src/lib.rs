@@ -8,6 +8,8 @@ pub mod query;
 pub mod quick_access;
 pub mod search;
 pub mod store;
+#[cfg(windows)]
+mod windows_file_ops;
 
 use crate::{
     model::{Location, Operation, SearchOptions},

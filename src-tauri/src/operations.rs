@@ -108,17 +108,7 @@ fn move_unused(source: &Path, target: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::ffi::OsStrExt;
-        let from: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-        let to: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-        // 교체 플래그 없이 이동해 Windows에서도 기존 파일을 보호한다.
-        if unsafe {
-            windows_sys::Win32::Storage::FileSystem::MoveFileExW(from.as_ptr(), to.as_ptr(), 0)
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-        Ok(())
+        crate::windows_file_ops::rename(source, target).map_err(|error| error.to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -202,16 +192,7 @@ pub fn paste_external(
     }
     let mut changed = vec![];
     let result = (|| {
-        for (source, target) in sources.iter().zip(&targets) {
-            let staging = tempfile::Builder::new()
-                .prefix(".ed-work-")
-                .tempdir_in(&destination)
-                .map_err(|error| error.to_string())?;
-            let output = staging.path().join("result");
-            copy_node(source, &output)?;
-            move_unused(&output, target)?;
-            changed.push(target.clone());
-        }
+        copy_prepared(&sources, &targets, &mut changed)?;
         Ok(json!({"count":changed.len(),"cut":false}))
     })();
     if !changed.is_empty() {
@@ -237,22 +218,101 @@ pub fn save_copy(engine: &Engine, location: &Location, destination: &Path) -> Re
 }
 // 심볼릭 링크 없이 파일 또는 디렉터리 트리를 복사한다.
 fn copy_node(source: &Path, target: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(source).map_err(|e| e.to_string())?;
-    if metadata.file_type().is_symlink() {
-        return Err("심볼릭 링크는 파일 작업에서 제외합니다.".into());
+    #[cfg(windows)]
+    {
+        crate::windows_file_ops::transfer(&[(source.into(), target.into())], false)
     }
-    if metadata.is_file() {
-        return copy_file(source, target);
+    #[cfg(not(windows))]
+    {
+        let metadata = fs::symlink_metadata(source).map_err(|e| e.to_string())?;
+        if metadata.file_type().is_symlink() {
+            return Err("심볼릭 링크는 파일 작업에서 제외합니다.".into());
+        }
+        if metadata.is_file() {
+            return copy_file(source, target);
+        }
+        if !metadata.is_dir() {
+            return Err("일반 파일과 폴더만 처리할 수 있습니다.".into());
+        }
+        fs::create_dir(target).map_err(|e| e.to_string())?;
+        for item in fs::read_dir(source).map_err(|e| e.to_string())? {
+            let item = item.map_err(|e| e.to_string())?;
+            copy_node(&item.path(), &target.join(item.file_name()))?;
+        }
+        Ok(())
     }
-    if !metadata.is_dir() {
-        return Err("일반 파일과 폴더만 처리할 수 있습니다.".into());
+}
+
+// One native batch gives Windows one progress/cancel window for the entire selection.
+// Commit completed copies by exclusive same-volume rename; failed copies leave originals intact.
+fn copy_prepared(
+    sources: &[PathBuf],
+    targets: &[PathBuf],
+    changed: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if sources.is_empty() {
+        return Ok(());
     }
-    fs::create_dir(target).map_err(|e| e.to_string())?;
-    for item in fs::read_dir(source).map_err(|e| e.to_string())? {
-        let item = item.map_err(|e| e.to_string())?;
-        copy_node(&item.path(), &target.join(item.file_name()))?;
+    let destination = targets[0].parent().ok_or("대상 폴더가 없습니다.")?;
+    let staging = tempfile::Builder::new()
+        .prefix(".ed-work-")
+        .tempdir_in(destination)
+        .map_err(|error| error.to_string())?;
+    let plans: Vec<_> = sources
+        .iter()
+        .zip(targets)
+        .map(|(source, target)| {
+            Ok((
+                source.clone(),
+                staging
+                    .path()
+                    .join(target.file_name().ok_or("대상 이름이 없습니다.")?),
+            ))
+        })
+        .collect::<Result<_, String>>()?;
+    #[cfg(windows)]
+    crate::windows_file_ops::transfer(&plans, false)?;
+    #[cfg(not(windows))]
+    for (source, output) in &plans {
+        copy_node(source, output)?;
+    }
+    for ((_, output), target) in plans.iter().zip(targets) {
+        move_unused(output, target)?;
+        changed.push(target.clone());
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn move_prepared(
+    sources: &[PathBuf],
+    targets: &[PathBuf],
+    changed: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let mut cross_volume = vec![];
+    for (source, target) in sources.iter().zip(targets) {
+        if source == target {
+            continue;
+        }
+        match crate::windows_file_ops::rename(source, target) {
+            Ok(()) => {
+                changed.extend([source.clone(), target.clone()]);
+            }
+            Err(error)
+                if error.raw_os_error()
+                    == Some(windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE as i32) =>
+            {
+                cross_volume.push((source.clone(), target.clone()));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    // The Shell can leave completed items on either side when a move is cancelled.
+    // Refresh both locations even on failure and keep all partial output visible and intact.
+    for (source, target) in &cross_volume {
+        changed.extend([source.clone(), target.clone()]);
+    }
+    crate::windows_file_ops::transfer(&cross_volume, true)
 }
 // 등록된 루트와 다른 연결 폴더의 상위 항목을 보호한다.
 fn protect(engine: &Engine, path: &Path) -> Result<(), String> {
@@ -1199,6 +1259,16 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
                 return Err("원본 내부 또는 중복된 대상으로 복사할 수 없습니다.".into());
             }
         }
+        if request.action == "copy" {
+            copy_prepared(&sources, &targets, &mut changed)?;
+            return Ok(json!({"count":sources.len()}));
+        }
+        #[cfg(windows)]
+        {
+            move_prepared(&sources, &targets, &mut changed)?;
+            return Ok(json!({"count":sources.len()}));
+        }
+        #[cfg(not(windows))]
         for (i, (source, target)) in sources.iter().zip(&targets).enumerate() {
             if request.action == "move" && source == target {
                 continue;
@@ -1231,6 +1301,7 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
             }
             changed.push(target.clone());
         }
+        #[cfg(not(windows))]
         Ok(json!({"count":sources.len()}))
     })();
     let transferred = Instant::now();
