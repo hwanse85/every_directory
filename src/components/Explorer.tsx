@@ -129,6 +129,8 @@ export function Explorer({
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
   useEffect(() => {
+    const paneElement = paneRef.current;
+    if (paneElement) delete paneElement.dataset.nativeDropReady;
     const targetAt = (x: number, y: number): Location | undefined => {
       if (!root || root.demo || document.querySelector("dialog[open]")) return;
       const element = document.elementFromPoint(x, y);
@@ -163,9 +165,12 @@ export function Explorer({
           onActivate();
         }
       });
-      if (stopped) off(); else unlisten = off;
+      if (stopped) off(); else {
+        unlisten = off;
+        if (paneElement) paneElement.dataset.nativeDropReady = "true";
+      }
     }).catch((cause) => { if (!stopped) onError(`파일 드롭을 준비할 수 없습니다: ${String(cause)}`); });
-    return () => { stopped = true; unlisten?.(); window.removeEventListener("ed-file-drag", internal); };
+    return () => { stopped = true; unlisten?.(); if (paneElement) delete paneElement.dataset.nativeDropReady; window.removeEventListener("ed-file-drag", internal); };
   }, [location.rootId, location.path, root?.id, root?.demo]);
   const [showHidden, setShowHidden] = useState(
     readPreference("showHidden", true),

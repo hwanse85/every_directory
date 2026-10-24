@@ -58,6 +58,14 @@
       target: { kind: "Any" },
       handler,
     });
+    // The main WebView can finish before setup has constructed the quick window.
+    let ready = false;
+    for (let n=0;n<150;n++) {
+      const status = await invoke("desktop_control", {action:"status"});
+      if (status.tray) { ready=true; break; }
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if (!ready) throw new Error("빠른 검색 네이티브 창 초기화 시간 초과");
     await invoke("quick_control", { action: "show" });
   } catch (error) {
     await invoke("ed_request", {

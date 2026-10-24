@@ -17,7 +17,7 @@
       if (!p) return false;
       const control=p?.querySelector('[aria-label="추가 파일 도구"]');
       const folder=row(p,"문서");
-      return control && !control.disabled && folder?.getBoundingClientRect().height > 0;
+      return control && !control.disabled && p.dataset.nativeDropReady === "true" && folder?.getBoundingClientRect().height > 0;
     });
     await until(settled,"드롭 대상 목록 준비");
     await new Promise(requestAnimationFrame);
@@ -55,7 +55,11 @@
     // 외부 OS 파일 경로를 Tauri가 전달하는 이벤트와 같은 대상으로 보낸다.
     await ready();
     const destination = row(pane(2), "문서");
+    destination.scrollIntoView({block:"center",inline:"nearest",behavior:"instant"});
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
     const p = point(destination);
+    await until(() => destination.contains(document.elementFromPoint(p.clientX,p.clientY)),"화면에 보이는 외부 드롭 대상");
     const paths = [root.absolutePath.replace(/[\\/][^\\/]+$/, "") + "\\외부 드롭.txt"];
     await invoke("plugin:event|emit_to", {target:{kind:"Webview",label:"main"},event:"tauri://drag-drop",payload:{paths,position:{x:p.clientX*devicePixelRatio,y:p.clientY*devicePixelRatio}}});
     await confirm();
