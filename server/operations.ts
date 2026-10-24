@@ -429,15 +429,33 @@ export async function operate(
       }
       return { count: sources.length };
     }
-    const targets = sources.map((source) =>
-      path.join(destination, path.basename(source)),
-    );
+    const targets: string[] = [];
+    const reserved = new Set<string>();
+    for (const source of sources) {
+      const directory = (await lstat(source)).isDirectory();
+      if (directory && within(source, destination)) throw new Error("원본 폴더 내부로 복사하거나 이동할 수 없습니다.");
+      const name = path.basename(source);
+      const extension = directory ? "" : path.extname(name);
+      const stem = name.slice(0, name.length - extension.length);
+      let target = path.join(destination, name);
+      if (request.action === "copy") {
+        let number = 0;
+        while (reserved.has(target.toLowerCase()) || await exists(target)) {
+          if (++number > 99999) throw new Error("사용할 수 있는 사본 이름이 없습니다.");
+          target = path.join(destination, `${stem} (${number})${extension}`);
+        }
+        validateName(path.basename(target));
+      }
+      reserved.add(target.toLowerCase());
+      targets.push(target);
+    }
     if (
       new Set(targets.map((target) => target.toLowerCase())).size !==
       targets.length
     )
       throw new Error("대상 파일 이름이 중복됩니다.");
     for (let i = 0; i < sources.length; i++) {
+      if (request.action === "move" && sources[i] === targets[i]) continue;
       if (within(sources[i], targets[i]))
         throw new Error(
           "같은 위치 또는 원본 하위 폴더에는 붙여넣을 수 없습니다.",
@@ -446,6 +464,7 @@ export async function operate(
       await walk(sources[i]);
     }
     for (let i = 0; i < sources.length; i++) {
+      if (request.action === "move" && sources[i] === targets[i]) continue;
       if (request.action === "move") {
         try {
           await rename(sources[i], targets[i]);

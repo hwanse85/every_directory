@@ -316,14 +316,18 @@ fn boundary_and_overwrite_protection() {
         json!({"destination":dest}),
     )
     .unwrap();
-    assert!(op(
+    op(
         &engine,
         &id,
         "copy",
         &["alpha.txt"],
-        json!({"destination":dest})
+        json!({"destination":dest}),
     )
-    .is_err());
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("대상/alpha (1).txt")).unwrap(),
+        "alpha"
+    );
     assert_eq!(
         fs::read_to_string(root.join("대상/alpha.txt")).unwrap(),
         "alpha"
@@ -443,6 +447,7 @@ fn benchmark_two_hundred_thousand_entries() {
             extension: "pdf".into(),
             size: Some(1024),
             modified: 0,
+            hidden: false,
         })
         .collect();
     index.replace(entries);
@@ -528,9 +533,14 @@ fn save_copy_does_not_overwrite() {
 // 논리식·속성 필터가 결합되어도 후보 축소로 결과가 누락되지 않는지 확인한다.
 #[test]
 fn advanced_search_expressions() {
-    let (_temp, engine, id, root) = fixture();
-    fs::write(root.join("a|b.txt"), "pipes").unwrap();
-    refresh(&engine, &[root.join("a|b.txt")]);
+    let (_temp, engine, id, _root) = fixture();
+    // | 는 Windows 파일명에 쓸 수 없으므로 검색 파서의 가상 항목으로 검증한다.
+    {
+        let mut store = engine.store.lock().unwrap();
+        let mut entries = store.index.entries.clone();
+        entries.push(serde_json::from_value(json!({"id":"pipe", "rootId":id, "name":"a|b.txt", "path":"a|b.txt", "parent":"", "kind":"file", "extension":"txt", "size":5, "modified":every_directory_lib::store::now()})).unwrap());
+        store.index.replace(entries);
+    }
     for (query, expected) in [
         ("alpha|beta ext:txt", 2),
         ("alpha | beta ext:txt", 2),

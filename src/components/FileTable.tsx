@@ -3,6 +3,9 @@ import { ArrowDown, ArrowUp, ArrowUpRight, SearchX } from "lucide-react";
 import { FileIcon, formatSize } from "./FileIcon";
 import { fileCollator } from "../search";
 import type { ConnectedRoot, FileEntry } from "../types";
+import { locationPath } from "../paths";
+import { isDesktop } from "../client";
+import { startFileDrag } from "../fileDrag";
 import {
   defaultSearchColumns,
   searchColumnOptions,
@@ -84,6 +87,7 @@ export function FileTable({
   const [viewportWidth, setViewportWidth] = useState(0);
   const [sort, setSort] = useState<SearchColumn>();
   const [descending, setDescending] = useState(false);
+  const [gridLimit, setGridLimit] = useState(300);
   const lastSelection = useRef<string | undefined>(undefined);
   const lastReveal = useRef<FileEntry | undefined>(undefined);
   const rootById = useMemo(
@@ -143,6 +147,7 @@ export function FileTable({
   }, []);
   useEffect(() => {
     setScroll(0);
+    setGridLimit(300);
     if (container.current) container.current.scrollTop = 0;
   }, [resetKey, view, sort, descending]);
   useEffect(() => {
@@ -150,10 +155,16 @@ export function FileTable({
       selected !== lastSelection.current || revealEntry !== lastReveal.current;
     lastSelection.current = selected;
     lastReveal.current = revealEntry;
-    if (!changed) return;
-    if (!selected || grid || !container.current) return;
+    if (!changed && !grid) return;
+    if (!selected || !container.current) return;
     const index = sorted.findIndex((entry) => entry.id === selected);
     if (index < 0) return;
+    if (grid) {
+      setGridLimit((previous) =>
+        Math.max(previous, Math.ceil((index + 1) / 300) * 300),
+      );
+      return;
+    }
     const top = index * rowHeight;
     const current = container.current;
     if (top < current.scrollTop) current.scrollTop = top;
@@ -162,7 +173,7 @@ export function FileTable({
   }, [selected, sorted, grid, revealEntry, rowHeight]);
   const start = grid ? 0 : Math.max(0, Math.floor(scroll / rowHeight) - 5);
   const end = grid
-    ? Math.min(sorted.length, 300)
+    ? Math.min(sorted.length, gridLimit)
     : Math.min(sorted.length, start + Math.ceil(height / rowHeight) + 10);
 
   // 표시 열을 기준으로 정렬 방향을 변경한다.
@@ -333,7 +344,8 @@ export function FileTable({
                     : selected === entry.id
                 }
                 data-index={start + i}
-                title={`${roots.find((r) => r.id === entry.rootId)?.name ?? ""}/${entry.path}`}
+                data-drop-location={entry.kind === "directory" ? JSON.stringify({ rootId: entry.rootId, path: entry.path }) : undefined}
+                title={locationPath(rootById.get(entry.rootId), entry.path)}
                 onClick={(event) =>
                   selectEntry(
                     entry,
@@ -363,38 +375,50 @@ export function FileTable({
                     onContextMenu(entry, bounds.left + 32, bounds.top + 16);
                     return;
                   }
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" && !e.altKey && !e.ctrlKey && !e.metaKey) {
                     e.preventDefault();
                     onOpen(entry);
                   }
                   if (e.key === " ") {
                     e.preventDefault();
-                    if (onQuickPreview && entry.kind === "file")
+                    if (e.ctrlKey || e.metaKey) selectEntry(entry, true);
+                    else if (onQuickPreview && entry.kind === "file")
                       onQuickPreview(entry);
                     else selectEntry(entry, true);
                   }
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  if (["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(e.key) || (grid && ["ArrowLeft", "ArrowRight"].includes(e.key))) {
                     e.preventDefault();
-                    const nextIndex =
-                      start + i + (e.key === "ArrowDown" ? 1 : -1);
+                    const page = Math.max(1, Math.floor(height / rowHeight));
+                    const gridElement = container.current?.querySelector(".file-grid");
+                    const columns = grid && gridElement ? getComputedStyle(gridElement).gridTemplateColumns.split(" ").length : 1;
+                    const delta = e.key === "ArrowDown" ? columns : e.key === "ArrowUp" ? -columns : e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "PageDown" ? page : -page;
+                    const nextIndex = e.key === "Home" ? 0 : e.key === "End" ? sorted.length - 1 : Math.max(0, Math.min(sorted.length - 1, start + i + delta));
                     const next = sorted[nextIndex];
                     if (next) {
-                      selectEntry(next, false, e.shiftKey);
-                      container.current?.scrollTo({
+                      if (!e.ctrlKey && !e.metaKey) selectEntry(next, false, e.shiftKey);
+                      if (grid) setGridLimit((previous) => Math.max(previous, Math.ceil((nextIndex + 1) / 300) * 300));
+                      else container.current?.scrollTo({
                         top: Math.max(0, nextIndex * rowHeight - height / 2),
                       });
-                      requestAnimationFrame(() =>
-                        container.current
+                      requestAnimationFrame(() => {
+                        const nextRow = container.current
                           ?.querySelector<HTMLElement>(
                             `[data-index="${nextIndex}"]`,
-                          )
-                          ?.focus({ preventScroll: true }),
-                      );
+                          );
+                        nextRow?.focus({ preventScroll: true });
+                        if (grid) nextRow?.scrollIntoView({ block: "nearest" });
+                      });
                     }
                   }
                 }}
-                draggable
+                draggable={!isDesktop}
+                onPointerDown={isDesktop ? (event) => {
+                  const dragged = selectedIds?.includes(entry.id)
+                    ? entries.filter((item) => selectedIds.includes(item.id)) : [entry];
+                  startFileDrag(event, dragged.map(({rootId, path}) => ({rootId, path})));
+                } : undefined}
                 onDragStart={(e) => {
+                  if (isDesktop) { e.preventDefault(); return; }
                   e.dataTransfer.setData(
                     "application/x-ed-entry",
                     JSON.stringify(entry),
@@ -503,10 +527,16 @@ export function FileTable({
             ))}
           </div>
         )}
-        {grid && sorted.length > 300 && (
+        {grid && sorted.length > end && (
           <p className="grid-limit">
-            격자에서는 처음 300개를 표시합니다. 전체 항목은 목록 보기에서
-            확인하세요.
+            {end.toLocaleString()} / {sorted.length.toLocaleString()}개 표시{" "}
+            <button
+              className="button secondary small"
+              aria-label="격자 파일 더 보기"
+              onClick={() => setGridLimit((value) => value + 300)}
+            >
+              다음 파일 더 보기
+            </button>
           </p>
         )}
       </div>

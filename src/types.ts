@@ -14,6 +14,7 @@ export interface FileEntry {
   extension: string;
   size?: number;
   modified?: number;
+  hidden?: boolean;
 }
 
 export interface ConnectedRoot {

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isDesktop } from "./client";
 import type { ConnectedRoot, FileEntry } from "./types";
+import { locationPath } from "./paths";
 
 // CSV 셀의 따옴표를 이스케이프하고 수식으로 실행될 수 있는 값은 텍스트로 만든다.
 function cell(value: unknown): string {
@@ -19,9 +20,7 @@ export function entriesCsv(
   ];
   for (const entry of entries) {
     const root = roots.find((item) => item.id === entry.rootId);
-    const base = root?.absolutePath ?? root?.name ?? "";
-    const separator = base.includes("\\") ? "\\" : "/";
-    const path = `${base.replace(/[\\/]+$/, "")}${separator}${entry.path.split("/").join(separator)}`;
+    const path = locationPath(root, entry.path);
     rows.push([
       entry.name,
       path,

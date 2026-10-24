@@ -8,7 +8,9 @@ pub fn path_text(path: &Path) -> String {
         return format!("\\\\{unc}");
     }
     if let Some(local) = value.strip_prefix("\\\\?\\") {
-        return local.to_owned();
+        if local.as_bytes().get(1) == Some(&b':') {
+            return local.to_owned();
+        }
     }
     value
 }
@@ -17,6 +19,14 @@ pub fn path_text(path: &Path) -> String {
 pub fn public_paths(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
+            // 드라이브 루트의 이름에도 이전 인덱스의 확장 접두사가 남을 수 있다.
+            if object.contains_key("absolutePath") {
+                if let Some(name) = object.get_mut("name") {
+                    if let Some(path) = name.as_str() {
+                        *name = serde_json::Value::String(path_text(Path::new(path)));
+                    }
+                }
+            }
             for (key, item) in object {
                 if ["absolutePath", "path", "parent", "directory", "destination"]
                     .contains(&key.as_str())
@@ -49,6 +59,32 @@ pub fn copy(
         .map(|location| engine.resolve(location))
         .collect::<Result<Vec<_>, _>>()?;
     write_files(&paths, owner, cut)
+}
+
+pub fn sequence() -> u32 {
+    #[cfg(windows)]
+    {
+        unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
+// 긴 이동 중 사용자가 다른 내용을 복사했다면 새 클립보드를 건드리지 않는다.
+pub fn finish_cut(owner: isize, expected: u32) {
+    #[cfg(windows)]
+    if expected != 0 && open_windows_clipboard(owner as windows_sys::Win32::Foundation::HWND) {
+        unsafe {
+            if sequence() == expected {
+                windows_sys::Win32::System::DataExchange::EmptyClipboard();
+            }
+            windows_sys::Win32::System::DataExchange::CloseClipboard();
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (owner, expected);
 }
 
 // macOS 파일 URL 객체를 기록해 Finder 붙여넣기를 지원한다.
@@ -268,9 +304,10 @@ mod tests {
             r"\\server\공유\보고서.txt"
         );
         assert_eq!(path_text(Path::new("/Users/직원/문서")), "/Users/직원/문서");
-        let mut value = serde_json::json!({"roots":[{"absolutePath":r"\\?\C:\Users"}],"progress":{"directory":r"\\?\UNC\server\공유"}});
+        let mut value = serde_json::json!({"roots":[{"absolutePath":r"\\?\C:\Users", "name":r"\\?\C:\"}],"progress":{"directory":r"\\?\UNC\server\공유"}});
         public_paths(&mut value);
         assert_eq!(value["roots"][0]["absolutePath"], r"C:\Users");
+        assert_eq!(value["roots"][0]["name"], r"C:\");
         assert_eq!(value["progress"]["directory"], r"\\server\공유");
     }
 

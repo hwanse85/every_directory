@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowUpRight, Search } from "lucide-react";
 import { Modal } from "./Modal";
+import { isComposingKey } from "../quickSearch";
+import { filenameFilter } from "../search";
 
 export interface QuickCommand {
   id: string;
@@ -21,13 +23,10 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  const words = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  const composing = useRef(false);
+  const matches = filenameFilter(query);
   const filtered = commands.filter((command) =>
-    words.every((word) =>
-      `${command.title} ${command.detail} ${command.keywords ?? ""}`
-        .toLocaleLowerCase()
-        .includes(word),
-    ),
+    matches(`${command.title} ${command.detail} ${command.keywords ?? ""}`),
   );
   const index = Math.min(cursor, Math.max(0, filtered.length - 1));
 
@@ -58,11 +57,18 @@ export function CommandPalette({
             }
             placeholder="이름 변경, 이미지 크기, 탐색창…"
             value={query}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
             onChange={(event) => {
               setQuery(event.target.value);
               setCursor(0);
             }}
             onKeyDown={(event) => {
+              if (isComposingKey(event.nativeEvent, composing.current)) return;
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
                 const next =

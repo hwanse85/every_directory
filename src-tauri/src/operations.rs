@@ -28,10 +28,10 @@ pub fn validate_name(name: &str) -> Result<(), String> {
         || name.len() > 240
         || name.chars().any(|c| c < ' ' || "<>:\"/\\|?*".contains(c))
         || name.ends_with(['.', ' '])
-        || ["con", "prn", "aux", "nul"].contains(&stem)
+        || ["con", "prn", "aux", "nul", "conin$", "conout$"].contains(&stem)
         || ((stem.starts_with("com") || stem.starts_with("lpt"))
-            && stem.len() == 4
-            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+            && stem.chars().count() == 4
+            && matches!(stem.chars().nth(3), Some('1'..='9' | '¹' | '²' | '³')))
         || name == ".every-directory-trash"
         || name.starts_with(".ed-work-")
     {
@@ -46,6 +46,49 @@ pub fn unused(path: &Path) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+// 파일 확장자와 폴더 이름을 보존하고 디스크 및 이번 작업의 예약 이름을 모두 확인한다.
+fn copy_target(
+    source: &Path,
+    destination: &Path,
+    reserved: &mut HashSet<String>,
+) -> Result<PathBuf, String> {
+    let name = source
+        .file_name()
+        .ok_or("드라이브 전체는 복사할 수 없습니다.")?
+        .to_string_lossy();
+    validate_name(&name)?;
+    let (stem, extension) = if source.is_file() {
+        (
+            source.file_stem().unwrap().to_string_lossy().to_string(),
+            source
+                .extension()
+                .map(|ext| format!(".{}", ext.to_string_lossy()))
+                .unwrap_or_default(),
+        )
+    } else {
+        (name.to_string(), String::new())
+    };
+    for number in 0..=99999 {
+        let candidate = if number == 0 {
+            name.to_string()
+        } else {
+            format!("{stem} ({number}){extension}")
+        };
+        let target = destination.join(&candidate);
+        if reserved.contains(&candidate.to_lowercase()) {
+            continue;
+        }
+        match fs::symlink_metadata(&target) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        validate_name(&candidate)?;
+        reserved.insert(candidate.to_lowercase());
+        return Ok(target);
+    }
+    Err("사용할 수 있는 사본 이름이 없습니다.".into())
 }
 // 동일 파일시스템 안에서 기존 대상 없이 이동한다.
 fn move_unused(source: &Path, target: &Path) -> Result<(), String> {
@@ -134,11 +177,10 @@ pub fn paste_external(
             .file_name()
             .ok_or("드라이브 전체는 붙여넣을 수 없습니다.")?;
         validate_name(&name.to_string_lossy())?;
-        let target = destination.join(name);
-        unused(&target)?;
-        if target.starts_with(source) || !names.insert(name.to_string_lossy().to_lowercase()) {
+        if source.is_dir() && destination.starts_with(source) {
             return Err("같은 위치나 중복된 이름으로 붙여넣을 수 없습니다.".into());
         }
+        let target = copy_target(source, &destination, &mut names)?;
         targets.push(target);
     }
     let mut changed = vec![];
@@ -791,6 +833,22 @@ fn native_open(path: &Path, reveal: bool) -> Result<(), String> {
     }
     Ok(())
 }
+// 앱 정보의 프로젝트·의존성 원본 링크만 브라우저에서 연다.
+pub fn open_external_link(value: &str) -> Result<(), String> {
+    let url = tauri::Url::parse(value).map_err(|_| "올바른 링크가 아닙니다.")?;
+    if url.scheme() != "https"
+        || !matches!(
+            url.host_str(),
+            Some("github.com" | "crates.io" | "registry.npmjs.org")
+        )
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("허용되지 않은 외부 링크입니다.".into());
+    }
+    native_open(Path::new(url.as_str()), false)
+}
+
 // 기본 앱 전달 명령의 종료 상태와 오류 메시지를 확인한다.
 #[cfg(not(target_os = "windows"))]
 fn check_opener(command: &mut Command) -> Result<(), String> {
@@ -834,9 +892,9 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
-            Command::new("cmd.exe")
-                .arg("/D")
-                .current_dir(&path)
+            Command::new("powershell.exe")
+                .args(["-NoLogo", "-NoProfile", "-NoExit", "-Command"])
+                .arg(windows_terminal_script(&path))
                 .creation_flags(0x00000010)
                 .spawn()
                 .map_err(|e| e.to_string())?;
@@ -928,7 +986,7 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
             let parent = relative.parent().unwrap_or(Path::new(""));
             let destination = engine.resolve(&Location {
                 root_id: item.root_id.clone(),
-                path: parent.to_string_lossy().to_string(),
+                path: parent.to_string_lossy().replace('\\', "/"),
             })?;
             let target = destination.join(relative.file_name().ok_or("복구 파일명이 없습니다.")?);
             validate_name(&target.file_name().unwrap().to_string_lossy())?;
@@ -1099,12 +1157,23 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         if !["copy", "move"].contains(&request.action.as_str()) {
             return Err("지원하지 않는 파일 작업입니다.".into());
         }
-        let targets: Vec<_> = sources
-            .iter()
-            .map(|s| destination.join(s.file_name().unwrap()))
-            .collect();
         let mut unique = HashSet::new();
+        let mut targets = vec![];
+        for source in &sources {
+            if source.is_dir() && destination.starts_with(source) {
+                return Err("원본 폴더 내부로 복사하거나 이동할 수 없습니다.".into());
+            }
+            if request.action == "copy" {
+                targets.push(copy_target(source, &destination, &mut unique)?);
+            } else {
+                targets.push(destination.join(source.file_name().unwrap()));
+            }
+        }
+        unique.clear();
         for (source, target) in sources.iter().zip(&targets) {
+            if request.action == "move" && source == target {
+                continue;
+            }
             unused(target)?;
             if target.starts_with(source) || !unique.insert(target.to_string_lossy().to_lowercase())
             {
@@ -1112,6 +1181,9 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
             }
         }
         for (i, (source, target)) in sources.iter().zip(&targets).enumerate() {
+            if request.action == "move" && source == target {
+                continue;
+            }
             let staging = tempfile::Builder::new()
                 .prefix(".ed-work-")
                 .tempdir_in(&destination)
@@ -1149,6 +1221,14 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         }
     }
     result
+}
+
+// LiteralPath와 작은따옴표 이스케이프로 UNC·공백·대괄호·따옴표가 든 경로를 연다.
+pub fn windows_terminal_script(path: &Path) -> String {
+    format!(
+        "Set-Location -LiteralPath '{}'",
+        crate::file_clipboard::path_text(path).replace('\'', "''")
+    )
 }
 
 #[cfg(all(test, not(target_os = "windows")))]

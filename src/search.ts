@@ -128,6 +128,30 @@ function initialPattern(value: string): RE2JS | undefined {
   );
 }
 
+// 폴더 필터도 메인 검색과 같은 초성·혼합 검색 규칙을 사용한다.
+export function filenameFilter(query: string): (name: string) => boolean {
+  const words = normalizeSearchInput(normalize(query), "initials")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const patterns = words.map(initialPattern);
+  return (name) => {
+    const value = normalize(name);
+    return words.every(
+      (word, index) => patterns[index]?.test(value) ?? value.includes(word),
+    );
+  };
+}
+
+function initialGrams(value: string): string[] {
+  const chars = Array.from(value);
+  const keys = new Set<string>();
+  for (const width of [2, 3])
+    for (let index = 0; index <= chars.length - width; index++)
+      keys.add(chars.slice(index, index + width).join(""));
+  return [...keys].filter((key) => /[ㄱ-ㅎ]/.test(key));
+}
+
 // 길이 차이와 편집 거리로 오타와 인접 글자 바뀜의 유사도를 계산한다.
 function editDistance(left: string, right: string, maximum: number): number {
   if (Math.abs(left.length - right.length) > maximum) return maximum + 1;
@@ -178,6 +202,7 @@ export class FileIndex {
   private names: string[] = [];
   private paths: string[] = [];
   private grams = new Map<string, number[]>();
+  private initialGrams = new Map<string, number[]>();
   private children = new Map<string, FileEntry[]>();
 
   // 완료된 스냅샷으로 검색 키와 탐색 목록을 교체한다.
@@ -186,8 +211,14 @@ export class FileIndex {
     this.names = entries.map((entry) => normalize(entry.name));
     this.paths = entries.map((entry) => normalize(entry.path));
     this.grams.clear();
+    this.initialGrams.clear();
     this.children.clear();
     entries.forEach((entry, i) => {
+      for (const gram of initialGrams(choseong(entry.path))) {
+        const list = this.initialGrams.get(gram);
+        if (list) list.push(i);
+        else this.initialGrams.set(gram, [i]);
+      }
       for (const gram of trigrams(this.names[i])) {
         const list = this.grams.get(gram);
         if (list) list.push(i);
@@ -250,6 +281,23 @@ export class FileIndex {
       );
     }
     let candidates: number[] | undefined;
+    if (mode === "initials") {
+      for (const word of words)
+        for (const literal of word.split(/[*?]/)) {
+          const korean = /[ㄱ-ㅎ가-힣]/.test(literal);
+          const keys = korean
+            ? initialGrams(choseong(literal))
+            : !options.fullPath
+              ? trigrams(literal)
+              : [];
+          for (const gram of keys) {
+            const list =
+              (korean ? this.initialGrams : this.grams).get(gram) ?? [];
+            if (!candidates || list.length < candidates.length)
+              candidates = list;
+          }
+        }
+    }
     if (!options.fullPath && (mode === "normal" || mode === "wildcard")) {
       const literals =
         mode === "normal" ? words : words.flatMap((word) => word.split(/[*?]/));

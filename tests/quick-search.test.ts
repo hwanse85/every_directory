@@ -40,6 +40,10 @@ test("shortcut labels use macOS and Windows modifiers", () => {
 
 // 연속 자음의 겹받침만 풀고 정상적인 한글·정규식 입력은 보존한다.
 test("IME consonant clusters display as separate initials", () => {
+  assert.equal(normalizeSearchInput("ᄋᄆ ᄇᄀᄉ", "initials"), "ㅇㅁ ㅂㄱㅅ");
+  assert.equal(normalizeSearchInput("ﾷﾱ ﾲﾡﾵ", "initials"), "ㅇㅁ ㅂㄱㅅ");
+  assert.equal(normalizeSearchInput("업무 보고서".normalize("NFD"), "initials"), "업무 보고서");
+  assert.equal(normalizeSearchInput("ᄇᄀᄉ", "regex"), "ᄇᄀᄉ");
   assert.equal(normalizeSearchInput("ㅂㄳ", "initials"), "ㅂㄱㅅ");
   assert.equal(normalizeSearchInput("ㄺㅄ ㄲㅆ", "initials"), "ㄹㄱㅂㅅ ㄲㅆ");
   assert.equal(

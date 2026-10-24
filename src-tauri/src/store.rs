@@ -100,6 +100,14 @@ impl Engine {
                 return Err("지원하지 않는 인덱스 형식입니다.".into());
             }
             store.snapshots = saved.snapshots;
+            // 웹 버전/이전 버전의 일반 Windows 경로도 내부 canonical 경로와 맞춘다.
+            for snapshot in &mut store.snapshots {
+                if let Ok(path) = Path::new(&snapshot.root.absolute_path).canonicalize() {
+                    snapshot.root.absolute_path = path.to_string_lossy().into_owned();
+                }
+                snapshot.root.name =
+                    crate::file_clipboard::path_text(Path::new(&snapshot.root.name));
+            }
             Self::rebuild(&mut store);
         }
         let engine = Arc::new(Self {
@@ -214,10 +222,18 @@ impl Engine {
             let name = item.file_name().to_string_lossy().to_string();
             let parent = relative.rsplit_once('/').map_or("", |(p, _)| p).to_string();
             let directory = item.file_type().is_dir();
+            #[cfg(windows)]
+            let hidden = {
+                use std::os::windows::fs::MetadataExt;
+                metadata.file_attributes() & 2 != 0
+            };
+            #[cfg(not(windows))]
+            let hidden = name.starts_with('.');
             entries.push(Entry {
                 id: format!("{}:{}", root.id, relative),
                 root_id: root.id.clone(),
                 name,
+                hidden,
                 extension: if directory {
                     String::new()
                 } else {
@@ -494,6 +510,45 @@ impl Engine {
                 *engine.progress.lock().unwrap() = None;
             }
         });
+    }
+
+    // Windows 주소 입력은 대소문자가 달라도 인덱스에 저장된 실제 표기로 복원한다.
+    pub fn directory_location(&self, location: &Location) -> Result<Location, String> {
+        let path = if location.path.is_empty() {
+            String::new()
+        } else {
+            let store = self.store.lock().unwrap();
+            let folded_path = location.path.to_lowercase();
+            let matches =
+                |entry: &&Entry| entry.root_id == location.root_id && entry.kind == "directory";
+            let exact = store
+                .index
+                .entries
+                .iter()
+                .filter(matches)
+                .find(|entry| entry.path == location.path);
+            let folded = || {
+                store
+                    .index
+                    .entries
+                    .iter()
+                    .filter(matches)
+                    .find(|entry| cfg!(windows) && entry.path.to_lowercase() == folded_path)
+            };
+            exact
+                .or_else(folded)
+                .ok_or("인덱스에 없는 폴더입니다. 경로를 확인하거나 새로고침해 주세요.")?
+                .path
+                .clone()
+        };
+        let result = Location {
+            root_id: location.root_id.clone(),
+            path,
+        };
+        if !self.resolve(&result)?.is_dir() {
+            return Err("폴더 경로를 입력해 주세요.".into());
+        }
+        Ok(result)
     }
 
     // 폴더의 직접 자식만 정렬해 탐색창에 전달한다.

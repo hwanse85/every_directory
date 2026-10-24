@@ -134,7 +134,7 @@
     const first = await until(
       () =>
         [...pane.querySelectorAll(".file-row")].find((row) =>
-          row.title.endsWith("/업무 보고서 0000.txt"),
+          row.title.replaceAll("\\", "/").endsWith("/업무 보고서 0000.txt"),
         ),
       "원본 파일 선택",
     );
@@ -168,7 +168,7 @@
     );
     const destinationRow = [
       ...destinationPane.querySelectorAll(".file-row"),
-    ].find((row) => row.title.endsWith("/대상"));
+    ].find((row) => row.title.replaceAll("\\", "/").endsWith("/대상"));
     destinationRow.dispatchEvent(
       new PointerEvent("pointerdown", { bubbles: true }),
     );
@@ -189,7 +189,9 @@
     await until(
       () =>
         [...destinationPane.querySelectorAll(".file-row")].some((row) =>
-          row.title.endsWith("/대상/업무 보고서 0000.txt"),
+          row.title
+            .replaceAll("\\", "/")
+            .endsWith("/대상/업무 보고서 0000.txt"),
         ),
       "화면 붙여넣기 완료",
     );

@@ -14,6 +14,8 @@ pub struct Entry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
     pub modified: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 // 사용자가 연결한 폴더와 마지막 인덱싱 상태다.

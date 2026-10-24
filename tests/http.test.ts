@@ -78,6 +78,26 @@ test(
       assert.equal(connected.status, 200);
       const root = await connected.json();
       assert.equal(root.count, 3);
+      assert.deepEqual(
+        await (
+          await post("directoryLocation", { rootId: root.id, path: "" })
+        ).json(),
+        { rootId: root.id, path: "" },
+      );
+      assert.equal(
+        (
+          await post("directoryLocation", {
+            rootId: root.id,
+            path: "README.md",
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (await post("directoryLocation", { rootId: "missing", path: "" }))
+          .status,
+        400,
+      );
       for (const [mode, query] of [
         ["wildcard", "README.??"],
         ["regex", String.raw`^README\.md$`],
