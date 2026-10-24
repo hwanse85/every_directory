@@ -1,6 +1,6 @@
 {
   "name": "every-directory",
-  "version": "0.7.4",
+  "version": "0.7.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,9 @@
     "desktop:dev": "node scripts/desktop.mjs dev",
     "desktop:build": "node scripts/desktop.mjs build",
     "test:rust": "node scripts/desktop.mjs test",
+    "test:windows-ui": "node scripts/test-windows-ui.mjs",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "licenses:check": "node scripts/check-licenses.mjs",
     "desktop:package:mac": "node scripts/package-macos.mjs",
     "desktop:build:windows": "node scripts/package-windows.mjs"
   },

@@ -1,0 +1,84 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import sharp from "sharp";
+
+// PDF 렌더러 검증용 최소 3페이지 문서. 각 객체의 실제 바이트 위치로 xref를 만든다.
+function pdf() {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>",
+  ];
+  for (let i = 0; i < 3; i++) {
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 9 0 R >> >> >>`,
+    );
+    const content = `BT /F1 18 Tf 60 700 Td (E2E page ${i + 1}) Tj ET`;
+    objects.push(
+      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    );
+  }
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  let result = "%PDF-1.4\n";
+  const offsets = [];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(result));
+    result += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(result);
+  result +=
+    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` +
+    offsets
+      .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
+      .join("");
+  result += `trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xref}\n%%EOF\n`;
+  return result;
+}
+export async function prepare(root, suite) {
+  await mkdir(root, { recursive: true });
+  if (suite === "drag") await writeFile(path.join(path.dirname(root), "외부 드롭.txt"), "외부 원본");
+  if (suite === "windows") {
+    await mkdir(path.join(root, "Reports", "하위"), { recursive: true });
+    await writeFile(path.join(root, "Reports", "원본.txt"), "원본");
+    await writeFile(path.join(root, "Reports", "a.txt"), "a");
+    await writeFile(path.join(root, "Reports", "z.txt"), "z");
+    await writeFile(path.join(root, ".hidden.txt"), "hidden");
+    return;
+  }
+  if (suite === "desktop") {
+    for (const name of ["문서", "이미지", "정리함"])
+      await mkdir(path.join(root, name));
+    await writeFile(
+      path.join(root, "문서", "업무 보고서 2026.txt"),
+      "한글 검색과 미리보기\n".repeat(50),
+    );
+    await writeFile(path.join(root, "문서", "회의록.md"), "회의록");
+    await writeFile(path.join(root, "문서", "개발 계획.pdf"), pdf());
+    await sharp({
+      create: { width: 320, height: 180, channels: 3, background: "#6389c6" },
+    })
+      .png()
+      .toFile(path.join(root, "이미지", "작업 화면.png"));
+  } else {
+    await mkdir(path.join(root, "대상"));
+    await mkdir(path.join(root, "문서"));
+    await writeFile(path.join(root, "업무 보고서.txt"), "한글 원본 내용");
+    await writeFile(path.join(root, "쏠리마인드.txt"), "된소리 검색");
+    await writeFile(path.join(root, "README.md"), "# readme");
+    await writeFile(path.join(root, "문서", "메모.txt"), "메모");
+    if (suite === "actions")
+      await sharp({
+        create: { width: 320, height: 180, channels: 3, background: "#6389c6" },
+      })
+        .png()
+        .toFile(path.join(root, "이미지.png"));
+    if (suite === "grid")
+      await Promise.all(
+        Array.from({ length: 310 }, (_, n) =>
+          writeFile(
+            path.join(root, `zzgrid_${String(n).padStart(4, "0")}.txt`),
+            String(n),
+          ),
+        ),
+      );
+  }
+}

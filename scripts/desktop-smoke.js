@@ -3,6 +3,11 @@
   if (window.__edSmokeRunning) return;
   window.__edSmokeRunning = true;
   const report = { started: new Date().toISOString(), tests: [], errors: [] };
+  if (window.__edE2E)
+    report.manual = [
+      "기본 앱 실제 실행 및 외부 브라우저 링크 열기",
+      "네이티브 저장·폴더 선택 대화상자의 물리 입력",
+    ];
   await window.__TAURI_INTERNALS__.invoke("ed_request", {
     kind: "smokeReport",
     payload: { stage: "started", ...report },
@@ -54,7 +59,7 @@
       () =>
         !document.querySelector(".result-summary .spin") &&
         [...document.querySelectorAll(".search-table .file-row")].find((item) =>
-          item.title.endsWith(`/${filename}`),
+          item.title.replaceAll("\\", "/").endsWith(`/${filename}`),
         ),
       filename,
     );
@@ -67,7 +72,9 @@
       // 파일 감시 갱신으로 행이 교체되면 검색 완료 후 새 행을 다시 선택한다.
       if (!document.querySelector(".result-summary .spin"))
         [...document.querySelectorAll(".search-table .file-row")]
-          .find((item) => item.title.endsWith(`/${filename}`))
+          .find((item) =>
+            item.title.replaceAll("\\", "/").endsWith(`/${filename}`),
+          )
           ?.click();
       return false;
     }, "파일 선택");
@@ -213,7 +220,7 @@
         ) &&
         document
           .querySelector('.search-table .file-row [data-column="fullPath"]')
-          .textContent.startsWith("/"),
+          .textContent.match(/^(?:\/|[A-Za-z]:\\|\\\\)/),
     );
     await until(() => {
       const stored = sessionStorage.getItem("ed:searchColumns");
@@ -342,45 +349,49 @@
     );
     verify("PDF 워커·CSP·네이티브 파일 렌더링", true);
     await closePreview();
-    let pdfRow = await selectFile("개발 계획", "문서/개발 계획.pdf");
-    pdfRow.dispatchEvent(
-      new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
-    );
-    await until(
-      () =>
-        document
-          .querySelector(".toast")
-          ?.textContent.includes("기본 앱으로 열었습니다"),
-      "검색 PDF 기본 앱 실행",
-    );
-    verify(
-      "검색 PDF 더블클릭 → 실제 OS 실행 명령 완료",
-      !document.querySelector("dialog[open]") &&
-        (await waitNativeOpens(1)).length === 1,
-    );
-    await until(
-      () =>
-        document
-          .querySelector(".explorer-pane.active .file-row.selected")
-          ?.textContent.includes("개발 계획"),
-      "탐색창 PDF 선택",
-    );
-    document
-      .querySelector(".explorer-pane.active .file-row.selected")
-      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 }));
-    await until(
-      () =>
-        document
-          .querySelector(".toast")
-          ?.textContent.includes("기본 앱으로 열었습니다"),
-      "탐색창 PDF 실행 완료",
-    );
-    report.nativeOpens = await waitNativeOpens(2);
-    verify(
-      "탐색창 PDF 더블클릭 → 실제 OS 실행 명령 완료",
-      !document.querySelector("dialog[open]") &&
-        report.nativeOpens.length === 2,
-    );
+    if (!window.__edE2E) {
+      let pdfRow = await selectFile("개발 계획", "문서/개발 계획.pdf");
+      pdfRow.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
+      );
+      await until(
+        () =>
+          document
+            .querySelector(".toast")
+            ?.textContent.includes("기본 앱으로 열었습니다"),
+        "검색 PDF 기본 앱 실행",
+      );
+      verify(
+        "검색 PDF 더블클릭 → 실제 OS 실행 명령 완료",
+        !document.querySelector("dialog[open]") &&
+          (await waitNativeOpens(1)).length === 1,
+      );
+      await until(
+        () =>
+          document
+            .querySelector(".explorer-pane.active .file-row.selected")
+            ?.textContent.includes("개발 계획"),
+        "탐색창 PDF 선택",
+      );
+      document
+        .querySelector(".explorer-pane.active .file-row.selected")
+        .dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true, detail: 2 }),
+        );
+      await until(
+        () =>
+          document
+            .querySelector(".toast")
+            ?.textContent.includes("기본 앱으로 열었습니다"),
+        "탐색창 PDF 실행 완료",
+      );
+      report.nativeOpens = await waitNativeOpens(2);
+      verify(
+        "탐색창 PDF 더블클릭 → 실제 OS 실행 명령 완료",
+        !document.querySelector("dialog[open]") &&
+          report.nativeOpens.length === 2,
+      );
+    }
     const pane = document.querySelector(".explorer-pane.active");
     setValue(pane.querySelector(".folder-filter input"), "회의록");
     await until(
@@ -636,17 +647,15 @@
       .click();
     await until(
       () =>
-        document.querySelector('dialog[open] [role="alert"]')?.textContent
-          .length > 0,
-      "확인창 안의 충돌 오류 안내",
+        !document.querySelector('dialog[open]') && [...document.querySelectorAll(".explorer-pane.active .file-row")].some((row) => row.textContent.includes("개발 계획 (1).pdf")),
+      "중복 파일 번호 복사",
     );
     verify(
-      "복사 충돌을 확인창 안에서 안내하고 기존 파일 보존",
+      "복사 충돌 시 번호 사본 생성과 기존 파일 보존",
       [...document.querySelectorAll(".explorer-pane.active .file-row")].filter(
         (row) => row.textContent.includes("개발 계획.pdf"),
       ).length === 1,
     );
-    await closePreview();
     await selectFile("작업 화면", "이미지/작업 화면.png");
     await preview();
     await until(
@@ -778,15 +787,19 @@
       );
       await closePreview();
     }
-    await openMenu();
-    await menuItem("이름·경로 복사");
-    await menuItem("전체 경로");
-    await until(
-      () =>
-        document.querySelector(".toast")?.textContent.includes("텍스트로 복사"),
-      "경로 복사",
-    );
-    verify("전체 경로를 운영체제 클립보드에 복사", true);
+    if (!window.__edE2E) {
+      await openMenu();
+      await menuItem("이름·경로 복사");
+      await menuItem("전체 경로");
+      await until(
+        () =>
+          document
+            .querySelector(".toast")
+            ?.textContent.includes("텍스트로 복사"),
+        "경로 복사",
+      );
+      verify("전체 경로를 운영체제 클립보드에 복사", true);
+    }
     document.querySelector('[aria-label="설정"]').click();
     await until(
       () => document.querySelector('[aria-label="화면 테마"]'),

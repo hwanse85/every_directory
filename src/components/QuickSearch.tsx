@@ -33,10 +33,12 @@ import {
 import {
   isComposingKey,
   normalizeSearchInput,
+  searchInputValue,
   quickSearchMode,
 } from "../quickSearch";
 import { categoryOf } from "../search";
 import { readPreference } from "../storage";
+import { locationLabel } from "../paths";
 import type {
   ConnectedRoot,
   FileCategory,
@@ -465,11 +467,12 @@ export default function QuickSearch() {
               event.currentTarget.value,
               defaultMode,
             );
-            event.currentTarget.value = text;
             setQuery(text);
           }}
           onChange={(event) => {
-            setQuery(normalizeSearchInput(event.target.value, defaultMode));
+            setQuery(
+              searchInputValue(event.currentTarget, quickSearchMode(event.currentTarget.value, defaultMode), composing),
+            );
             setView("results");
             setMessage("");
           }}
@@ -559,7 +562,10 @@ export default function QuickSearch() {
             </div>
             <p className="quick-destination-path">
               {destination
-                ? `${roots.find((r) => r.id === destination.rootId)?.name} / ${destination.path}`
+                ? locationLabel(
+                    roots.find((r) => r.id === destination.rootId),
+                    destination.path,
+                  )
                 : "연결 폴더를 선택하세요"}
             </p>
             <div className="quick-destinations">
@@ -699,12 +705,16 @@ export default function QuickSearch() {
                   <FileIcon entry={file} />
                   <div className="quick-result-text">
                     <strong title={file.name}>{file.name}</strong>
-                    <span title={file.path}>
-                      {roots.find((r) => r.id === file.rootId)?.name} /{" "}
-                      {file.parent ||
-                        (file.kind === "directory" && !file.path
-                          ? "연결 폴더"
-                          : "")}
+                    <span
+                      title={locationLabel(
+                        roots.find((r) => r.id === file.rootId),
+                        file.parent,
+                      )}
+                    >
+                      {locationLabel(
+                        roots.find((r) => r.id === file.rootId),
+                        file.parent,
+                      )}
                     </span>
                   </div>
                   {access.favorites.some(

@@ -55,6 +55,10 @@ test("portable filenames and ZIP names reject Windows reserved names and path es
     "nul.txt",
     "COM1.md",
     "LPT9.pdf",
+    "COM¹.txt",
+    "lpt².pdf",
+    "CONIN$",
+    "CONOUT$.txt",
     "a:b",
     "a/b",
     "a\\b",
@@ -151,10 +155,10 @@ test("mkdir, copy, cut, rename and collisions preserve source data and update in
       await readFile(path.join(f.other, "report.txt"), "utf8"),
       "hello world",
     );
-    await assert.rejects(
-      operate(f.files, { action: "copy", entries: [entry], destination }),
-      /같은 이름/,
-    );
+    await operate(f.files, { action: "copy", entries: [entry], destination });
+    await operate(f.files, { action: "copy", entries: [entry], destination });
+    assert.equal(await readFile(path.join(f.other, "report (1).txt"), "utf8"), "hello world");
+    assert.equal(await readFile(path.join(f.other, "report (2).txt"), "utf8"), "hello world");
     await operate(f.files, {
       action: "rename",
       entries: [entry],
@@ -350,15 +354,19 @@ test("batch rename checks every target before changing any file", async () => {
 test("mutation refuses replaced symlinks and archive symlinks without leaking files", async () => {
   const f = await fixture();
   try {
-    await rm(path.join(f.root, "report.txt"));
+    await rm(path.join(f.root, "folder"), { recursive: true });
+    const outside = path.join(f.temporary, "outside");
+    await mkdir(outside);
+    await writeFile(path.join(outside, "한글.txt"), "outside");
     await symlink(
-      path.join(f.root, "folder", "한글.txt"),
-      path.join(f.root, "report.txt"),
+      outside,
+      path.join(f.root, "folder"),
+      process.platform === "win32" ? "junction" : "dir",
     );
     await assert.rejects(
       operate(f.files, {
         action: "copy",
-        entries: [{ rootId: f.source.id, path: "report.txt" }],
+        entries: [{ rootId: f.source.id, path: "folder/한글.txt" }],
         destination: { rootId: f.target.id, path: "" },
       }),
       /링크/,

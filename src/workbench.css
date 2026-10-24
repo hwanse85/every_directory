@@ -802,7 +802,7 @@ textarea {
 .explorer-tab.current,
 .explorer-pane.active .explorer-tab.current {
   background: var(--surface);
-  border-top: 2px solid var(--accent);
+  border-top: 2px solid transparent;
 }
 .explorer-tab > button[role="tab"] {
   font-size: 11px;
@@ -813,19 +813,108 @@ textarea {
   font-weight: 600;
 }
 
-.tab-color-picker { width: 18px; height: 18px; min-width: 18px; padding: 1px; margin-right: 4px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: transparent; }
-.tab-color-picker::-webkit-color-swatch-wrapper { padding: 1px; }
-.tab-color-picker::-webkit-color-swatch { border: 0; border-radius: 2px; }
-.onboarding-note { padding: 14px; margin-bottom: 16px; background: var(--surface-soft); border: 1px solid var(--accent); border-radius: 8px; }
-.onboarding-note p { margin: 8px 0 0; line-height: 1.6; }
-.about-panel { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 12px; font-size: 12px; }
-.about-panel p { line-height: 1.7; color: var(--fg-soft); }
-.about-panel details { padding: 10px 0; }
-.about-panel summary { cursor: pointer; color: var(--fg); }
-.about-panel input { width: 100%; margin: 12px 0 4px; padding: 8px; }
-.license-list { max-height: 230px; overflow: auto; }
-.license-notices { max-height: 280px; overflow: auto; white-space: pre-wrap; font-size: 11px; line-height: 1.6; padding: 10px; background: var(--surface-soft); }
-.license-list p { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.tab-color-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  margin-right: 4px;
+  color: var(--fg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tab-color-control:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tab-color-picker {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 1px;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+}
+.tab-color-control.no-color .tab-color-picker {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.explorer-tab .clear-tab-color {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  color: var(--fg-soft);
+}
+.tab-color-picker::-webkit-color-swatch-wrapper {
+  padding: 1px;
+}
+.tab-color-picker::-webkit-color-swatch {
+  border: 0;
+  border-radius: 2px;
+}
+.onboarding-note {
+  padding: 14px;
+  margin-bottom: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+.onboarding-note p {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+.about-panel {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 12px;
+  font-size: 12px;
+}
+.about-panel p {
+  line-height: 1.7;
+  color: var(--fg-soft);
+}
+.about-panel details {
+  padding: 10px 0;
+}
+.app-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; margin: 12px 0; }
+.app-info dt { color: var(--fg-soft); }
+.app-info dd { margin: 0; overflow-wrap: anywhere; }
+.about-panel a { color: var(--accent); text-decoration: underline; }
+.about-panel summary {
+  cursor: pointer;
+  color: var(--fg);
+}
+.about-panel input {
+  width: 100%;
+  margin: 12px 0 4px;
+  padding: 8px;
+}
+.license-list {
+  max-height: 230px;
+  overflow: auto;
+}
+.license-notices {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+.license-list p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
 .pane-activate {
   color: var(--fg-soft);
   background: var(--surface);
@@ -1737,4 +1826,15 @@ textarea {
   .analysis-metrics > div {
     padding: 12px 10px;
   }
+}
+.file-drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  border: 1px solid #6389c6;
+  background: #eef4ff;
+  color: #183a6a;
+  padding: 8px 12px;
+  border-radius: 6px;
+  box-shadow: 0 3px 12px #0003;
 }

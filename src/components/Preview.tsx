@@ -4,6 +4,7 @@ import { Modal } from "./Modal";
 import { formatSize } from "./FileIcon";
 import { fileUrl, isDesktop, saveFileCopy } from "../client";
 import type { ConnectedRoot, FileEntry } from "../types";
+import { locationLabel } from "../paths";
 
 const PdfPreview = lazy(() => import("./PdfPreview"));
 
@@ -70,7 +71,7 @@ export function Preview({
   return (
     <Modal
       title={entry.name}
-      subtitle={`${root.name}/${entry.parent}`}
+      subtitle={locationLabel(root, entry.parent)}
       onClose={onClose}
       wide
     >

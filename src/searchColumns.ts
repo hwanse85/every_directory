@@ -1,4 +1,5 @@
 import type { ConnectedRoot, FileEntry } from "./types";
+import { locationLabel, locationPath } from "./paths";
 
 export const searchColumnOptions = [
   { id: "name", label: "이름", width: 170, hint: "파일 또는 폴더 이름" },
@@ -57,7 +58,7 @@ export function searchColumnValue(
     case "name":
       return entry.name;
     case "location":
-      return [root?.name, entry.parent].filter(Boolean).join("/");
+      return locationLabel(root, entry.parent);
     case "type":
       return entry.kind === "directory"
         ? "폴더"
@@ -71,12 +72,9 @@ export function searchColumnValue(
     case "modified":
       return entry.modified ?? -1;
     case "root":
-      return root?.name ?? "";
+      return locationLabel(root);
     case "fullPath": {
-      if (!root?.absolutePath)
-        return [root?.name, entry.path].filter(Boolean).join("/");
-      const separator = root.absolutePath.includes("\\") ? "\\" : "/";
-      return `${root.absolutePath.replace(/[\\/]+$/, "")}${separator}${entry.path.replaceAll("/", separator)}`;
+      return locationPath(root, entry.path);
     }
   }
 }

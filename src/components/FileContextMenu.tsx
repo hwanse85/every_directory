@@ -223,7 +223,7 @@ export function FileContextMenu({
           action: "copyOtherPane",
           label: "다른 창으로 복사…",
           icon: Copy,
-          shortcut: "F5",
+          shortcut: mac ? "F5" : "Shift+F5",
           disabled: !count || !otherPane,
         },
         {

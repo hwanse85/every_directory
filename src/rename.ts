@@ -12,7 +12,7 @@ export function validateName(name: string): void {
     /[. ]$/.test(name) ||
     name === "." ||
     name === ".." ||
-    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ||
+    /^(con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ||
     name === ".every-directory-trash" ||
     name.startsWith(".ed-work-")
   )

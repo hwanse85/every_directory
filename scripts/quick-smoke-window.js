@@ -48,6 +48,45 @@
       "초성 검색",
     );
     verify("한글 초성 검색과 IPC 권한", true);
+    for (const [query, expected] of [
+      ["ㅂㄱㅅ", "업무 보고서.txt"],
+      ["ㅆㄹㅁㅇㄷ", "쏠리마인드.txt"],
+      ["ᄇᄀᄉ", "업무 보고서.txt"],
+      ["ﾲﾡﾵ", "업무 보고서.txt"],
+    ]) {
+      search(query);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await until(
+        () =>
+          !document.querySelector(".quick-input-row .spin") &&
+          [...document.querySelectorAll('[role="option"]')].some((row) =>
+            row.textContent.includes(expected),
+          ),
+        `빠른 검색 ${query}`,
+      );
+      verify(`빠른 검색: ${query}`, true);
+    }
+    const imeInput = document.querySelector(
+      '[aria-label="파일·폴더 빠른 검색"]',
+    );
+    imeInput.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
+    search("ㅂㄳ");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    verify("빠른 검색 IME 입력 도중 초성 분리", imeInput.value === "ㅂㄱㅅ");
+    imeInput.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "ㅂㄳ" }),
+    );
+    await until(
+      () =>
+        imeInput.value === "ㅂㄱㅅ" &&
+        !document.querySelector(".quick-input-row .spin") &&
+        document
+          .querySelector('[role="option"]')
+          ?.textContent.includes("업무 보고서.txt"),
+      "빠른 검색 IME 확정",
+    );
     // 처음 표시 이벤트와 비동기 검색이 끝난 상태에서 작업 키를 전달한다.
     await until(() => {
       if (document.querySelector('[role="menu"]')) return true;
@@ -55,15 +94,13 @@
         document.querySelector('[role="option"]') &&
         !document.querySelector(".quick-input-row .spin")
       ) {
-        document
-          .querySelector("input")
-          .dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "Tab",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
+        document.querySelector("input").dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Tab",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
       }
       return false;
     }, "작업 메뉴");

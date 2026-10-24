@@ -93,7 +93,7 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import { CommandPalette, type QuickCommand } from "./components/CommandPalette";
 import { exportEntries } from "./export";
 import { FileContextMenu } from "./components/FileContextMenu";
-import { normalizeSearchInput, shortcutLabel } from "./quickSearch";
+import { normalizeSearchInput, searchInputValue, shortcutLabel } from "./quickSearch";
 import { AboutPanel } from "./components/AboutPanel";
 
 const filters = [
@@ -249,6 +249,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [revision, setRevision] = useState(0);
   const [query, setQuery] = useState("");
+  const composingSearch = useRef(false);
   const [mode, setMode] = useState<SearchMode>(
     readPreference<SearchMode>("defaultSearchMode", "initials"),
   );
@@ -647,7 +648,12 @@ export default function App() {
   useEffect(() => {
     // 검색창 초점, 새 탭과 탐색창 전환 단축키를 처리한다.
     function shortcuts(event: globalThis.KeyboardEvent) {
-      if (document.querySelector("dialog[open]")) return;
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        document.querySelector('dialog[open],[role="menu"]')
+      )
+        return;
       if (
         (event.metaKey || event.ctrlKey) &&
         event.shiftKey &&
@@ -656,7 +662,8 @@ export default function App() {
         event.preventDefault();
         setModal("commands");
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if ((event.metaKey || event.ctrlKey) &&
+        (event.key.toLowerCase() === "k" || (event.key.toLowerCase() === "f" && !(event.target instanceof Element && event.target.closest(".explorer-pane"))))) {
         event.preventDefault();
         searchInput.current?.focus();
         searchInput.current?.select();
@@ -673,11 +680,12 @@ export default function App() {
       }
       if (event.key === "F6") {
         event.preventDefault();
-        setActivePane(
-          panes[
-            (panes.findIndex((p) => p.id === activePane) + 1) % panes.length
-          ].id,
-        );
+        const next = (panes.findIndex((p) => p.id === activePane) + (event.shiftKey ? panes.length - 1 : 1)) % panes.length;
+        setActivePane(panes[next].id);
+        requestAnimationFrame(() => {
+          const target = document.querySelectorAll(".explorer-pane")[next];
+          (target?.querySelector<HTMLElement>(".file-row.selected") ?? target?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]'))?.focus();
+        });
       }
     }
     document.addEventListener("keydown", shortcuts);
@@ -1418,7 +1426,7 @@ export default function App() {
             </div>
             <button className="keyboard-link" onClick={() => setModal("help")}>
               <Keyboard size={15} />
-              단축키 안내<span>⌘ K</span>
+              단축키 안내<span>{/Mac/.test(navigator.platform) ? "⌘ K" : "Ctrl+K"}</span>
             </button>
           </div>
         </aside>
@@ -1617,19 +1625,26 @@ export default function App() {
                     aria-label="파일 검색"
                     placeholder="파일 이름으로 검색"
                     value={query}
+                    maxLength={512}
+                    onCompositionStart={() => {
+                      composingSearch.current = true;
+                    }}
                     onChange={(e) =>
-                      setQuery(normalizeSearchInput(e.target.value, mode))
+                      setQuery(
+                        searchInputValue(e.currentTarget, mode, composingSearch),
+                      )
                     }
                     onCompositionEnd={(event) => {
+                      composingSearch.current = false;
                       const value = normalizeSearchInput(
                         event.currentTarget.value,
                         mode,
                       );
-                      event.currentTarget.value = value;
                       setQuery(value);
                     }}
                     onKeyDown={(e) => {
                       if (
+                        composingSearch.current ||
                         e.nativeEvent.isComposing ||
                         e.nativeEvent.keyCode === 229
                       )
@@ -1663,7 +1678,7 @@ export default function App() {
                     </button>
                   ) : (
                     <kbd>
-                      <Command size={10} /> K
+                      {/Mac/.test(navigator.platform) ? <Command size={10} /> : "Ctrl+"} K
                     </kbd>
                   )}
                 </div>
@@ -2548,8 +2563,27 @@ export default function App() {
                 <kbd>⌘ / Ctrl + T</kbd>
               </div>
               <div>
+                <span>현재 탭 닫기</span>
+                <kbd>⌘ / Ctrl + W</kbd>
+              </div>
+              <div><span>탭 순환 / 역순</span><kbd>Ctrl + Tab / Ctrl + Shift + Tab</kbd></div>
+              <div><span>현재 폴더에서 필터 / 해제</span><kbd>Ctrl + F / Esc</kbd></div>
+              <div><span>새 폴더 / 파일 속성</span><kbd>Ctrl + Shift + N / Alt + Enter</kbd></div>
+              <div>
+                <span>폴더 주소 입력</span>
+                <kbd>⌘ / Ctrl + L · Alt + D · F4</kbd>
+              </div>
+              <div>
+                <span>뒤로 / 앞으로 / 상위 폴더</span>
+                <kbd>Alt + ← / → / ↑</kbd>
+              </div>
+              <div>
+                <span>탐색창 새로고침</span>
+                <kbd>Ctrl + R · Windows F5</kbd>
+              </div>
+              <div>
                 <span>활성 탐색창 전환</span>
-                <kbd>F6</kbd>
+                <kbd>F6 · Shift + F6</kbd>
               </div>
               <div>
                 <span>선택 항목 열기</span>

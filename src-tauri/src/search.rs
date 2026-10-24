@@ -4,6 +4,7 @@ use crate::{
 };
 use regex::RegexBuilder;
 use std::{
+    borrow::Cow,
     collections::{BinaryHeap, HashMap, HashSet},
     time::Instant,
 };
@@ -33,7 +34,27 @@ pub fn initials(value: &str) -> String {
 
 // IME가 합친 자음 겹받침을 검색에 사용하는 개별 초성으로 복원한다.
 pub fn split_consonants(value: &str) -> String {
+    let leading: Vec<char> = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ".chars().collect();
+    let trailing: Vec<char> = "ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+        .chars()
+        .collect();
     value
+        .nfc()
+        .map(|original| {
+            let c = if ('\u{ffa1}'..='\u{ffbe}').contains(&original) {
+                original.to_string().nfkc().next().unwrap_or(original)
+            } else {
+                original
+            };
+            match c as u32 {
+                0x1100..=0x1112 => leading[c as usize - 0x1100],
+                0x11a8..=0x11c2 => trailing[c as usize - 0x11a8],
+                0x111a => 'ㅀ',
+                0x1121 => 'ㅄ',
+                _ => c,
+            }
+        })
+        .collect::<String>()
         .chars()
         .map(|c| match c {
             'ㄳ' => "ㄱㅅ".into(),
@@ -101,6 +122,20 @@ fn grams(value: &str) -> HashSet<String> {
         .collect::<Vec<_>>()
         .windows(3)
         .map(|w| w.iter().collect())
+        .collect()
+}
+
+// 두 글자 검색도 후보를 좁히고, 긴 초성 검색은 더 선택적인 세 글자 키를 쓴다.
+fn initial_grams(value: &str) -> HashSet<String> {
+    let chars: Vec<char> = value.chars().collect();
+    [2, 3]
+        .into_iter()
+        .flat_map(|width| {
+            chars
+                .windows(width)
+                .filter(|part| part.iter().any(|c| ('ㄱ'..='ㅎ').contains(c)))
+                .map(|part| part.iter().collect::<String>())
+        })
         .collect()
 }
 
@@ -182,7 +217,8 @@ pub struct Index {
     pub entries: Vec<Entry>,
     names: Vec<String>,
     paths: Vec<String>,
-    grams: HashMap<String, Vec<usize>>,
+    grams: HashMap<String, Vec<u32>>,
+    initial_grams: HashMap<String, Vec<u32>>,
 }
 
 impl Index {
@@ -193,12 +229,74 @@ impl Index {
         self.names = entries.iter().map(|e| normalize(&e.name)).collect();
         self.paths = entries.iter().map(|e| normalize(&e.path)).collect();
         self.grams.clear();
+        self.initial_grams.clear();
         for (i, name) in self.names.iter().enumerate() {
             for gram in grams(name) {
-                self.grams.entry(gram).or_default().push(i);
+                self.grams.entry(gram).or_default().push(i as u32);
+            }
+        }
+        for (i, path) in self.paths.iter().enumerate() {
+            for gram in initial_grams(&initials(path)) {
+                self.initial_grams.entry(gram).or_default().push(i as u32);
             }
         }
         self.entries = entries;
+    }
+
+    // AND는 가장 작은 필수 후보, OR는 각 분기의 합집합을 사용한다.
+    // 제외 조건이나 인덱스로 제한할 수 없는 분기는 전체 검사로 되돌린다.
+    fn candidates<'a>(&'a self, query: &Query, full_path: bool) -> Option<Cow<'a, [u32]>> {
+        match query {
+            Query::And(items) => items
+                .iter()
+                .filter_map(|item| self.candidates(item, full_path))
+                .min_by_key(|items| items.len()),
+            Query::Or(items) => {
+                let lists: Option<Vec<_>> = items
+                    .iter()
+                    .map(|item| self.candidates(item, full_path))
+                    .collect();
+                let mut combined: Vec<_> = lists?
+                    .iter()
+                    .flat_map(|items| items.iter().copied())
+                    .collect();
+                combined.sort_unstable();
+                combined.dedup();
+                Some(Cow::Owned(combined))
+            }
+            Query::Text {
+                text, mode, path, ..
+            } => {
+                let mut best: Option<&[u32]> = None;
+                for literal in text.split(['*', '?']) {
+                    let initial_text = split_consonants(literal);
+                    let (keys, index) = if mode == "initials"
+                        && initial_text
+                            .chars()
+                            .any(|c| ('ㄱ'..='ㅎ').contains(&c) || ('가'..='힣').contains(&c))
+                    {
+                        (initial_grams(&initials(&initial_text)), &self.initial_grams)
+                    } else if !full_path
+                        && !path
+                        && ["normal", "wildcard", "initials"].contains(&mode.as_str())
+                    {
+                        (grams(&normalize(literal)), &self.grams)
+                    } else {
+                        continue;
+                    };
+                    for key in keys {
+                        let Some(list) = index.get(&key) else {
+                            return Some(Cow::Borrowed(&[]));
+                        };
+                        if best.is_none_or(|previous| list.len() < previous.len()) {
+                            best = Some(list);
+                        }
+                    }
+                }
+                best.map(Cow::Borrowed)
+            }
+            _ => None,
+        }
     }
 
     // 다섯 검색 방식과 필터를 적용하고 시간 초과 여부를 명시한다.
@@ -250,35 +348,11 @@ impl Index {
         } else {
             None
         };
-        let literals = expression.as_ref().map(Query::literals).unwrap_or_default();
-        let mut candidates: Option<&Vec<usize>> = None;
-        if !options.full_path && ["normal", "wildcard"].contains(&options.mode.as_str()) {
-            for word in &literals {
-                for literal in word.split(['*', '?']) {
-                    for key in grams(&normalize(literal)) {
-                        match self.grams.get(&key) {
-                            None => {
-                                return Ok(SearchResult {
-                                    entries: vec![],
-                                    total: 0,
-                                    elapsed: start.elapsed().as_secs_f64() * 1000.0,
-                                    partial: false,
-                                    scanned: 0,
-                                })
-                            }
-                            Some(list)
-                                if candidates
-                                    .is_none_or(|previous| list.len() < previous.len()) =>
-                            {
-                                candidates = Some(list)
-                            }
-                            _ => (),
-                        }
-                    }
-                }
-            }
-        }
-        let count = candidates.map_or(self.entries.len(), Vec::len);
+        let planned = expression
+            .as_ref()
+            .and_then(|query| self.candidates(query, options.full_path));
+        let candidates = planned.as_deref();
+        let count = candidates.map_or(self.entries.len(), <[u32]>::len);
         let limit = options.limit.unwrap_or(500).clamp(1, 1000);
         let mut matches = vec![];
         let mut ranked = BinaryHeap::new();
@@ -296,7 +370,7 @@ impl Index {
                     break;
                 }
             }
-            let i = candidates.map_or(n, |v| v[n]);
+            let i = candidates.map_or(n, |v| v[n] as usize);
             let entry = &self.entries[i];
             scanned += 1;
             if (!options.root_id.is_empty() && entry.root_id != options.root_id)

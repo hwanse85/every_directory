@@ -18,8 +18,7 @@ const env = {
 const args = [
   "node_modules/@tauri-apps/cli/tauri.js",
   "build",
-  "--target",
-  "x86_64-pc-windows-msvc",
+  ...(cross || process.arch !== "x64" ? ["--target", "x86_64-pc-windows-msvc"] : []),
   "--bundles",
   "nsis",
   ...(cross ? ["--runner", "cargo-xwin"] : []),
