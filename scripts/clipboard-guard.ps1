@@ -1,11 +1,15 @@
 # E2E 동안 원래 클립보드를 메모리에만 보관한다. 백업 불가능한 형식이면 테스트 전에 중단한다.
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$saved = New-Object System.Windows.Forms.DataObject
-$original = [System.Windows.Forms.Clipboard]::GetDataObject()
 $count = 0
 try {
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+  $saved = New-Object System.Windows.Forms.DataObject
+  $original = $null
+  for ($attempt = 0; $attempt -lt 8; $attempt++) {
+    try { $original = [System.Windows.Forms.Clipboard]::GetDataObject(); break }
+    catch { if ($attempt -eq 7) { throw }; Start-Sleep -Milliseconds 100 }
+  }
   if ($null -ne $original) {
     foreach ($format in $original.GetFormats($false)) {
       $data = $original.GetData($format, $false)

@@ -30,7 +30,7 @@ if (suite === "clipboard") {
   );
   const preserved = await new Promise((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("클립보드 백업 시간 초과")),
+      () => { clipboardGuard.kill(); resolve(false); },
       10000,
     );
     clipboardGuard.stdout.on("data", (data) => {
@@ -42,16 +42,13 @@ if (suite === "clipboard") {
     clipboardGuard.once("error", reject);
     clipboardGuard.once("exit", (code) => {
       clearTimeout(timer);
-      if (code === 2) { resolve(false); return; }
-      reject(
-        new Error(
-          "원래 클립보드를 안전하게 보존할 수 없어 클립보드 E2E를 중단했습니다.",
-        ),
-      );
+      // A guard that exits before READY has not changed the clipboard. This can
+      // include unsupported formats or a host that cannot execute the helper.
+      resolve(false);
     });
   });
   if (!preserved) {
-    const reason = "현재 클립보드 형식을 안전하게 백업할 수 없어 기존 내용을 보존하고 검사를 건너뜁니다.";
+    const reason = "현재 클립보드를 안전하게 백업할 수 없어 기존 내용을 보존하고 검사를 건너뜁니다.";
     await writeFile(`test-results/e2e/${suite}.json`,JSON.stringify({suite,passed:false,skipped:true,reason,tests:[],errors:[],finished:new Date().toISOString()},null,2));
     console.log(reason);
     process.exit(process.env.CI ? 1 : 77);

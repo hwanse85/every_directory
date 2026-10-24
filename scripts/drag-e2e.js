@@ -13,11 +13,16 @@
   const row = (p, name) => [...p.querySelectorAll(".file-row")].find(x => x.title.endsWith(`\\${name}`));
   const point = el => { const r = el.getBoundingClientRect(); return {clientX:r.left+r.width/2, clientY:r.top+r.height/2}; };
   async function ready() {
-    await until(() => [pane(1),pane(2)].every(p => {
+    const settled = () => [pane(1),pane(2)].every(p => {
+      if (!p) return false;
       const control=p?.querySelector('[aria-label="추가 파일 도구"]');
       const folder=row(p,"문서");
       return control && !control.disabled && folder?.getBoundingClientRect().height > 0;
-    }),"드롭 대상 목록 준비");
+    });
+    await until(settled,"드롭 대상 목록 준비");
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    await until(settled,"드롭 대상 목록 갱신 완료");
   }
   function pointer(source, destination, cancel = false) {
     const a = point(source), b = point(destination);

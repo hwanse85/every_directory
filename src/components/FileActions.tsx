@@ -717,7 +717,7 @@ export function FileActions({
                     </span>
                     <button
                       className="button secondary small"
-                      disabled={busy}
+                      disabled={blocked}
                       onClick={async () => {
                         if (
                           await perform(

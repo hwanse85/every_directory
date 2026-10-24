@@ -42,6 +42,13 @@
     if (!condition) throw new Error(`검증 실패: ${name}`);
     report.tests.push({ name, passed: true });
   }
+  async function clickReady(selector,label="작업 버튼 준비") {
+    const button=await until(() => {
+      const value=document.querySelector(selector);
+      return value && !value.disabled ? value : undefined;
+    },label);
+    button.click();
+  }
   async function close() {
     document.querySelector('dialog[open] [aria-label="닫기"]')?.click();
     await until(() => !document.querySelector("dialog[open]"), "대화상자 닫기");
@@ -97,6 +104,7 @@
     );
     value(input, name);
     await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
     const submit = await until(() => {
       const button = document.querySelector("dialog[open] .button.primary");
       return button && !button.disabled ? button : undefined;
@@ -126,14 +134,20 @@
     await select("E2E 이름 변경.txt");
     await menu("이름 변경");
     value(document.querySelector('[aria-label="작업 이름"]'), "CON.txt");
-    document.querySelector("dialog[open] .button.primary").click();
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    const invalidSubmit = await until(() => {
+      const button=document.querySelector("dialog[open] .button.primary");
+      return button && !button.disabled ? button : undefined;
+    },"예약 이름 입력 반영");
+    invalidSubmit.click();
     await until(
       () => document.querySelector('dialog[open] [role="alert"]'),
       "예약 이름 오류",
     );
     verify(
       "잘못된 이름은 안내하고 원본 보존",
-      (await list("")).some((x) => x.name === "E2E 이름 변경.txt"),
+      document.querySelector('dialog[open] [role="alert"]')?.textContent.includes("예약") && (await list("")).some((x) => x.name === "E2E 이름 변경.txt"),
     );
     await close();
     await select("E2E 이름 변경.txt");
@@ -146,7 +160,7 @@
           ?.textContent.includes("일괄_E2E"),
       "일괄 변경 미리보기",
     );
-    document.querySelector("dialog[open] .button.primary").click();
+    await clickReady("dialog[open] .button.primary");
     await until(() => !document.querySelector("dialog[open]"), "일괄 변경");
     const renamed = (await list("")).find((x) => x.name.startsWith("일괄_E2E"));
     verify("일괄 이름 미리보기와 실제 적용", !!renamed);
@@ -162,7 +176,7 @@
     );
     await select(renamed.name);
     await menu("앱 휴지통으로");
-    document.querySelector("dialog[open] .button.danger").click();
+    await clickReady("dialog[open] .button.danger");
     await until(() => !document.querySelector("dialog[open]"), "삭제 완료");
     verify(
       "삭제는 앱 휴지통으로 이동",
@@ -176,6 +190,7 @@
         ),
       "휴지통 파일",
     );
+    await until(() => !trashRow.querySelector("button").disabled,"휴지통 복원 준비");
     trashRow.querySelector("button").click();
     await until(
       async () => (await list("")).some((x) => x.name === renamed.name),
@@ -191,7 +206,9 @@
       document.querySelector('[aria-label="이미지 결과 폴더"]'),
       "E2E 이미지 변환",
     );
-    document.querySelector("dialog[open] .button.primary").click();
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    await clickReady("dialog[open] .button.primary");
     await until(() => !document.querySelector("dialog[open]"), "이미지 변환");
     verify(
       "이미지 변환 UI와 원본 보존",

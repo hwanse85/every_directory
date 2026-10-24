@@ -43,8 +43,14 @@ npm run desktop:build:windows
 
 최종 로컬 Rust 검사 52개와 별도 실제 두 볼륨 검사 1개, TypeScript/서버 검사 44개가 통과했다. 로컬 MSVC 디버그 심볼 생성의 내부 오류를 피하기 위해 전체 Rust 검사에는 `--config profile.test.package.every-directory.debug=0`을 적용했다. 이 설정은 검사 대상 앱 패키지의 심볼 생성만 끄며 검사 로직과 배포용 최적화 구성은 바꾸지 않는다. E2E 검증 빌드·실행과 다른 Rust 빌드는 실행 파일 교체를 피하기 위해 순서대로 수행한다.
 
+로컬 Tauri/WebView2 E2E는 9개 묶음 118개 항목이 통과했다. 클립보드 1개 묶음은 기존 클립보드를 안전하게 백업하지 못해 변경하기 전에 명시적으로 건너뛰었다. 동일한 네이티브 전송 구현의 [GitHub Windows 실행](https://github.com/hwanse85/every_directory/actions/runs/40106108916)에서는 클립보드 8개 항목이 통과했다. CI에서는 이 묶음의 준비 실패를 건너뛴 성공으로 처리하지 않는다. 보고서는 실행 전 초기화해 이전 결과를 현재 결과로 세지 않는다.
+
+최종 로컬 두 탐색창 E2E에서 작은 파일 복사 완료까지 176.4 ms, 같은 볼륨 이동 완료까지 51.2 ms를 관측했다. UI 검사 중 발견한 새 폴더·휴지통 복원 버튼의 목록 갱신 상태 불일치와 드롭 대상 준비 문제도 수정했다. Windows 설치본과 검증 도구는 표준 `CARGO_TARGET_DIR`로 지정한 별도 빌드 캐시도 사용한다.
+
 ## English summary
 
 On Windows, file/folder copies and cross-volume moves now use the Shell `IFileOperation` engine, batching selections into one operation with native progress/cancellation. Same-volume moves use one exclusive `MoveFileExW` rename. Cross-volume moves no longer create an extra source copy in the application's trash. Numbered copies, overwrite protection, and incremental index updates remain in place. Partial cross-volume moves keep files visible on either side and refresh both indexes after cancellation or failure.
 
 Native tests cover Unicode trees, empty folders, modification times, NTFS alternate streams, existing-target and locked-source failures, extended paths, and junction boundaries. An opt-in test was executed across actual C: and D: volumes, checking contents, source removal, both indexes, numbered copies in the reverse direction, and the absence of an app-trash duplicate. Native progress-dialog button input is outside the DOM E2E automation scope.
+
+Local verification passed 52 Rust tests, one actual cross-volume test, 44 TypeScript/server tests, and 118 checks across nine Tauri/WebView2 suites. The local clipboard suite was explicitly skipped before modifying an unbacked-up clipboard; its eight checks passed in the linked Windows CI run with the same native transfer implementation. CI treats clipboard preparation failures as failures. Reports are initialized per run to prevent stale passes. Local MSVC symbol-generation failures required disabling debug symbols for the app package in Rust tests; production optimization settings are unchanged.
