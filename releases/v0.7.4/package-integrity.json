@@ -1,0 +1,33 @@
+{
+  "mac": {
+    "version": "0.7.4",
+    "minimumSystemVersion": "11.0",
+    "architecture": "arm64",
+    "zipIntegrity": true,
+    "dmgIntegrity": true,
+    "adHocSignatureVerified": true,
+    "dmgZipBinaryMatch": true,
+    "applicationsLink": true,
+    "notarized": false
+  },
+  "windows": {
+    "versionResource": "0.7.4",
+    "architecture": "x86_64",
+    "nsisIntegrity": true,
+    "runtimeBundled": false,
+    "runtimeInstallMode": "skip",
+    "extractedFiles": [
+      "uninstall.exe",
+      "every-directory.exe",
+      "$PLUGINSDIR/LangDLL.dll",
+      "$PLUGINSDIR/nsDialogs.dll",
+      "$PLUGINSDIR/System.dll",
+      "$PLUGINSDIR/nsis_tauri_utils.dll",
+      "$PLUGINSDIR/modern-wizard.bmp",
+      "$PLUGINSDIR/StartMenu.dll"
+    ],
+    "bundleMarkerPatchOnly": true,
+    "signed": false,
+    "realWindowsExecution": false
+  }
+}
