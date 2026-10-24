@@ -1,0 +1,33 @@
+{
+  "version": "0.7.4",
+  "generatedAt": "2026-10-24T06:37:30.905908+00:00",
+  "artifacts": [
+    {
+      "file": "EveryDirectory_0.7.4_mac_arm64.dmg",
+      "platform": "macOS",
+      "architecture": "arm64",
+      "bytes": 3901192,
+      "MiB": 3.72,
+      "sha256": "0257b95bd008cfa4bdb297ab3acb3627f2708b6ca1f7cd3510316b5c150b0cd4",
+      "webviewRuntimeBundled": false
+    },
+    {
+      "file": "EveryDirectory_0.7.4_mac_arm64.zip",
+      "platform": "macOS",
+      "architecture": "arm64",
+      "bytes": 3428501,
+      "MiB": 3.27,
+      "sha256": "c7b3bfb3e892026400910631c74c96c7e44d723127fce4ba66498e78e7eff9e8",
+      "webviewRuntimeBundled": false
+    },
+    {
+      "file": "EveryDirectory_0.7.4_windows_x64_lite_setup.exe",
+      "platform": "Windows 10/11",
+      "architecture": "x86_64",
+      "bytes": 2755022,
+      "MiB": 2.627,
+      "sha256": "4b19a7a05005fd02f57f9eb5518c5eadfce97c8da97a96ccb88b70e3247b69bf",
+      "webviewRuntimeBundled": false
+    }
+  ]
+}

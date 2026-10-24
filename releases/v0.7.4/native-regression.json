@@ -1,0 +1,72 @@
+{
+  "errors": [],
+  "finished": "2026-10-24T06:25:34.207Z",
+  "passed": true,
+  "started": "2026-10-24T06:25:31.239Z",
+  "tests": [
+    {
+      "name": "연결 폴더가 없으면 인덱스 관리와 안내를 자동 표시",
+      "passed": true
+    },
+    {
+      "name": "연결한 실제 파일이 두 탐색창에 표시",
+      "passed": true
+    },
+    {
+      "name": "기본 검색은 초성과 일반 검색 통합",
+      "passed": true
+    },
+    {
+      "name": "IME의 ㅂㄳ을 ㅂㄱㅅ으로 분리 표시",
+      "passed": true
+    },
+    {
+      "name": "일반 검색과 초성 검색 모두 실제 파일을 반환",
+      "passed": true
+    },
+    {
+      "name": "인덱스 갱신과 선택 유지 중 목록 스크롤 보존",
+      "passed": true
+    },
+    {
+      "name": "화면 복사 → OS 파일 클립보드 → 실제 폴더 붙여넣기",
+      "passed": true
+    },
+    {
+      "name": "OS 클립보드와 일치하는 앱 잘라내기 이동",
+      "passed": true
+    },
+    {
+      "name": "폴더 속성을 전체 디스크 재탐색 없이 조회",
+      "passed": true
+    },
+    {
+      "name": "탭별 사용자 색상과 작업 공간 저장",
+      "passed": true
+    },
+    {
+      "name": "자동 시작 기본 체크와 트레이·단축키 설정",
+      "passed": true
+    },
+    {
+      "name": "개발자 정보와 오픈소스 라이선스 표시",
+      "passed": true
+    },
+    {
+      "name": "기본 검색 방식의 네이티브 설정 저장",
+      "passed": true
+    },
+    {
+      "name": "실행 중 JavaScript 오류 없음",
+      "passed": true
+    },
+    {
+      "name": "복사·이동 후 원본과 결과의 실제 SHA-256 일치",
+      "passed": true
+    }
+  ],
+  "timings": {
+    "folderPropertiesMs": 0
+  },
+  "first_launch_verification": "첫 실행 안내를 네이티브 WebView에서 확인하고 CUA로 실제 폴더 선택을 완료함"
+}

@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+test-results/
+*.tsbuildinfo
+.playwright-mcp/
+src-tauri/target/
+src-tauri/gen/
+
+# 로컬 검증 결과와 개발 환경의 비공개 설정은 저장소에 올리지 않는다.
+output/
+.env
+.env.*
+!.env.example
+!.env.sample
+.idea/
+.vscode/
+*.log
+
+# 최초 업로드에는 최신 배포본만 보관한다.
+/releases/*
+!/releases/v0.7.4/

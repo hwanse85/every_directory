@@ -1,0 +1,151 @@
+{
+  "version": "0.7.4",
+  "verifiedAt": "2026-10-24T06:38:29.213253+00:00",
+  "node": {
+    "passed": 34,
+    "failed": 0,
+    "log": "../../output/verification-v0.7.4/node-tests.log"
+  },
+  "rust": {
+    "passed": 34,
+    "failed": 0,
+    "ignoredBenchmarks": 1,
+    "benchmarkRunSeparately": true,
+    "log": "../../output/verification-v0.7.4/rust-tests.log"
+  },
+  "macNative": {
+    "passed": 15,
+    "cases": [
+      {
+        "name": "연결 폴더가 없으면 인덱스 관리와 안내를 자동 표시",
+        "passed": true
+      },
+      {
+        "name": "연결한 실제 파일이 두 탐색창에 표시",
+        "passed": true
+      },
+      {
+        "name": "기본 검색은 초성과 일반 검색 통합",
+        "passed": true
+      },
+      {
+        "name": "IME의 ㅂㄳ을 ㅂㄱㅅ으로 분리 표시",
+        "passed": true
+      },
+      {
+        "name": "일반 검색과 초성 검색 모두 실제 파일을 반환",
+        "passed": true
+      },
+      {
+        "name": "인덱스 갱신과 선택 유지 중 목록 스크롤 보존",
+        "passed": true
+      },
+      {
+        "name": "화면 복사 → OS 파일 클립보드 → 실제 폴더 붙여넣기",
+        "passed": true
+      },
+      {
+        "name": "OS 클립보드와 일치하는 앱 잘라내기 이동",
+        "passed": true
+      },
+      {
+        "name": "폴더 속성을 전체 디스크 재탐색 없이 조회",
+        "passed": true
+      },
+      {
+        "name": "탭별 사용자 색상과 작업 공간 저장",
+        "passed": true
+      },
+      {
+        "name": "자동 시작 기본 체크와 트레이·단축키 설정",
+        "passed": true
+      },
+      {
+        "name": "개발자 정보와 오픈소스 라이선스 표시",
+        "passed": true
+      },
+      {
+        "name": "기본 검색 방식의 네이티브 설정 저장",
+        "passed": true
+      },
+      {
+        "name": "실행 중 JavaScript 오류 없음",
+        "passed": true
+      },
+      {
+        "name": "복사·이동 후 원본과 결과의 실제 SHA-256 일치",
+        "passed": true
+      }
+    ],
+    "context": "macOS native WebView with isolated smoke-test feature; OS clipboard and filesystem operations executed; startup registration and global shortcuts isolated"
+  },
+  "macQuickSearch": {
+    "passed": 8,
+    "cases": [
+      "실제 검색창 즐겨찾기 복원",
+      "한글 초성 검색과 IPC 권한",
+      "키보드 작업 메뉴",
+      "연결 폴더로 실제 파일 복사",
+      "검색창과 하단 안내가 창 안에 표시됨",
+      "검색창의 삭제 작업 차단",
+      "파일 클립보드의 범위 이탈 차단",
+      "메인 탐색창 위치 전환"
+    ],
+    "contentSha256Match": true
+  },
+  "engineBenchmark": {
+    "entries": 200000,
+    "normalMs": 4.07,
+    "initialsHybridMs": 6.6,
+    "wildcardMs": 0.51,
+    "regexMs": 77.54,
+    "fuzzyMs": 155.66,
+    "partialResults": false,
+    "scope": "specific fixture; engine time, excluding initial indexing and UI"
+  },
+  "packages": {
+    "mac": {
+      "version": "0.7.4",
+      "minimumSystemVersion": "11.0",
+      "architecture": "arm64",
+      "zipIntegrity": true,
+      "dmgIntegrity": true,
+      "adHocSignatureVerified": true,
+      "dmgZipBinaryMatch": true,
+      "applicationsLink": true,
+      "notarized": false
+    },
+    "windows": {
+      "versionResource": "0.7.4",
+      "architecture": "x86_64",
+      "nsisIntegrity": true,
+      "runtimeBundled": false,
+      "runtimeInstallMode": "skip",
+      "extractedFiles": [
+        "uninstall.exe",
+        "every-directory.exe",
+        "$PLUGINSDIR/LangDLL.dll",
+        "$PLUGINSDIR/nsDialogs.dll",
+        "$PLUGINSDIR/System.dll",
+        "$PLUGINSDIR/nsis_tauri_utils.dll",
+        "$PLUGINSDIR/modern-wizard.bmp",
+        "$PLUGINSDIR/StartMenu.dll"
+      ],
+      "bundleMarkerPatchOnly": true,
+      "signed": false,
+      "realWindowsExecution": false
+    }
+  },
+  "remainingManualChecks": [
+    "Windows 10 and 11 physical-machine Explorer navigation, OS clipboard interoperability and Korean IME",
+    "Windows/macOS actual login auto-start and corporate policy",
+    "Physical keyboard global shortcut and macOS full-screen/multiple Spaces"
+  ],
+  "projectMetadata": {
+    "developerContact": "not assigned in repository",
+    "applicationLicense": "not assigned in repository",
+    "dependencyLicenseEntries": 608,
+    "licenseNoticeFile": "THIRD_PARTY_NOTICES.txt"
+  },
+  "logs": "../../output/verification-v0.7.4/"
+}
