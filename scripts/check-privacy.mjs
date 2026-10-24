@@ -49,12 +49,14 @@ export function checkRepository(history = false) {
   }
   let commits = 0;
   if (history) {
-    for (const line of git(["log","--all","--format=%H%x00%ae%x00%ce"]).trim().split("\n").filter(Boolean)) {
+    // Inspect publishable refs; editor-owned local tree snapshots are not GitHub history.
+    const refs = ["HEAD","--branches","--remotes","--tags"];
+    for (const line of git(["log",...refs,"--format=%H%x00%ae%x00%ce"]).trim().split("\n").filter(Boolean)) {
       const [sha,...emails] = line.split("\0"); commits++;
       if (emails.some(email=>!/@(?:users\.noreply\.github\.com|noreply\.github\.com|github\.com)$/.test(email)))
         findings.push({commit:sha.slice(0,8),kind:"non-noreply-commit-email"});
     }
-    const objects = new Map(git(["rev-list","--objects","--all"]).trim().split("\n").map(line=> {
+    const objects = new Map(git(["rev-list","--objects",...refs]).trim().split("\n").map(line=> {
       const space=line.indexOf(" "); return space<0?[line,""]:[line.slice(0,space),line.slice(space+1)];
     }));
     for (const [sha,file] of objects) {
