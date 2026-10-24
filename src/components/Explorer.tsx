@@ -166,7 +166,7 @@ export function Explorer({
       if (stopped) off(); else unlisten = off;
     }).catch((cause) => { if (!stopped) onError(`파일 드롭을 준비할 수 없습니다: ${String(cause)}`); });
     return () => { stopped = true; unlisten?.(); window.removeEventListener("ed-file-drag", internal); };
-  }, [location.rootId, location.path, root?.demo]);
+  }, [location.rootId, location.path, root?.id, root?.demo]);
   const [showHidden, setShowHidden] = useState(
     readPreference("showHidden", true),
   );

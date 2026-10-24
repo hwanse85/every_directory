@@ -57,7 +57,7 @@
       pane.querySelector(".selection-count").textContent.includes("2개"),
     );
     pane.querySelector('[aria-label="목록 보기"]').click();
-    await until(() => !pane.querySelector(".file-grid"), "목록 복원");
+    await until(() => !pane.querySelector(".file-grid") && pane.querySelector(".selection-count")?.textContent.includes("2개"), "목록 복원과 선택 상태 반영");
     verify(
       "목록 전환 후 선택 유지",
       pane.querySelector(".selection-count").textContent.includes("2개"),

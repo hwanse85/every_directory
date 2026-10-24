@@ -818,7 +818,7 @@ export function FileActions({
               <button
                 className={`button ${dialog === "trash" ? "danger" : "primary"} full-width`}
                 disabled={
-                  busy ||
+                  blocked ||
                   !!previewError ||
                   (dialog === "batchRename" && !preview.length)
                 }

@@ -12,6 +12,8 @@ import { prepare } from "./e2e-fixtures.mjs";
 if (process.platform !== "win32")
   throw new Error("Windows WebView2에서 실행하세요.");
 const suite = process.argv[2] ?? "search";
+await mkdir("test-results/e2e", {recursive:true});
+await writeFile(`test-results/e2e/${suite}.json`,JSON.stringify({suite,passed:false,tests:[],errors:["검증 실행이 완료되지 않았습니다."]}));
 let clipboardGuard;
 if (suite === "clipboard") {
   clipboardGuard = spawn(
@@ -26,7 +28,7 @@ if (suite === "clipboard") {
     ],
     { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
   );
-  await new Promise((resolve, reject) => {
+  const preserved = await new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("클립보드 백업 시간 초과")),
       10000,
@@ -34,12 +36,13 @@ if (suite === "clipboard") {
     clipboardGuard.stdout.on("data", (data) => {
       if (String(data).includes("ED_CLIPBOARD_READY")) {
         clearTimeout(timer);
-        resolve();
+        resolve(true);
       }
     });
     clipboardGuard.once("error", reject);
-    clipboardGuard.once("exit", () => {
+    clipboardGuard.once("exit", (code) => {
       clearTimeout(timer);
+      if (code === 2) { resolve(false); return; }
       reject(
         new Error(
           "원래 클립보드를 안전하게 보존할 수 없어 클립보드 E2E를 중단했습니다.",
@@ -47,6 +50,12 @@ if (suite === "clipboard") {
       );
     });
   });
+  if (!preserved) {
+    const reason = "현재 클립보드 형식을 안전하게 백업할 수 없어 기존 내용을 보존하고 검사를 건너뜁니다.";
+    await writeFile(`test-results/e2e/${suite}.json`,JSON.stringify({suite,passed:false,skipped:true,reason,tests:[],errors:[],finished:new Date().toISOString()},null,2));
+    console.log(reason);
+    process.exit(process.env.CI ? 1 : 77);
+  }
 }
 const temp = await mkdtemp(path.join(os.tmpdir(), `ed-e2e-${suite}-`));
 const root = path.join(temp, "E2E 한글 [1]&'()");
@@ -88,7 +97,7 @@ if (!process.argv.includes("--no-build")) {
 }
 const executable = path.join(temp, "EveryDirectory-e2e.exe");
 await copyFile(
-  path.resolve("src-tauri/target/debug/every-directory.exe"),
+  path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", "debug/every-directory.exe"),
   executable,
 );
 const child = spawn(executable, [], {

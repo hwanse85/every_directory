@@ -32,7 +32,7 @@ child.on("exit", (code) => {
   process.exitCode = code ?? 1;
   if (code === 0 && !process.argv.includes("--debug")) {
     try {
-      assertPrivateBinary(path.resolve("src-tauri/target", ...(cross || process.arch !== "x64" ? ["x86_64-pc-windows-msvc"] : []), "release/every-directory.exe"));
+      assertPrivateBinary(path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", ...(cross || process.arch !== "x64" ? ["x86_64-pc-windows-msvc"] : []), "release/every-directory.exe"));
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   }
 });

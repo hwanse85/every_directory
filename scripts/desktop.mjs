@@ -44,7 +44,7 @@ child.on("exit", (code) => {
     const targetIndex = process.argv.indexOf("--target");
     const target = targetIndex >= 0 ? process.argv[targetIndex + 1] : undefined;
     try {
-      assertPrivateBinary(path.resolve("src-tauri/target", ...(target ? [target] : []), "release", process.platform === "win32" ? "every-directory.exe" : "every-directory"));
+      assertPrivateBinary(path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", ...(target ? [target] : []), "release", process.platform === "win32" ? "every-directory.exe" : "every-directory"));
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   }
 });

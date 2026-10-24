@@ -12,6 +12,13 @@
   const pane = n => document.querySelector(`.explorer-pane[aria-label="탐색창 ${n}"]`);
   const row = (p, name) => [...p.querySelectorAll(".file-row")].find(x => x.title.endsWith(`\\${name}`));
   const point = el => { const r = el.getBoundingClientRect(); return {clientX:r.left+r.width/2, clientY:r.top+r.height/2}; };
+  async function ready() {
+    await until(() => [pane(1),pane(2)].every(p => {
+      const control=p?.querySelector('[aria-label="추가 파일 도구"]');
+      const folder=row(p,"문서");
+      return control && !control.disabled && folder?.getBoundingClientRect().height > 0;
+    }),"드롭 대상 목록 준비");
+  }
   function pointer(source, destination, cancel = false) {
     const a = point(source), b = point(destination);
     source.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true, button:0, pointerId:1, ...a}));
@@ -28,16 +35,20 @@
     await until(() => pane(2)?.querySelector(".file-row"), "목록 초기화");
     const root = (await invoke("ed_request", {kind:"init",payload:{}}))[0];
     const list = path => invoke("ed_request", {kind:"list",payload:{rootId:root.id,path}});
+    await ready();
     pointer(row(pane(1), "업무 보고서.txt"), row(pane(2), "대상"), true);
     await new Promise(r => setTimeout(r, 80));
     verify("Escape로 드래그 취소", !document.querySelector("dialog[open]") && !document.querySelector(".file-drag-ghost"));
+    await ready();
     pointer(row(pane(1), "업무 보고서.txt"), row(pane(2), "대상"));
     await confirm();
     verify("포인터 드래그로 폴더 행에 복사", (await list("대상")).some(x => x.name === "업무 보고서.txt"));
+    await ready();
     pointer(row(pane(1), "업무 보고서.txt"), row(pane(2), "대상"));
     await confirm();
     verify("드래그 중복 이름은 번호 사본 생성", (await list("대상")).some(x => x.name === "업무 보고서 (1).txt"));
     // 외부 OS 파일 경로를 Tauri가 전달하는 이벤트와 같은 대상으로 보낸다.
+    await ready();
     const destination = row(pane(2), "문서");
     const p = point(destination);
     const paths = [root.absolutePath.replace(/[\\/][^\\/]+$/, "") + "\\외부 드롭.txt"];
