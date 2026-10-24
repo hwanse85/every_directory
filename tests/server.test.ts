@@ -33,10 +33,12 @@ test("local scanning persists metadata, skips links, and isolates connected path
       path.join(directory, "node_modules", "ignored.txt"),
       "skip",
     );
-    await writeFile(path.join(temporary, "outside.txt"), "private");
+    await mkdir(path.join(temporary, "outside"));
+    await writeFile(path.join(temporary, "outside", "secret.txt"), "private");
     await symlink(
-      path.join(temporary, "outside.txt"),
+      path.join(temporary, "outside"),
       path.join(directory, "link.txt"),
+      process.platform === "win32" ? "junction" : "dir",
     );
     await files.initialize();
     const root = await files.scan({ absolutePath: directory });
@@ -100,11 +102,16 @@ test("file access rejects a symlink substituted after indexing", async () => {
     await mkdir(directory);
     const filename = path.join(directory, "notes.txt");
     await writeFile(filename, "inside");
-    await writeFile(path.join(temporary, "secret.txt"), "outside");
+    await mkdir(path.join(temporary, "secret"));
+    await writeFile(path.join(temporary, "secret", "notes.txt"), "outside");
     await files.initialize();
     const root = await files.scan({ absolutePath: directory });
     await rm(filename);
-    await symlink(path.join(temporary, "secret.txt"), filename);
+    await symlink(
+      path.join(temporary, "secret"),
+      filename,
+      process.platform === "win32" ? "junction" : "dir",
+    );
     await assert.rejects(files.resolveEntry(root.id, "notes.txt"), /밖/);
   } finally {
     await files.close();

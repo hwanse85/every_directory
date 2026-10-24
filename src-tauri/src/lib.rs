@@ -62,6 +62,10 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
         }
         "init" => serde_json::to_value(engine.roots()).map_err(|e| e.to_string()),
         "licenseNotices" => Ok(json!(include_str!("../../THIRD_PARTY_NOTICES.txt"))),
+        "openExternalLink" => {
+            operations::open_external_link(payload["url"].as_str().ok_or("링크가 필요합니다.")?)?;
+            Ok(Value::Null)
+        }
         "status" => Ok(engine.status()),
         "quickAccess" => quick_access::request(engine, payload),
         "quickSuggestions" => quick_access::suggestions(engine),
@@ -85,6 +89,10 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
                 serde_json::from_value(payload).map_err(|e| e.to_string())?;
             serde_json::to_value(engine.store.lock().unwrap().index.search(&options)?)
                 .map_err(|e| e.to_string())
+        }
+        "directoryLocation" => {
+            let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
+            serde_json::to_value(engine.directory_location(&location)?).map_err(|e| e.to_string())
         }
         "list" => {
             let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
@@ -297,6 +305,7 @@ async fn paste_files(
     let owner = 0;
     let engine = engine.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let sequence = file_clipboard::sequence();
         let paths = file_clipboard::read_files(owner)?;
         if paths.is_empty() { return Err("복사된 파일이 없습니다. Finder 또는 탐색기에서 파일을 먼저 복사해 주세요.".into()); }
         if let Some(clipboard) = clipboard {
@@ -304,6 +313,7 @@ async fn paste_files(
             let native = paths.iter().map(|path| path.canonicalize().map_err(|error| error.to_string())).collect::<Result<Vec<_>, _>>()?;
             if selected.as_ref().is_ok_and(|selected| selected.len() == native.len() && selected.iter().all(|path| native.contains(path))) {
                 let result = operations::operate(&engine, serde_json::from_value(json!({"action":if clipboard.cut { "move" } else { "copy" },"entries":clipboard.entries,"destination":destination})).map_err(|error| error.to_string())?)?;
+                if clipboard.cut { file_clipboard::finish_cut(owner, sequence); }
                 return Ok(json!({"result":result,"cut":clipboard.cut}));
             }
         }
@@ -312,6 +322,24 @@ async fn paste_files(
 }
 
 // 등록된 파일만 범위 요청으로 읽어 미리보기로 전달한다.
+#[tauri::command]
+async fn import_files(
+    window: tauri::WebviewWindow,
+    engine: State<'_, Arc<Engine>>,
+    paths: Vec<std::path::PathBuf>,
+    destination: Location,
+) -> Result<Value, String> {
+    if window.label() != "main" {
+        return Err("파일 가져오기는 메인 탐색창에서 실행해 주세요.".into());
+    }
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        operations::paste_external(&engine, &paths, &destination)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 pub fn file_response(engine: &Engine, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let result = (|| -> Result<Response<Vec<u8>>, String> {
         let decoded =
@@ -436,6 +464,11 @@ pub fn run() {
             if let Some(data) = std::env::var_os("EVERY_DIRECTORY_DATA") {
                 window.data_directory = Some(std::path::PathBuf::from(data).join("webview"));
             }
+            if std::env::var_os("EVERY_DIRECTORY_WINDOWS_UI").is_some()
+                || std::env::var_os("EVERY_DIRECTORY_E2E_SUITE").is_some()
+            {
+                window.visible = false;
+            }
         }
         context
     };
@@ -515,8 +548,37 @@ pub fn run() {
             }
             #[cfg(not(feature = "smoke-test"))]
             let _ = (webview, payload);
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("drag") {
+                let _ = webview.eval(include_str!("../../scripts/drag-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("grid") {
+                let _ = webview.eval(include_str!("../../scripts/grid-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("clipboard") {
+                let _ = webview.eval(include_str!("../../scripts/clipboard-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("actions") {
+                let _ = webview.eval(include_str!("../../scripts/actions-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("desktop") {
+                let _ = webview.eval("window.__edE2E=true;");
+                let _ = webview.eval(include_str!("../../scripts/desktop-smoke.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("search") {
+                let _ = webview.eval(include_str!("../../scripts/search-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var_os("EVERY_DIRECTORY_WINDOWS_UI").is_some() {
+                let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
+            }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, quick_search, copy_files, paste_files, desktop::desktop_control, desktop::quick_control])
+        .invoke_handler(tauri::generate_handler![ed_request, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

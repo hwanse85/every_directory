@@ -1,6 +1,6 @@
 [package]
 name = "every-directory"
-version = "0.7.4"
+version = "0.7.6"
 edition = "2021"
 description = "로컬 파일 검색과 다중 탐색창"
 

@@ -46,6 +46,7 @@ pub fn entry(engine: &Engine, location: &Location) -> Result<Entry, String> {
             extension: String::new(),
             size: None,
             modified: 0,
+            hidden: false,
         });
     }
     snapshot

@@ -10,6 +10,9 @@ import { validateName } from "../src/rename";
 const require = createRequire(import.meta.url);
 let recognizing = false;
 
+// libvips의 열린 파일 캐시가 Windows에서 변환 직후 이동·삭제를 막지 않게 한다.
+if (process.platform === "win32") sharp.cache({ files: 0 });
+
 // 이미지 형식·파일 크기·픽셀 수를 제한한 디코더를 준비한다.
 async function imageInput(filename: string) {
   const info = await lstat(filename);

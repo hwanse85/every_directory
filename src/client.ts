@@ -12,6 +12,12 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 export const isDesktop = isTauri();
 export const supportsOCR = !isDesktop;
 
+export async function openExternalLink(url: string): Promise<void> {
+  if (isDesktop)
+    await invoke("ed_request", { kind: "openExternalLink", payload: { url } });
+  else window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export interface DesktopStatus {
   keepRunning: boolean;
   shortcutError?: string;
@@ -69,6 +75,10 @@ export async function pasteFiles(
   clipboard?: FileClipboard,
 ): Promise<{ cut: boolean }> {
   return invoke("paste_files", { destination, clipboard });
+}
+
+export async function importDroppedFiles(paths: string[], destination: Location): Promise<void> {
+  await invoke("import_files", { paths, destination });
 }
 
 // 모든 창이 공유하는 즐겨찾기와 최근 기록을 변경한다.

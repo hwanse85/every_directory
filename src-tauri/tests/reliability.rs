@@ -65,8 +65,71 @@ fn external_paste_preserves_sources_and_existing_destinations() {
         fs::read(&source).unwrap()
     );
     assert!(source.is_file());
-    assert!(operations::paste_external(&engine, &[source], &destination).is_err());
-    assert_eq!(engine.list(&destination).unwrap().len(), 1);
+    operations::paste_external(&engine, &[source.clone()], &destination).unwrap();
+    operations::paste_external(&engine, &[source], &destination).unwrap();
+    assert_eq!(engine.list(&destination).unwrap().len(), 3);
+    assert_eq!(
+        fs::read_to_string(root.join("대상/외부 문서 (2).txt")).unwrap(),
+        "external bytes"
+    );
+}
+
+#[test]
+fn numbered_copies_preserve_folders_extensions_and_batch_names() {
+    let (temp, engine, id, root) = fixture();
+    let here = Location {
+        root_id: id.clone(),
+        path: String::new(),
+    };
+    let dest = Location {
+        root_id: id.clone(),
+        path: "대상".into(),
+    };
+    for _ in 0..3 {
+        dispatch(&engine, "operation", json!({"action":"copy","entries":[{"rootId":id,"path":"업무 보고서.txt"}],"destination":here})).unwrap();
+    }
+    for number in 1..=3 {
+        assert_eq!(
+            fs::read_to_string(root.join(format!("업무 보고서 ({number}).txt"))).unwrap(),
+            "보고서 내용"
+        );
+    }
+    // 점이 있는 폴더명은 파일 확장자로 취급하지 않는다.
+    let folder = temp.path().join("자료.v1");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("원본.txt"), "nested").unwrap();
+    for _ in 0..2 {
+        operations::paste_external(&engine, &[folder.clone()], &dest).unwrap();
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("대상/자료.v1 (1)/원본.txt")).unwrap(),
+        "nested"
+    );
+    // 서로 다른 디렉터리의 같은 이름도 한 번의 가져오기에서 번호를 예약한다.
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    fs::create_dir(&a).unwrap();
+    fs::create_dir(&b).unwrap();
+    fs::write(a.join("same.txt"), "a").unwrap();
+    fs::write(b.join("same.txt"), "b").unwrap();
+    operations::paste_external(&engine, &[a.join("same.txt"), b.join("same.txt")], &dest).unwrap();
+    assert_eq!(fs::read_to_string(root.join("대상/same.txt")).unwrap(), "a");
+    assert_eq!(
+        fs::read_to_string(root.join("대상/same (1).txt")).unwrap(),
+        "b"
+    );
+    // 자신의 하위 폴더에는 재귀 복사가 생기지 않으며 같은 폴더 잘라내기는 원본을 유지한다.
+    assert!(dispatch(
+        &engine,
+        "operation",
+        json!({"action":"copy","entries":[{"rootId":id,"path":"대상"}],"destination":dest})
+    )
+    .is_err());
+    dispatch(&engine,"operation",json!({"action":"move","entries":[{"rootId":id,"path":"업무 보고서.txt"}],"destination":here})).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("업무 보고서.txt")).unwrap(),
+        "보고서 내용"
+    );
 }
 
 // 이전 설정 파일에도 새 기본값을 적용하고 사용자의 자동 시작 해제는 유지한다.

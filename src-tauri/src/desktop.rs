@@ -143,7 +143,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "smoke-test")]
     let quick_window = quick_window
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .data_store_identifier(*uuid::Uuid::new_v4().as_bytes());
+        .data_store_identifier(*uuid::Uuid::new_v4().as_bytes())
+        .data_directory(engine.data.join("webview-quick"));
     let quick_window = quick_window.build()?;
     #[cfg(target_os = "macos")]
     {

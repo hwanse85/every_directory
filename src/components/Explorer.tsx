@@ -1,5 +1,6 @@
-import { writeClipboard, isDesktop } from "../client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { writeClipboard, isDesktop, importDroppedFiles } from "../client";
+import type { FileDrag } from "../fileDrag";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -18,12 +19,12 @@ import {
   Star,
   X,
   EyeOff,
+  Palette,
 } from "lucide-react";
 import type { IndexClient } from "../client";
 import type {
   ConnectedRoot,
   ExplorerPane,
-  ExplorerTab,
   FileEntry,
   Location,
   FileClipboard,
@@ -37,6 +38,16 @@ import { Modal } from "./Modal";
 import { WorkbenchTools, type AnalysisKind } from "./WorkbenchTools";
 import { exportEntries } from "../export";
 import { readPreference, savePreference } from "../storage";
+import {
+  addressLocation,
+  fileUri,
+  locationLabel,
+  locationPath,
+} from "../paths";
+import { tabColor } from "../tabs";
+import { filenameFilter } from "../search";
+import { normalizeSearchInput, searchInputValue } from "../quickSearch";
+export { createTab, createPane } from "../tabs";
 
 interface Props {
   pane: ExplorerPane;
@@ -63,22 +74,6 @@ interface Props {
   otherPane?: { location: Location; label: string };
   onNavigateOther: (location: Location) => void;
   onRevealLocation: (location: Location) => void;
-}
-
-// 현재 위치로 독립된 이동 기록을 가진 새 탭을 만든다.
-export function createTab(location: Location): ExplorerTab {
-  return { id: crypto.randomUUID(), history: [location], cursor: 0 };
-}
-
-// 기본 위치와 하나의 탭을 가진 탐색창을 만든다.
-export function createPane(location: Location): ExplorerPane {
-  const tab = createTab(location);
-  return {
-    id: crypto.randomUUID(),
-    tabs: [tab],
-    activeTab: tab.id,
-    view: "list",
-  };
 }
 
 // 각 탐색창의 탭, 경로, 이동 기록과 파일 목록을 표시한다.
@@ -122,12 +117,56 @@ export function Explorer({
   const addressRef = useRef<HTMLInputElement>(null);
   const revealed = useRef<FileEntry | undefined>(undefined);
   const [filter, setFilter] = useState("");
+  const composingFilter = useRef(false);
+  const filterRef = useRef<HTMLInputElement>(null);
   const [tree, setTree] = useState(false);
   const [context, setContext] = useState<{ x: number; y: number }>();
   const [localTool, setLocalTool] = useState<ToolRequest>();
   const [transfer, setTransfer] = useState<Location[]>();
+  const [externalTransfer, setExternalTransfer] = useState<string[]>();
+  const [transferDestination, setTransferDestination] = useState<Location>();
+  const paneRef = useRef<HTMLElement>(null);
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
+  useEffect(() => {
+    const targetAt = (x: number, y: number): Location | undefined => {
+      if (!root || root.demo || document.querySelector("dialog[open]")) return;
+      const element = document.elementFromPoint(x, y);
+      if (element?.closest(".explorer-pane") !== paneRef.current) return;
+      const folder = element?.closest<HTMLElement>("[data-drop-location]")?.dataset.dropLocation;
+      return folder ? JSON.parse(folder) as Location : location;
+    };
+    const internal = (event: Event) => {
+      const detail = (event as CustomEvent<FileDrag>).detail;
+      const target = targetAt(detail.x, detail.y);
+      setDrop(detail.phase === "over" && !!target);
+      if (detail.phase === "drop" && target) {
+        setTransferDestination(target);
+        setTransferError("");
+        setTransfer(detail.entries);
+        onActivate();
+      }
+    };
+    window.addEventListener("ed-file-drag", internal);
+    let stopped = false;
+    let unlisten: (() => void) | undefined;
+    if (isDesktop) void import("@tauri-apps/api/webview").then(async ({getCurrentWebview}) => {
+      const off = await getCurrentWebview().onDragDropEvent(({payload}) => {
+        if (stopped) return;
+        if (payload.type === "leave") { setDrop(false); return; }
+        const target = targetAt(payload.position.x / window.devicePixelRatio, payload.position.y / window.devicePixelRatio);
+        setDrop(payload.type !== "drop" && !!target);
+        if (payload.type === "drop" && target && payload.paths.length) {
+          setTransferDestination(target);
+          setTransferError("");
+          setExternalTransfer(payload.paths);
+          onActivate();
+        }
+      });
+      if (stopped) off(); else unlisten = off;
+    }).catch((cause) => { if (!stopped) onError(`파일 드롭을 준비할 수 없습니다: ${String(cause)}`); });
+    return () => { stopped = true; unlisten?.(); window.removeEventListener("ed-file-drag", internal); };
+  }, [location.rootId, location.path, root?.demo]);
   const [showHidden, setShowHidden] = useState(
     readPreference("showHidden", true),
   );
@@ -136,10 +175,11 @@ export function Explorer({
   const handledExternal = useRef<number | undefined>(undefined);
   const handledLocal = useRef<number | undefined>(undefined);
   const closeContext = useCallback(() => setContext(undefined), []);
+  const matchesFilter = useMemo(() => filenameFilter(filter), [filter]);
   const visibleEntries = entries.filter(
     (entry) =>
-      (showHidden || !entry.name.startsWith(".")) &&
-      entry.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
+      (showHidden || !(entry.hidden || entry.name.startsWith("."))) &&
+      matchesFilter(entry.name),
   );
   useEffect(() => {
     savePreference("showHidden", showHidden);
@@ -219,13 +259,11 @@ export function Explorer({
     ) {
       const text = selection
         .map((item) => {
-          const base =
-            roots.find((root) => root.id === item.rootId)?.absolutePath ?? "";
-          const separator = base.includes("\\") ? "\\" : "/";
-          const path = `${base.replace(/[\\/]+$/, "")}${separator}${item.path.split("/").join(separator)}`;
-          const uri = base.includes("\\")
-            ? `file:///${path.replaceAll("\\", "/").split("/").map(encodeURIComponent).join("/").replace(/%3A/i, ":")}`
-            : `file://${path.split("/").map(encodeURIComponent).join("/")}`;
+          const path = locationPath(
+            roots.find((root) => root.id === item.rootId),
+            item.path,
+          );
+          const uri = fileUri(path);
           return action === "copyName"
             ? item.name
             : action === "copyRelativePath"
@@ -249,14 +287,78 @@ export function Explorer({
       if (
         !active ||
         event.defaultPrevented ||
-        document.querySelector('dialog[open],[role="menu"]') ||
-        (event.target instanceof Element &&
-          event.target.closest("input,textarea,select,[contenteditable=true]"))
+        event.isComposing ||
+        document.querySelector('dialog[open],[role="menu"]')
       )
         return;
       const modifier = event.metaKey || event.ctrlKey;
+      if (modifier && !event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        filterRef.current?.focus();
+        filterRef.current?.select();
+        return;
+      }
+      if (modifier && !event.altKey && event.key === "Tab") {
+        event.preventDefault();
+        const index = pane.tabs.findIndex(item => item.id === tab.id);
+        const next = (index + (event.shiftKey ? pane.tabs.length - 1 : 1)) % pane.tabs.length;
+        onChange({...pane, activeTab:pane.tabs[next].id});
+        return;
+      }
+      if (
+        (modifier &&
+          !event.shiftKey &&
+          !event.altKey &&
+          event.key.toLowerCase() === "l") ||
+        (event.altKey && !modifier && event.key.toLowerCase() === "d") ||
+        (event.key === "F4" && !modifier && !event.altKey)
+      ) {
+        event.preventDefault();
+        setAddress(locationPath(root, location.path));
+        return;
+      }
+      if (
+        event.target instanceof Element &&
+        event.target.closest("input,textarea,select,[contenteditable=true]")
+      )
+        return;
+      if (event.key === "Backspace" && !modifier && !event.altKey && location.path) {
+        event.preventDefault();
+        onNavigate({ rootId: location.rootId, path: location.path.split("/").slice(0, -1).join("/") });
+        return;
+      }
+      if (
+        modifier &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "w"
+      ) {
+        event.preventDefault();
+        closeTab(tab.id);
+        return;
+      }
+      if (
+        event.altKey &&
+        !modifier &&
+        ["ArrowLeft", "ArrowRight", "ArrowUp"].includes(event.key)
+      ) {
+        event.preventDefault();
+        if (event.key === "ArrowLeft" && tab.cursor > 0) travel(-1);
+        if (event.key === "ArrowRight" && tab.cursor < tab.history.length - 1)
+          travel(1);
+        if (event.key === "ArrowUp" && location.path)
+          onNavigate({
+            rootId: location.rootId,
+            path: location.path.split("/").slice(0, -1).join("/"),
+          });
+        return;
+      }
       let action: ToolRequest["action"] | undefined;
-      if (event.key === "F5") action = "copyOtherPane";
+      if (event.key === "F5")
+        action =
+          /Mac/.test(navigator.platform) || event.shiftKey
+            ? "copyOtherPane"
+            : "refresh";
       else if (event.key === "F7") action = "moveOtherPane";
       else if (modifier && event.shiftKey && event.key.toLowerCase() === "c")
         action = "copyPath";
@@ -277,7 +379,7 @@ export function Explorer({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [active]);
+  }, [active, pane, root, location, onNavigate, onChange]);
 
   useEffect(() => {
     let alive = true;
@@ -324,8 +426,11 @@ export function Explorer({
     setSelection([]);
   }, [location.rootId, location.path, filter]);
   useEffect(() => {
-    if (address !== undefined) addressRef.current?.focus();
-  }, [address]);
+    if (address !== undefined) {
+      addressRef.current?.focus();
+      addressRef.current?.select();
+    }
+  }, [address !== undefined]);
   useEffect(() => {
     if (!revealEntry) revealed.current = undefined;
     else if (revealed.current !== revealEntry) {
@@ -335,7 +440,7 @@ export function Explorer({
           setFilter("");
           return;
         }
-        if (target.name.startsWith(".")) setShowHidden(true);
+        if (target.hidden || target.name.startsWith(".")) setShowHidden(true);
         setSelected(target);
         setSelection([target]);
         revealed.current = revealEntry;
@@ -368,12 +473,7 @@ export function Explorer({
   // 실제 경로를 클립보드에 복사한다.
   async function copyPath() {
     try {
-      const base = root?.absolutePath ?? root?.name ?? "";
-      const separator = base.includes("\\") ? "\\" : "/";
-      const actualPath = location.path
-        ? `${base.replace(/[\\/]+$/, "")}${separator}${location.path.split("/").join(separator)}`
-        : base;
-      await writeClipboard(actualPath);
+      await writeClipboard(locationPath(root, location.path));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -392,16 +492,18 @@ export function Explorer({
 
   // 다른 탐색창에서 끌어온 파일을 현재 폴더에 복사하거나 이동한다.
   async function transferFiles(move: boolean) {
-    if (!transfer || transferring) return;
+    if ((!transfer && !externalTransfer) || transferring) return;
     setTransferError("");
     setTransferring(true);
     try {
-      await client.request("operation", {
+      if (externalTransfer) await importDroppedFiles(externalTransfer, transferDestination ?? location);
+      else await client.request("operation", {
         action: move ? "move" : "copy",
         entries: transfer,
-        destination: location,
+        destination: transferDestination ?? location,
       });
       setTransfer(undefined);
+      setExternalTransfer(undefined);
       onChanged();
       onMessage(`${move ? "이동" : "복사"}를 완료했습니다.`);
     } catch (cause) {
@@ -436,6 +538,7 @@ export function Explorer({
 
   return (
     <section
+      ref={paneRef}
       className={`explorer-pane ${active ? "active" : ""} ${drop ? "drop-target" : ""}`}
       aria-label={`탐색창 ${number}`}
       onPointerDown={onActivate}
@@ -463,6 +566,8 @@ export function Explorer({
           if (!root || root.demo || !Array.isArray(files) || !files.length)
             return;
           setTransferError("");
+          const folder = (e.target as Element).closest<HTMLElement>("[data-drop-location]")?.dataset.dropLocation;
+          setTransferDestination(folder ? JSON.parse(folder) : location);
           setTransfer(files);
         } catch {
           onError("이 항목을 열 수 없습니다.");
@@ -479,17 +584,18 @@ export function Explorer({
             const loc = t.history[t.cursor];
             const name =
               loc.path.split("/").pop() ||
-              roots.find((r) => r.id === loc.rootId)?.name ||
+              locationLabel(roots.find((r) => r.id === loc.rootId)) ||
               "폴더";
+            const color = tabColor(t.color);
             return (
               <div
                 className={`explorer-tab ${t.id === tab.id ? "current" : ""}`}
                 key={t.id}
                 style={
-                  t.color && /^#[0-9a-f]{6}$/i.test(t.color)
+                  color
                     ? {
-                        borderTopColor: t.color,
-                        backgroundColor: `${t.color}22`,
+                        borderTopColor: color,
+                        backgroundColor: `${color}22`,
                       }
                     : undefined
                 }
@@ -503,36 +609,58 @@ export function Explorer({
                   <Folder size={14} />
                   <span>{name}</span>
                 </button>
-                <input
-                  className="tab-color-picker"
-                  type="color"
-                  aria-label={`${name} 탭 색상`}
-                  title="탭 색상 변경 · 오른쪽 클릭으로 기본색 복원"
-                  value={
-                    t.color && /^#[0-9a-f]{6}$/i.test(t.color)
-                      ? t.color
-                      : "#6389c6"
-                  }
-                  onChange={(event) =>
-                    onChange({
-                      ...pane,
-                      tabs: pane.tabs.map((item) =>
-                        item.id === t.id
-                          ? { ...item, color: event.target.value }
-                          : item,
-                      ),
-                    })
-                  }
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    onChange({
-                      ...pane,
-                      tabs: pane.tabs.map((item) =>
-                        item.id === t.id ? { ...item, color: undefined } : item,
-                      ),
-                    });
-                  }}
-                />
+                <label
+                  className={`tab-color-control ${color ? "has-color" : "no-color"}`}
+                  title={color ? "탭 색상 변경" : "색상 미지정 · 탭 색상 선택"}
+                >
+                  {!color && <Palette size={12} aria-hidden="true" />}
+                  <input
+                    className="tab-color-picker"
+                    type="color"
+                    aria-label={`${name} 탭 색상`}
+                    value={color ?? "#6389c6"}
+                    onChange={(event) =>
+                      onChange({
+                        ...pane,
+                        tabs: pane.tabs.map((item) =>
+                          item.id === t.id
+                            ? { ...item, color: event.target.value }
+                            : item,
+                        ),
+                      })
+                    }
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      onChange({
+                        ...pane,
+                        tabs: pane.tabs.map((item) =>
+                          item.id === t.id
+                            ? { ...item, color: undefined }
+                            : item,
+                        ),
+                      });
+                    }}
+                  />
+                </label>
+                {color && (
+                  <button
+                    className="clear-tab-color"
+                    aria-label={`${name} 탭 색상 해제`}
+                    title="탭 색상 해제"
+                    onClick={() =>
+                      onChange({
+                        ...pane,
+                        tabs: pane.tabs.map((item) =>
+                          item.id === t.id
+                            ? { ...item, color: undefined }
+                            : item,
+                        ),
+                      })
+                    }
+                  >
+                    <X size={10} />
+                  </button>
+                )}
                 {pane.tabs.length > 1 && (
                   <button
                     className="close-tab"
@@ -609,26 +737,12 @@ export function Explorer({
             className="address-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              const cleaned = address
-                .replaceAll("\\", "/")
-                .replace(/^\/+|\/+$/g, "");
-              const absoluteRoot = root?.absolutePath
-                ?.replaceAll("\\", "/")
-                .replace(/^\/+|\/+$/g, "");
-              const base =
-                absoluteRoot &&
-                cleaned.toLowerCase().startsWith(absoluteRoot.toLowerCase())
-                  ? absoluteRoot
-                  : (root?.name ?? "");
-              const path =
-                cleaned.toLowerCase() === base.toLowerCase()
-                  ? ""
-                  : cleaned.toLowerCase().startsWith(base.toLowerCase() + "/")
-                    ? cleaned.slice(base.length + 1)
-                    : cleaned;
               try {
-                await client.request("list", { rootId: location.rootId, path });
-                onNavigate({ rootId: location.rootId, path });
+                const target = await client.request<Location>(
+                  "directoryLocation",
+                  addressLocation(address, roots, location.rootId),
+                );
+                onNavigate(target);
                 setAddress(undefined);
               } catch (cause) {
                 onError(
@@ -654,13 +768,13 @@ export function Explorer({
           <div
             className="breadcrumbs"
             title="두 번 클릭해 경로 복사 또는 입력"
-            onDoubleClick={() => setAddress(`${root?.name}/${location.path}`)}
+            onDoubleClick={() => setAddress(locationPath(root, location.path))}
           >
             <Folder size={14} />
             <button
               onClick={() => onNavigate({ rootId: location.rootId, path: "" })}
             >
-              {root?.name || "폴더"}
+              {locationLabel(root) || "폴더"}
             </button>
             {location.path
               .split("/")
@@ -761,9 +875,21 @@ export function Explorer({
         </button>
         <input
           aria-label={`탐색창 ${number} 파일 필터`}
+          ref={filterRef}
           placeholder="현재 폴더에서 필터…"
+          title="이름 일부·한글 초성·와일드카드로 필터"
+          maxLength={512}
           value={filter}
-          onChange={(event) => setFilter(event.target.value)}
+          onCompositionStart={() => { composingFilter.current = true; }}
+          onCompositionEnd={(event) => { composingFilter.current = false; setFilter(normalizeSearchInput(event.currentTarget.value, "initials")); }}
+          onChange={(event) => setFilter(searchInputValue(event.currentTarget, "initials", composingFilter))}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !composingFilter.current && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              setFilter("");
+              paneRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+            }
+          }}
         />
         {!showHidden && (
           <span className="hidden-status" title="숨김 파일을 감추고 있습니다">
@@ -900,18 +1026,18 @@ export function Explorer({
           </footer>
         </Modal>
       )}
-      {transfer && (
+      {(transfer || externalTransfer) && (
         <Modal
           title="파일 가져오기"
-          subtitle={`${transfer.length}개 항목 → ${root?.name}/${location.path}`}
+          subtitle={`${transfer?.length ?? externalTransfer?.length}개 항목 → ${locationPath(root, (transferDestination ?? location).path)}`}
           onClose={() => {
-            if (!transferring) setTransfer(undefined);
+            if (!transferring) { setTransfer(undefined); setExternalTransfer(undefined); }
           }}
         >
           <div className="modal-content">
             <p>
-              현재 폴더에 파일을 복사하거나 이동합니다. 같은 이름의 파일이
-              있으면 덮어쓰지 않고 오류를 표시합니다.
+              선택한 폴더로 파일을 가져옵니다. 복사할 때 같은 이름이 있으면 (1), (2) 순서로 이름을 붙입니다.
+              {externalTransfer ? " 외부 파일은 원본을 보존하여 복사합니다." : " 이동할 때 이름이 충돌하면 기존 파일을 보호하고 안내합니다."}
             </p>
             {transferError && (
               <p className="operation-error" role="alert">
@@ -923,13 +1049,13 @@ export function Explorer({
             <button
               className="button secondary"
               disabled={transferring}
-              onClick={() => setTransfer(undefined)}
+              onClick={() => { setTransfer(undefined); setExternalTransfer(undefined); }}
             >
               취소
             </button>
             <button
               className="button secondary"
-              disabled={transferring}
+              disabled={transferring || !!externalTransfer}
               onClick={() => void transferFiles(true)}
             >
               이동

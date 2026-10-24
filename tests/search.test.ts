@@ -1,12 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FileIndex } from "../src/search";
+import { FileIndex, filenameFilter } from "../src/search";
 import { createDemoEntries } from "../src/demo";
 import type { FileEntry, SearchOptions } from "../src/types";
 
 const index = new FileIndex();
 const entries = createDemoEntries();
 index.replace(entries);
+
+test("folder filters support composed, pasted, mixed and tense Korean initials", () => {
+  for (const query of ["ㅂㄱㅅ", "ᄇᄀᄉ", "ﾲﾡﾵ", "보고ㅅ"]) assert.ok(filenameFilter(query)("업무 보고서.txt"), query);
+  assert.ok(filenameFilter("ㅆㄹㅁㅇㄷ")("쏠리마인드.txt"));
+  assert.ok(!filenameFilter("ㅆㄹㅁㅇㄷ")("업무 보고서.txt"));
+});
 
 // 필터 기본값을 포함한 검색을 수행한다.
 function search(query: string, extra: Partial<SearchOptions> = {}) {

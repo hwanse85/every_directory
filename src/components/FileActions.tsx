@@ -87,6 +87,9 @@ export function FileActions({
 }) {
   const [imageTool, setImageTool] = useState<"resizeImages" | "ocr">();
   const handledTool = useRef<number | undefined>(undefined);
+  const pendingTool = useRef<{ id: number; location: string } | undefined>(
+    undefined,
+  );
   const [dialog, setDialog] = useState<ActionDialog>();
   const [name, setName] = useState("");
   const [rule, setRule] = useState<RenameRule>(initialRule);
@@ -244,6 +247,15 @@ export function FileActions({
 
   useEffect(() => {
     if (!toolRequest || handledTool.current === toolRequest.id) return;
+    const key = JSON.stringify(location);
+    if (pendingTool.current?.id !== toolRequest.id)
+      pendingTool.current = { id: toolRequest.id, location: key };
+    if (pendingTool.current.location !== key) {
+      handledTool.current = toolRequest.id;
+      return;
+    }
+    // 인덱스 갱신 중 들어온 메뉴 요청을 소비하지 않고 같은 위치의 목록이 준비되면 실행한다.
+    if (disabled || busy) return;
     handledTool.current = toolRequest.id;
     const action = toolRequest.action;
     if (
@@ -270,10 +282,6 @@ export function FileActions({
       ].includes(action)
     )
       return;
-    if (disabled || busy) {
-      onMessage("파일 목록을 불러온 뒤 다시 시도해 주세요.", true);
-      return;
-    }
     if (
       !["trashList", "mkdir", "mkfile", "paste"].includes(action) &&
       !entries.length
@@ -319,7 +327,7 @@ export function FileActions({
       ].includes(action)
     )
       show(action as ActionDialog);
-  }, [toolRequest]);
+  }, [toolRequest, disabled, busy, entries, location.rootId, location.path]);
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
@@ -335,6 +343,8 @@ export function FileActions({
       const target = event.target instanceof Element ? event.target : undefined;
       if (
         event.defaultPrevented ||
+        event.isComposing || event.keyCode === 229 ||
+        !!target?.closest(".search-table") ||
         !!target?.closest('[role="menu"]') ||
         !active ||
         disabled ||
@@ -349,7 +359,10 @@ export function FileActions({
         return;
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (modifier && event.shiftKey && key === "n") {
+      if (event.altKey && event.key === "Enter" && entries.length) {
+        event.preventDefault();
+        show("properties");
+      } else if (modifier && event.shiftKey && key === "n") {
         event.preventDefault();
         show("mkdir");
       } else if (modifier && !event.shiftKey && key === "d" && entries.length) {

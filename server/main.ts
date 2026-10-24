@@ -198,6 +198,42 @@ const server = http.createServer(async (request, response) => {
           await service.remove(String(payload));
           json(response, null);
           return;
+        case "/api/directoryLocation": {
+          const location = payload as { rootId: string; path: string };
+          if (
+            typeof location.rootId !== "string" ||
+            typeof location.path !== "string"
+          )
+            throw new Error("탐색 경로가 올바르지 않습니다.");
+          let relative = location.path;
+          if (relative) {
+            const candidates = service.index.entries.filter(
+              (entry) =>
+                entry.rootId === location.rootId && entry.kind === "directory",
+            );
+            const entry =
+              candidates.find((entry) => entry.path === relative) ??
+              candidates.find(
+                (entry) =>
+                  process.platform === "win32" &&
+                  entry.path.toLowerCase() === relative.toLowerCase(),
+              );
+            if (!entry)
+              throw new Error(
+                "인덱스에 없는 폴더입니다. 경로를 확인하거나 새로고침해 주세요.",
+              );
+            relative = entry.path;
+          }
+          const target = { rootId: location.rootId, path: relative };
+          if (
+            !service.roots().find((root) => root.id === location.rootId)
+              ?.demo &&
+            !(await stat(await service.resolveLocation(target))).isDirectory()
+          )
+            throw new Error("폴더 경로를 입력해 주세요.");
+          json(response, target);
+          return;
+        }
         case "/api/list": {
           const location = payload as { rootId: string; path: string };
           if (
