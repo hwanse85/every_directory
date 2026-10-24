@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { assertPrivateBinary } from "./check-privacy.mjs";
 
 // Finder 자동화 없이 빌드된 Mac 앱의 설치 이미지와 압축본을 생성한다.
 if (process.platform !== "darwin") throw new Error("macOS에서 실행해 주세요.");
 const root = process.cwd();
 const app = path.join(root, "src-tauri/target/release/bundle/macos/Every Directory.app");
 if (!existsSync(app)) throw new Error("npm run desktop:build -- --bundles app 명령으로 앱을 먼저 빌드해 주세요.");
+assertPrivateBinary(path.join(app, "Contents/MacOS/every-directory"));
 const { version } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const architecture = process.arch === "arm64" ? "aarch64" : process.arch;
 const destination = path.join(root, "src-tauri/target/release/bundle/dmg");

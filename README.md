@@ -1,12 +1,14 @@
 # Every Directory
 
+**한국어** · [English](README.en.md)
+
 로컬 파일 검색과 다중 탐색창을 결합한 **React + Tauri 2 + Rust 데스크톱 앱**입니다. Windows와 macOS용 빌드 구성을 제공합니다. 배포 앱은 Node.js나 HTTP 서버 없이 실행됩니다.
 
 현재 0.7.6 소스는 [Windows 호환성 개선](docs/windows-compatibility.md), [초성 입력·번호 사본·Windows 단축키·드롭 및 E2E 검증](docs/e2e-v0.7.6.md), [앱 정보·라이선스 고지 구분](docs/licensing.md)을 포함합니다. 이전 배포 파일에는 새 변경이 소급 반영되지 않습니다.
 
 ## 실행
 
-0.7.6 Windows 설치본 빌드와 검증 범위는 [0.7.6 안내](docs/e2e-v0.7.6.md)를 참고하세요. 기존에 저장된 배포 파일은 [v0.7.4 배포 안내](docs/releases-v0.7.4.md)에 남아 있습니다.
+0.7.6 Windows 설치본 빌드와 검증 범위는 [0.7.6 안내](docs/e2e-v0.7.6.md)를 참고하세요. 개인 빌드 경로가 포함됐던 v0.7.4 설치 파일은 소스 저장소와 이력에서 제거했습니다. 새 배포 파일은 아래 명령으로 빌드하거나 저장소의 [Actions](https://github.com/hwanse85/every_directory/actions)에서 개인정보 검사를 통과한 빌드의 아티팩트를 이용하세요.
 
 빌드된 macOS 앱은 `src-tauri/target/release/bundle/macos/Every Directory.app`, 설치 이미지는 `src-tauri/target/release/bundle/dmg/`에 생성됩니다. Windows 빌드는 `.msi` 또는 `-setup.exe`를 생성합니다. 각 운영체제와 CPU에 맞는 파일을 사용합니다.
 
@@ -34,7 +36,7 @@ Windows x64 설치 EXE는 다음 명령으로 빌드합니다. macOS 교차 빌�
 npm run desktop:build:windows
 ```
 
-Windows 10·11의 64비트(x64) 환경을 대상으로 빌드합니다. v0.7.4 기본 설치본은 WebView2 런타임을 포함하거나 다운로드하지 않는 경량 설치본입니다. PC에 WebView2가 없으면 전산 담당자가 오프라인 런타임을 먼저 설치해야 합니다. 자세한 내용은 [배포 안내](docs/releases-v0.7.4.md)를 참고하세요. Mac은 운영체제의 WKWebView를 사용합니다. Mac 빌드는 임시 서명을 적용한 로컬 배포본이며 Apple 공증은 하지 않았습니다. Windows 0.7.6은 실제 WebView2·파일 작업·클립보드·키보드 및 IME 입력을 검증합니다. 세부 범위와 제외 항목은 0.7.6 검증 기록을 참고하세요.
+Windows 10·11의 64비트(x64) 환경을 대상으로 빌드합니다. 경량 설치본은 WebView2 런타임을 포함하거나 다운로드하지 않습니다. PC에 WebView2가 없으면 런타임을 먼저 설치해야 합니다. Mac은 운영체제의 WKWebView를 사용합니다. 로컬 Mac 빌드는 임시 서명 상태이며 Apple 공증은 별도입니다. Windows 0.7.6은 실제 WebView2·파일 작업·클립보드·키보드 및 IME 입력을 검증합니다. 세부 범위와 제외 항목은 0.7.6 검증 기록을 참고하세요.
 
 ## 사용 방법
 
@@ -96,6 +98,7 @@ v0.5 전환의 실측 성능, 실제 WebView 검증과 남은 범위는 [전환 
 npm run build
 npm run test:rust
 npm test
+npm run privacy:check -- --history
 ```
 
 20만 항목 검색 벤치마크:
@@ -125,3 +128,9 @@ npm run dev:web
 ## 빠른 파일 검색
 
 macOS의 `Command+Shift+Space`, Windows의 `Ctrl+Shift+Space`로 독립 검색창을 호출합니다. 파일·폴더 열기, Finder/탐색기에서 보기, OS 파일 복사, 경로 복사, 연결 폴더로 복사, 즐겨찾기와 최근 기록을 지원합니다. 설정에서 단축키를 변경할 수 있습니다. 자세한 사용법과 검증 범위는 [빠른 검색 안내](docs/quick-search.md)를 참고하세요.
+
+## 공개 저장소와 개인정보
+
+빌드 스크립트는 개발자 홈·임시 폴더·프로젝트·Rust 도구 경로를 일반 빌드 경로로 치환합니다. CI는 소스·커밋 이메일과 압축 전 실행 파일을 검사한 뒤 배포 아티팩트를 게시합니다. 설치 파일·로컬 인덱스·검증 결과·환경 파일은 Git에 넣지 않습니다. 자세한 정책과 검사 명령은 [개인정보 보호 안내](docs/privacy.md)를 참고하세요.
+
+이전 이력을 이미 복제했다면 정리된 저장소를 새로 clone하세요. 이전 브랜치를 다시 push하면 삭제한 정보가 재노출될 수 있습니다. 오픈소스 저작권 고지는 보존합니다. 앱 자체 라이선스의 현재 상태는 [라이선스 안내](docs/licensing.md)에 설명합니다.

@@ -31,6 +31,12 @@ jobs:
           name: Windows-E2E-reports
           path: test-results/e2e/
       - run: npm run desktop:build
+      - name: Check Windows executable privacy
+        if: runner.os == 'Windows'
+        run: npm run privacy:check -- --binary src-tauri/target/release/every-directory.exe
+      - name: Check macOS executable privacy
+        if: runner.os == 'macOS'
+        run: npm run privacy:check -- --binary "src-tauri/target/release/bundle/macos/Every Directory.app/Contents/MacOS/every-directory"
       - uses: actions/upload-artifact@v4
         with:
           name: EveryDirectory-${{ matrix.os }}

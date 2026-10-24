@@ -18,6 +18,8 @@ output/
 .vscode/
 *.log
 
-# 최초 업로드에는 최신 배포본만 보관한다.
-/releases/*
-!/releases/v0.7.4/
+# Store distributable binaries in checked release artifacts, not source history.
+*.exe
+*.dmg
+*.zip
+*.pdb

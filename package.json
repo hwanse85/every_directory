@@ -18,6 +18,7 @@
     "test:windows-ui": "node scripts/test-windows-ui.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "licenses:check": "node scripts/check-licenses.mjs",
+    "privacy:check": "node scripts/check-privacy.mjs",
     "desktop:package:mac": "node scripts/package-macos.mjs",
     "desktop:build:windows": "node scripts/package-windows.mjs"
   },

@@ -153,8 +153,10 @@ fn windows_hidden_attribute_and_literal_terminal_paths() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // Hosted runners may expose TEMP through an 8.3 alias while PowerShell returns its long path.
+    let reported = String::from_utf8_lossy(&output.stdout);
     assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim_start_matches('\u{feff}'),
-        root.to_string_lossy()
+        Path::new(reported.trim_start_matches('\u{feff}')).canonicalize().unwrap(),
+        root.canonicalize().unwrap()
     );
 }
