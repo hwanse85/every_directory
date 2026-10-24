@@ -32,39 +32,41 @@ export function assertPrivateBinary(filename) {
   console.log(`Privacy check passed: ${path.basename(filename)}`);
 }
 
-function git(args, encoding = "utf8") {
-  return execFileSync("git",args,{encoding,maxBuffer:64*1024*1024,windowsHide:true});
+function git(args, encoding = "utf8", cwd = process.cwd()) {
+  return execFileSync("git",args,{encoding,cwd,maxBuffer:64*1024*1024,windowsHide:true});
 }
 
 export function checkRepository(history = false) {
   const findings = [];
-  const files = git(["ls-files","-z"]).split("\0").filter(Boolean);
+  const root = git(["rev-parse","--show-toplevel"]).trim();
+  const repositoryGit = (args, encoding) => git(args, encoding, root);
+  const files = repositoryGit(["ls-files","-z"]).split("\0").filter(Boolean);
   const scan = (bytes, label) => {
     if (bytes.subarray(0,4096).includes(0)) return;
     findings.push(...privacyFindings(bytes.toString("utf8"),label,{licensed:/(?:^|\/)THIRD_PARTY_NOTICES\.txt$/.test(label)}));
   };
   for (const file of files) {
     if (/\.(?:exe|dmg|zip|pdb|sqlite|db)$/i.test(file)) findings.push({file,kind:"tracked-distribution-or-user-data"});
-    scan(fs.readFileSync(file),file);
+    scan(fs.readFileSync(path.resolve(root,file)),file);
   }
   let commits = 0;
   if (history) {
     // Inspect publishable refs; editor-owned local tree snapshots are not GitHub history.
     const refs = ["HEAD","--branches","--remotes","--tags"];
-    for (const line of git(["log",...refs,"--format=%H%x00%ae%x00%ce"]).trim().split("\n").filter(Boolean)) {
+    for (const line of repositoryGit(["log",...refs,"--format=%H%x00%ae%x00%ce"]).trim().split("\n").filter(Boolean)) {
       const [sha,...emails] = line.split("\0"); commits++;
       if (emails.some(email=>!/@(?:users\.noreply\.github\.com|noreply\.github\.com|github\.com)$/.test(email)))
         findings.push({commit:sha.slice(0,8),kind:"non-noreply-commit-email"});
     }
-    const objects = new Map(git(["rev-list","--objects",...refs]).trim().split("\n").map(line=> {
+    const objects = new Map(repositoryGit(["rev-list","--objects",...refs]).trim().split("\n").map(line=> {
       const space=line.indexOf(" "); return space<0?[line,""]:[line.slice(0,space),line.slice(space+1)];
     }));
     for (const [sha,file] of objects) {
       if (!file) continue;
       if (/\.(?:exe|dmg|zip|pdb|sqlite|db)$/i.test(file)) findings.push({file,kind:"distribution-or-user-data-in-history"});
       if (!/\.(?:[cm]?jsx?|tsx?|rs|md|txt|json|toml|ya?ml|ps1|sh|nsh)$/.test(file)) continue;
-      if (git(["cat-file","-t",sha]).trim() !== "blob") continue;
-      scan(git(["cat-file","blob",sha],null),file);
+      if (repositoryGit(["cat-file","-t",sha]).trim() !== "blob") continue;
+      scan(repositoryGit(["cat-file","blob",sha],null),file);
     }
   }
   if (findings.length) throw new Error(`Repository privacy check failed: ${JSON.stringify(findings.slice(0,30))}`);
