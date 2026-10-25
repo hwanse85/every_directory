@@ -1,0 +1,257 @@
+/* Keep the application chrome in one row; reserve the viewport for file work. */
+.app-shell {
+  height: 100svh;
+  min-height: 0;
+}
+.app-shell .app-header {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  position: relative;
+  z-index: 20;
+}
+.app-header .brand {
+  font-size: 15px;
+  gap: 6px;
+  margin-right: 8px;
+}
+.app-header .brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  grid-template: none;
+  padding: 0;
+}
+.app-header .workspace-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
+}
+.app-header .workspace-actions .button {
+  min-height: 28px;
+  height: 28px;
+  padding: 4px 8px;
+  gap: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 5px;
+}
+.app-header .toolbox-trigger {
+  display: inline-flex;
+}
+.app-header .pane-count-control {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  gap: 4px;
+  border-radius: 5px;
+}
+.app-header .pane-count-control select {
+  min-width: 0;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.app-header .connect-plus {
+  display: none;
+}
+.app-header .header-actions {
+  margin-left: auto;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.app-header .icon-button,
+.app-header .command-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+}
+.app-header .layout-popover {
+  top: calc(100% + 10px);
+  left: 0;
+  right: auto;
+}
+.app-shell .main-area {
+  padding: 6px;
+  min-height: 0;
+}
+.app-shell .workspace-split {
+  margin: 0;
+  min-height: 0;
+}
+.app-shell .sidebar {
+  width: 176px;
+  padding: 12px 8px;
+}
+.app-shell:not(.sidebar-collapsed) .sidebar {
+  display: flex;
+}
+.app-shell.sidebar-collapsed .sidebar {
+  display: none;
+}
+.app-shell .search-panel {
+  border-radius: 6px;
+  box-shadow: none;
+  container: search-pane / inline-size;
+}
+.app-shell .search-controls {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.app-shell .search-input-wrap {
+  height: 34px;
+  min-height: 34px;
+  border-radius: 5px;
+}
+.app-shell .search-input-wrap input {
+  font-size: 13px;
+}
+.search-refinements {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.app-shell .search-method {
+  margin: 0;
+  gap: 6px;
+  min-height: 26px;
+  flex-shrink: 0;
+}
+.app-shell .search-method select {
+  height: 26px;
+  padding: 2px 4px;
+}
+.app-shell .search-method .case-option {
+  gap: 3px;
+}
+.app-shell .search-scope {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 210px;
+  justify-content: flex-start;
+}
+.app-shell .search-scope > label {
+  display: flex;
+  align-items: center;
+  min-width: 80px;
+  max-width: 240px;
+  flex: 1;
+  gap: 4px;
+  overflow: hidden;
+}
+.app-shell .search-scope select {
+  width: 100%;
+  min-width: 0;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+.app-shell .search-scope > button {
+  height: 26px;
+  min-height: 26px;
+  padding: 4px;
+  gap: 3px;
+  white-space: nowrap;
+}
+.app-shell .search-filters {
+  padding: 0;
+  gap: 2px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.app-shell .search-filters button {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  min-height: 26px;
+  gap: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.app-shell .result-summary {
+  min-height: 30px;
+  height: 30px;
+  padding: 3px 8px;
+  gap: 6px;
+}
+.app-shell .result-summary .search-columns-trigger {
+  margin-left: auto;
+}
+.app-shell .explorer-tabs {
+  min-height: 30px;
+  height: 30px;
+}
+.app-shell .explorer-navigation {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+}
+.app-shell .file-action-bar {
+  height: 30px;
+  min-height: 30px;
+  padding: 2px 6px;
+}
+.app-shell .file-action-bar > button {
+  min-height: 24px;
+  height: 24px;
+  padding: 3px 5px;
+}
+.app-shell .folder-filter {
+  min-height: 28px;
+  height: 28px;
+  padding: 2px 6px;
+}
+.app-shell .folder-filter input {
+  height: 22px;
+  min-height: 0;
+}
+@container search-pane (max-width: 560px) {
+  .search-refinements .search-scope {
+    flex-basis: 100%;
+  }
+}
+@container search-pane (max-width: 400px) {
+  .app-shell .search-filters button {
+    padding: 3px 2px;
+    gap: 2px;
+    font-size: 10px;
+  }
+}
+@media (max-width: 1050px) {
+  .app-header .toolbar-label {
+    display: none;
+  }
+  .app-header .workspace-actions .button {
+    padding: 4px 6px;
+  }
+}
+@media (max-width: 700px) {
+  .app-header .brand > span:last-child {
+    display: none;
+  }
+  .app-header .brand {
+    margin-right: 0;
+  }
+  .app-shell .app-header {
+    gap: 4px;
+    padding: 0 4px;
+  }
+}

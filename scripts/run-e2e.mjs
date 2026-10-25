@@ -26,6 +26,7 @@ if (
 const reports = [];
 for (const suite of [
   "search",
+  "layout",
   "desktop",
   "actions",
   "quick",

@@ -4,11 +4,11 @@
 
 로컬 파일 검색과 다중 탐색창을 결합한 **React + Tauri 2 + Rust 데스크톱 앱**입니다. Windows와 macOS용 빌드 구성을 제공합니다. 배포 앱은 Node.js나 HTTP 서버 없이 실행됩니다.
 
-현재 0.7.8 소스는 [Windows 기본 파일 작업 엔진과 전송 검증](docs/windows-native-operations-v0.7.8.md), [탐색창 복사·이동 인덱스 성능 개선](docs/transfer-performance-v0.7.7.md)을 포함합니다. 기존 [Windows 호환성 개선](docs/windows-compatibility.md), [초성 입력·번호 사본·Windows 단축키·드롭](docs/e2e-v0.7.6.md), [앱 정보·라이선스 고지 구분](docs/licensing.md)도 유지합니다. 이전 배포 파일에는 새 변경이 소급 반영되지 않습니다.
+현재 0.7.9 소스는 [작업 공간 확대와 간결한 상단 도구 모음](docs/compact-workspace-v0.7.9.md)을 포함합니다. 기존 [Windows 기본 파일 작업 엔진과 전송 검증](docs/windows-native-operations-v0.7.8.md), [탐색창 복사·이동 인덱스 성능 개선](docs/transfer-performance-v0.7.7.md), [Windows 호환성 개선](docs/windows-compatibility.md), [초성 입력·번호 사본·Windows 단축키·드롭](docs/e2e-v0.7.6.md), [앱 정보·라이선스 고지 구분](docs/licensing.md)도 유지합니다. 이전 배포 파일에는 새 변경이 소급 반영되지 않습니다.
 
 ## 실행
 
-0.7.8 Windows 설치본의 검증 범위는 [0.7.8 안내](docs/windows-native-operations-v0.7.8.md)를 참고하세요. 개인 빌드 경로가 포함됐던 v0.7.4 설치 파일은 소스 저장소와 이력에서 제거했습니다. 새 배포 파일은 아래 명령으로 빌드하거나 저장소의 [Actions](https://github.com/hwanse85/every_directory/actions)에서 개인정보 검사를 통과한 빌드의 아티팩트를 이용하세요.
+0.7.9의 검증 범위는 [0.7.9 안내](docs/compact-workspace-v0.7.9.md)를 참고하세요. 개인 빌드 경로가 포함됐던 v0.7.4 설치 파일은 소스 저장소와 이력에서 제거했습니다. 새 배포 파일은 아래 명령으로 빌드하거나 저장소의 [Actions](https://github.com/hwanse85/every_directory/actions)에서 개인정보 검사를 통과한 빌드의 아티팩트를 이용하세요.
 
 빌드된 macOS 앱은 `src-tauri/target/release/bundle/macos/Every Directory.app`, 설치 이미지는 `src-tauri/target/release/bundle/dmg/`에 생성됩니다. Windows 빌드는 `.msi` 또는 `-setup.exe`를 생성합니다. 각 운영체제와 CPU에 맞는 파일을 사용합니다.
 
@@ -52,6 +52,7 @@ Windows 10·11의 64비트(x64) 환경을 대상으로 빌드합니다. 경량 �
 10. 우클릭 메뉴는 아이콘·단축키와 5개 하위 그룹을 제공합니다. Windows에서는 F5로 현재 목록을 새로고침하고 Shift+F5/F7로 다른 탐색창으로 복사/이동합니다. macOS는 F5/F7로 복사/이동합니다. Ctrl/⌘ D는 사본 생성입니다. **파일 도구**에서 중복 파일 찾기·용량 분석·두 폴더 비교를 실행합니다. 설정에서 라이트/다크/시스템 테마와 목록 밀도를 선택할 수 있습니다.
 11. 검색 결과 위 **표시 항목**에서 위치·유형·확장자·크기·수정일·연결 폴더·전체 경로를 선택합니다. 이름은 항상 표시하며 선택한 열은 자동 저장합니다. 열 제목을 누르면 정렬하고, 열이 많으면 가로로 스크롤합니다. **기본값**으로 이름·위치·크기·수정일 구성을 복원합니다.
 12. 우클릭 메뉴에서 화살표가 있는 항목에 마우스를 올리면 하위 메뉴가 바로 옆에 펼쳐집니다. 다른 항목으로 이동해 메뉴를 바꾸거나, →/←로 진입·복귀할 수 있습니다. Esc는 하위 메뉴부터 닫습니다.
+13. 상단 왼쪽 사이드바 버튼으로 탐색 메뉴를 접어 작업 폭을 넓힙니다. 접힘 상태는 자동 저장합니다. 파일 도구·레이아웃·탐색창 개수·폴더 연결은 상단 한 줄에서 조작합니다.
 
 ## 검색
 

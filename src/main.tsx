@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
 import "./workbench.css";
+import "./workspace-layout.css";
 import "./quick-search.css";
 
 // 검색 전용 창에서는 메인 탐색기 코드를 불러오지 않는다.

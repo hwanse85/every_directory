@@ -1,4 +1,3 @@
-import { version as appVersion } from "../package.json";
 import {
   useCallback,
   useEffect,
@@ -297,6 +296,8 @@ export default function App() {
     return ["column", "row", "grid"].includes(saved) ? saved : "column";
   });
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readPreference("sidebarCollapsed", false));
+  useEffect(() => { savePreference("sidebarCollapsed", sidebarCollapsed); }, [sidebarCollapsed]);
   const [modal, setModal] = useState<
     | "folders"
     | "settings"
@@ -1113,8 +1114,9 @@ export default function App() {
       : {};
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <header className="app-header">
+        <button className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar" title={sidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"} onClick={() => setSidebarCollapsed(!sidebarCollapsed)}><PanelLeft size={17} /></button>
         <a
           className="brand"
           href="#"
@@ -1131,19 +1133,127 @@ export default function App() {
             Every <span className="brand-light">Directory</span>
           </span>
         </a>
-        <div className="header-center">
-          <span className="header-divider" />
-          <span>LOCAL FILE WORKSPACE</span>
+        <div className="workspace-actions" role="toolbar" aria-label="작업 공간 도구">
+          <button
+            className="button secondary toolbox-trigger"
+            title="파일 도구" aria-label="파일 도구 열기"
+            onClick={() => setModal("tools")}
+          >
+            <Wrench size={15} />
+            <span className="toolbar-label">파일 도구</span>
+          </button>
+          <div className="layout-control" ref={layoutRef}>
+            <button
+              className={`button secondary layout-button ${layoutOpen ? "pressed" : ""}`}
+              onClick={() => setLayoutOpen(!layoutOpen)}
+              aria-label="레이아웃" title="레이아웃"
+              aria-expanded={layoutOpen}
+            >
+              <SlidersHorizontal size={14} />
+              <span className="toolbar-label">레이아웃</span>
+              <ChevronDown size={12} />
+            </button>
+            {layoutOpen && (
+              <div className="layout-popover">
+                <div className="popover-heading">나에게 맞는 작업 공간</div>
+                <p>검색 영역 위치</p>
+                <div className="placement-options">
+                  {(
+                    [
+                      { id: "left", name: "왼쪽", icon: PanelLeft },
+                      { id: "right", name: "오른쪽", icon: PanelRight },
+                      { id: "top", name: "위쪽", icon: PanelTop },
+                      { id: "bottom", name: "아래쪽", icon: PanelBottom },
+                    ] as const
+                  ).map(({ id, name, icon: Icon }) => (
+                    <button
+                      key={id}
+                      className={placement === id ? "selected" : ""}
+                      onClick={() => setPlacement(id)}
+                      aria-pressed={placement === id}
+                    >
+                      <Icon size={25} strokeWidth={1.4} />
+                      <span>{name}</span>
+                    </button>
+                  ))}
+                </div>
+                <p>탐색창 배치</p>
+                <div className="arrangement-options">
+                  {(
+                    [
+                      { id: "column", name: "위아래" },
+                      { id: "row", name: "좌우" },
+                      { id: "grid", name: "격자" },
+                    ] as const
+                  ).map((a) => (
+                    <button
+                      key={a.id}
+                      className={arrangement === a.id ? "selected" : ""}
+                      onClick={() => setArrangement(a.id)}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+                <label className="ratio-label">
+                  검색 영역 비율 <span>{Math.round(ratio)}%</span>
+                  <input
+                    aria-label="검색 영역 비율"
+                    type="range"
+                    min="25"
+                    max="70"
+                    value={ratio}
+                    onChange={(e) => setRatio(Number(e.target.value))}
+                  />
+                </label>
+                <button
+                  className="reset-layout"
+                  onClick={() => {
+                    setPlacement("left");
+                    setRatio(43);
+                    setArrangement("column");
+                    setPaneRatio(50);
+                    changePaneCount(2);
+                  }}
+                >
+                  기본 레이아웃으로 돌아가기
+                  <RefreshCw size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+          <label className="pane-count-control">
+            <Grid2X2 size={14} />
+            <select
+              aria-label="탐색창 개수"
+              value={panes.length}
+              onChange={(e) => changePaneCount(Number(e.target.value))}
+            >
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  탐색창 {n}개
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={12} />
+          </label>
+          <button
+            className="button primary connect-folder-button"
+            aria-label="폴더 연결" title={!ready ? "검색 엔진 준비 중" : scanning ? "인덱싱 중" : "폴더 연결"}
+            disabled={scanning || !ready}
+            onClick={() => void connectFolder()}
+          >
+            {scanning ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <FolderPlus size={15} />
+            )}
+            <span className="toolbar-label">{scanning ? "인덱싱 중" : "폴더 연결"}</span>
+            <Plus size={13} className="connect-plus" />
+          </button>
         </div>
         <div className="header-actions">
-          <button
-            className="command-trigger"
-            onClick={() => setModal("commands")}
-          >
-            <Search size={15} />
-            <span>명령 또는 도구 찾기</span>
-            <kbd>{/Mac/.test(navigator.platform) ? "⌘⇧P" : "Ctrl+Shift+P"}</kbd>
-          </button>
+          <button className="command-trigger icon-button" aria-label="빠른 명령" title={`명령 또는 도구 찾기 · ${/Mac/.test(navigator.platform) ? "⌘⇧P" : "Ctrl+Shift+P"}`} onClick={() => setModal("commands")}><Command size={17} /></button>
           {isDesktop && (
             <button
               className="icon-button"
@@ -1158,10 +1268,7 @@ export default function App() {
               <Search size={18} />
             </button>
           )}
-          <span className="local-badge">
-            <span className="connection-dot" />{" "}
-            {isDesktop ? "내 컴퓨터" : "로컬 연결"}
-          </span>
+
           {isDesktop && (
             <button
               className="icon-button"
@@ -1190,14 +1297,7 @@ export default function App() {
           >
             {effectiveTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button
-            className="icon-button"
-            aria-label="빠른 명령"
-            title="빠른 명령 · Ctrl/⌘ Shift P"
-            onClick={() => setModal("commands")}
-          >
-            <Command size={18} />
-          </button>
+
           <button
             className="icon-button"
             aria-label="도움말"
@@ -1218,7 +1318,7 @@ export default function App() {
       </header>
 
       <div className="app-body">
-        <aside className="sidebar">
+        <aside className="sidebar" id="workspace-sidebar" inert={sidebarCollapsed}>
           <span className="sidebar-label">내 파일</span>
           <button
             className="sidebar-nav current"
@@ -1432,134 +1532,6 @@ export default function App() {
         </aside>
 
         <main className="main-area">
-          <div className="workspace-toolbar">
-            <div className="workspace-title">
-              <LayoutPanelLeft size={17} />
-              <div className="workspace-heading">
-                <small>YOUR FILES, IN ONE PLACE</small>
-                <h2>파일 작업 공간</h2>
-              </div>
-              <span className="subtle-badge">
-                {demo ? "샘플 공간" : `${roots.length}개 폴더 연결됨`}
-              </span>
-            </div>
-            <div className="workspace-actions">
-              <button
-                className="button secondary toolbox-trigger"
-                onClick={() => setModal("tools")}
-              >
-                <Wrench size={15} />
-                파일 도구
-              </button>
-              <div className="layout-control" ref={layoutRef}>
-                <button
-                  className={`button secondary layout-button ${layoutOpen ? "pressed" : ""}`}
-                  onClick={() => setLayoutOpen(!layoutOpen)}
-                  aria-expanded={layoutOpen}
-                >
-                  <SlidersHorizontal size={14} />
-                  <span>레이아웃</span>
-                  <ChevronDown size={12} />
-                </button>
-                {layoutOpen && (
-                  <div className="layout-popover">
-                    <div className="popover-heading">나에게 맞는 작업 공간</div>
-                    <p>검색 영역 위치</p>
-                    <div className="placement-options">
-                      {(
-                        [
-                          { id: "left", name: "왼쪽", icon: PanelLeft },
-                          { id: "right", name: "오른쪽", icon: PanelRight },
-                          { id: "top", name: "위쪽", icon: PanelTop },
-                          { id: "bottom", name: "아래쪽", icon: PanelBottom },
-                        ] as const
-                      ).map(({ id, name, icon: Icon }) => (
-                        <button
-                          key={id}
-                          className={placement === id ? "selected" : ""}
-                          onClick={() => setPlacement(id)}
-                          aria-pressed={placement === id}
-                        >
-                          <Icon size={25} strokeWidth={1.4} />
-                          <span>{name}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <p>탐색창 배치</p>
-                    <div className="arrangement-options">
-                      {(
-                        [
-                          { id: "column", name: "위아래" },
-                          { id: "row", name: "좌우" },
-                          { id: "grid", name: "격자" },
-                        ] as const
-                      ).map((a) => (
-                        <button
-                          key={a.id}
-                          className={arrangement === a.id ? "selected" : ""}
-                          onClick={() => setArrangement(a.id)}
-                        >
-                          {a.name}
-                        </button>
-                      ))}
-                    </div>
-                    <label className="ratio-label">
-                      검색 영역 비율 <span>{Math.round(ratio)}%</span>
-                      <input
-                        aria-label="검색 영역 비율"
-                        type="range"
-                        min="25"
-                        max="70"
-                        value={ratio}
-                        onChange={(e) => setRatio(Number(e.target.value))}
-                      />
-                    </label>
-                    <button
-                      className="reset-layout"
-                      onClick={() => {
-                        setPlacement("left");
-                        setRatio(43);
-                        setArrangement("column");
-                        setPaneRatio(50);
-                        changePaneCount(2);
-                      }}
-                    >
-                      기본 레이아웃으로 돌아가기
-                      <RefreshCw size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
-              <label className="pane-count-control">
-                <Grid2X2 size={14} />
-                <select
-                  aria-label="탐색창 개수"
-                  value={panes.length}
-                  onChange={(e) => changePaneCount(Number(e.target.value))}
-                >
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>
-                      탐색창 {n}개
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={12} />
-              </label>
-              <button
-                className="button primary"
-                disabled={scanning || !ready}
-                onClick={() => void connectFolder()}
-              >
-                {scanning ? (
-                  <LoaderCircle size={15} className="spin" />
-                ) : (
-                  <FolderPlus size={15} />
-                )}
-                <span>{scanning ? "인덱싱 중" : "폴더 연결"}</span>
-                <Plus size={13} className="connect-plus" />
-              </button>
-            </div>
-          </div>
 
           {(demo || (ready && !roots.length)) && (
             <div className="demo-banner">
@@ -1601,28 +1573,14 @@ export default function App() {
             style={workspaceStyle}
           >
             <section className="search-panel" aria-label="빠른 검색">
-              <header className="panel-header">
-                <div className="panel-heading">
-                  <span className="panel-icon">
-                    <Search size={17} />
-                  </span>
-                  <h2>빠른 검색</h2>
-                </div>
-                <span className={`index-status ${scanning ? "working" : ""}`}>
-                  <i />
-                  {!ready
-                    ? "준비 중"
-                    : scanning
-                      ? "인덱싱 중"
-                      : "검색 준비 완료"}
-                </span>
-              </header>
+
               <div className="search-controls">
                 <div className="search-input-wrap">
                   <Search size={19} />
                   <input
                     ref={searchInput}
                     aria-label="파일 검색"
+                    aria-describedby="search-hint"
                     placeholder="파일 이름으로 검색"
                     value={query}
                     maxLength={512}
@@ -1682,6 +1640,7 @@ export default function App() {
                     </kbd>
                   )}
                 </div>
+                <div className="search-refinements">
                 <div className="search-method">
                   <label>
                     검색 방식
@@ -1710,32 +1669,6 @@ export default function App() {
                     />
                     대소문자
                   </label>
-                </div>
-                <p className="search-hint">
-                  {mode === "wildcard"
-                    ? "전체 파일명에 적용 · 예: *보고서*.pdf, IMG_????.jpg"
-                    : mode === "regex"
-                      ? "예: ^보고서.*\\.pdf$ · 전후방 탐색·역참조 제외"
-                      : mode === "fuzzy"
-                        ? "3~5자: 오타 1자 · 6자 이상: 2자 · 정확한 결과 우선"
-                        : mode === "initials"
-                          ? "ㅂㄱㅅ · 보고서 · Report 모두 검색 · 공백 AND · ext:pdf"
-                          : isDesktop
-                            ? "공백 AND · | OR · ! 제외 · ext:pdf · size:>10mb · dm:today"
-                            : '공백은 AND · "업무 계획"은 구문 검색 · ext:pdf,docx'}
-                </p>
-                <div className="search-filters">
-                  {filters.map((filter) => (
-                    <button
-                      key={filter.id}
-                      className={category === filter.id ? "active" : ""}
-                      onClick={() => setCategory(filter.id)}
-                      aria-pressed={category === filter.id}
-                    >
-                      <filter.icon size={13} />
-                      {filter.name}
-                    </button>
-                  ))}
                 </div>
                 <div className="search-scope">
                   <label>
@@ -1780,6 +1713,34 @@ export default function App() {
                     <Settings2 size={12} />
                   </button>
                 </div>
+                </div>
+                <p className="visually-hidden" id="search-hint">
+                  {mode === "wildcard"
+                    ? "전체 파일명에 적용 · 예: *보고서*.pdf, IMG_????.jpg"
+                    : mode === "regex"
+                      ? "예: ^보고서.*\\.pdf$ · 전후방 탐색·역참조 제외"
+                      : mode === "fuzzy"
+                        ? "3~5자: 오타 1자 · 6자 이상: 2자 · 정확한 결과 우선"
+                        : mode === "initials"
+                          ? "ㅂㄱㅅ · 보고서 · Report 모두 검색 · 공백 AND · ext:pdf"
+                          : isDesktop
+                            ? "공백 AND · | OR · ! 제외 · ext:pdf · size:>10mb · dm:today"
+                            : '공백은 AND · "업무 계획"은 구문 검색 · ext:pdf,docx'}
+                </p>
+                <div className="search-filters">
+                  {filters.map((filter) => (
+                    <button
+                      key={filter.id}
+                      className={category === filter.id ? "active" : ""}
+                      onClick={() => setCategory(filter.id)}
+                      aria-pressed={category === filter.id}
+                    >
+                      <filter.icon size={13} />
+                      {filter.name}
+                    </button>
+                  ))}
+                </div>
+
               </div>
               {searchError && (
                 <div className="search-error" role="alert">
@@ -1793,7 +1754,7 @@ export default function App() {
                 </div>
               )}
               <div className="result-summary">
-                <span>
+                <span title={`검색 엔진 ${result.elapsed.toFixed(2)}ms · 전체 ${Math.round(latency)}ms`}>
                   {query || category !== "all" || scope ? (
                     <>
                       검색 결과 <strong>{result.total.toLocaleString()}</strong>
@@ -1805,12 +1766,9 @@ export default function App() {
                   )}
                   {searching && <LoaderCircle size={12} className="spin" />}
                 </span>
-                <span className="result-hint">
-                  {result.total > result.entries.length
-                    ? `처음 ${result.entries.length.toLocaleString()}개 표시`
-                    : `클릭 → 탐색창 ${panes.findIndex((pane) => pane.id === activePane) + 1} · 더블 클릭 → 실행`}
-                  <ArrowUpRight size={11} />
-                </span>
+                {result.total > result.entries.length && (
+                  <span className="result-hint">처음 {result.entries.length.toLocaleString()}개 표시</span>
+                )}
                 <SearchColumnPicker
                   columns={searchColumns}
                   onChange={setSearchColumns}
@@ -1856,30 +1814,6 @@ export default function App() {
                   )}
                 </div>
               )}
-              <footer className="search-footer">
-                <span
-                  title={`로컬 검색 엔진 ${result.elapsed.toFixed(2)}ms · 입력 대기 60ms와 응답 전달 포함 ${latency.toFixed(1)}ms`}
-                >
-                  <Zap size={12} />
-                  <strong>{result.elapsed.toFixed(1)} ms</strong>
-                  <span>검색</span>
-                </span>
-                <span className={latency >= 1000 ? "slow-result" : ""}>
-                  <i />
-                  {searchError
-                    ? "검색 오류"
-                    : result.partial
-                      ? "부분 결과"
-                      : searching
-                        ? "검색 중"
-                        : latency >= 1000
-                          ? "1초 목표 초과"
-                          : "1초 이내"}
-                  <span className="total-latency">
-                    · 전체 {Math.round(latency)}ms
-                  </span>
-                </span>
-              </footer>
             </section>
 
             <ResizeHandle
@@ -1890,20 +1824,8 @@ export default function App() {
               label="검색과 탐색 영역 크기 조절"
             />
 
-            <div className="explorers-section">
-              <div className="explorers-heading">
-                <div className="panel-heading">
-                  <span className="panel-icon explorer">
-                    <FolderOpen size={17} />
-                  </span>
-                  <h2>파일 탐색</h2>
-                  <span className="subtle-badge">{panes.length}</span>
-                </div>
-                <span>
-                  검색 위치 → 탐색창{" "}
-                  {panes.findIndex((pane) => pane.id === activePane) + 1}
-                </span>
-              </div>
+            <section className="explorers-section" aria-label="파일 탐색">
+
               <div
                 className={`explorers arrangement-${arrangement} panes-${panes.length}`}
                 style={paneStyle}
@@ -1988,29 +1910,11 @@ export default function App() {
                   />
                 )}
               </div>
-            </div>
+            </section>
           </div>
         </main>
       </div>
-      <footer className="app-statusbar">
-        <span>
-          <i className="status-dot" />
-          {scanning ? "인덱싱 중" : ready ? "준비됨" : "검색 엔진 시작 중"}
-          <span className="status-divider" />
-          {demo ? "샘플 모드" : "로컬 모드"}
-          <span className="status-divider" />
-          {count.toLocaleString()}개 항목 인덱싱됨
-        </span>
-        <span>
-          Every Directory{" "}
-          <span className="status-version">
-            v{appVersion} {isDesktop ? "· Desktop" : "· Web"}
-          </span>
-          <span className="status-divider" />
-          <Keyboard size={12} />
-          <button onClick={() => setModal("help")}>단축키</button>
-        </span>
-      </footer>
+
 
       {modal === "commands" && (
         <CommandPalette

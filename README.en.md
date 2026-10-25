@@ -4,7 +4,7 @@
 
 A **React + Tauri 2 + Rust desktop app** combining local file search with multiple explorer panes. Build configurations are available for Windows and macOS. Packaged desktop apps run without Node.js or an HTTP server.
 
-Version 0.7.8 uses the Windows Shell file-operation engine for batch file/folder copies and cross-volume moves, with native progress/cancellation. Same-volume moves use an exclusive native rename. See the [native transfer verification record](docs/windows-native-operations-v0.7.8.md), which includes an English summary. It retains the [incremental index performance improvements](docs/transfer-performance-v0.7.7.md), Windows path fixes, Korean initial-consonant input, numbered copies, keyboard shortcuts, drag and drop, uncolored new tabs, and app/license information. See also the [Windows compatibility notes](docs/windows-compatibility.md), [0.7.6 verification record](docs/e2e-v0.7.6.md), and [license documentation](docs/licensing.md).
+Version 0.7.9 expands the working area with a compact, single-row toolbar and a collapsible sidebar. See the [compact workspace verification record](docs/compact-workspace-v0.7.9.md), which includes an English summary. It retains the Windows Shell file-operation engine for batch copies and cross-volume moves, native same-volume renames, [incremental index performance improvements](docs/transfer-performance-v0.7.7.md), Windows path fixes, Korean initial-consonant input, numbered copies, keyboard shortcuts, drag and drop, uncolored new tabs, and app/license information. See also the [native transfer verification record](docs/windows-native-operations-v0.7.8.md), [Windows compatibility notes](docs/windows-compatibility.md), [0.7.6 verification record](docs/e2e-v0.7.6.md), and [license documentation](docs/licensing.md).
 
 ## Getting started
 
@@ -58,6 +58,7 @@ The old v0.7.4 installers contained developer build paths and have been withdraw
 10. Context menus include icons, shortcuts, and five submenu groups. Hover over an arrow to open a submenu; use Right/Left to enter or return and Escape to close it. On Windows, F5 refreshes and Shift+F5/F7 copies/moves to another pane. On macOS, F5/F7 performs those transfers. Ctrl/Command+D creates a duplicate.
 11. **File tools** provides duplicate detection, folder-size analysis, and folder comparison. Settings include light/dark/system themes and list density.
 12. Above search results, **Displayed columns** controls location, type, extension, size, modification time, connected folder, and full path. The name column is always visible. Choices are saved; headers sort results and wide tables scroll horizontally. **Defaults** restores name, location, size, and modification time.
+13. Use the top-left sidebar button to expand the working width. Its state is saved automatically. File tools, layout, pane count, and folder connection share a single toolbar row.
 
 ## Search
 

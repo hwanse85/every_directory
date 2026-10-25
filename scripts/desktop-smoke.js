@@ -172,7 +172,7 @@
     verify(
       "Tauri IPC 초기화",
       Boolean(window.__TAURI_INTERNALS__) &&
-        document.body.textContent.includes("Desktop"),
+        (await originalInvoke("ed_request", {kind:"status",payload:{}})).runtime === "tauri",
     );
     verify(
       "기본 두 탐색창과 첫 번째 활성 상태",

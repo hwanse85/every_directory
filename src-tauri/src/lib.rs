@@ -200,6 +200,13 @@ async fn ed_request(
     {
         return Err("빠른 검색창에서 허용되지 않는 파일 작업입니다.".into());
     }
+    #[cfg(feature = "smoke-test")]
+    if window.label() == "main" && kind == "smokeResize" {
+        let width = payload["width"].as_u64().unwrap_or(1440).clamp(900, 2400);
+        let height = payload["height"].as_u64().unwrap_or(960).clamp(640, 1800);
+        window.set_size(tauri::LogicalSize::new(width as f64, height as f64)).map_err(|error| error.to_string())?;
+        return Ok(json!({"width":width,"height":height}));
+    }
     let changed =
         kind == "quickAccess" && payload["action"].as_str().is_some_and(|a| a != "snapshot");
     let engine = engine.inner().clone();
@@ -551,6 +558,10 @@ pub fn run() {
             }
             #[cfg(not(feature = "smoke-test"))]
             let _ = (webview, payload);
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("layout") {
+                let _ = webview.eval(include_str!("../../scripts/layout-e2e.js"));
+            }
             #[cfg(all(windows, feature = "smoke-test"))]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("transfer") {
                 let _ = webview.eval(include_str!("../../scripts/transfer-e2e.js"));
