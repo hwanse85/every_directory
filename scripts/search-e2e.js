@@ -84,7 +84,7 @@
       );
       value(pane.querySelector(".folder-filter input"), "");
     });
-    await test("Windows IME 겹받침을 입력 도중 분리하고 계속 입력", async () => {
+    await test("Windows IME 조합 범위·초점 보존 후 확정된 겹받침 분리", async () => {
       value(document.querySelector('[aria-label="검색 방식"]'), "initials");
       const input = document.querySelector('[aria-label="파일 검색"]');
       input.focus();
@@ -93,11 +93,13 @@
       );
       value(input, "ㅂㄳ");
       await new Promise((r) => setTimeout(r, 100));
-      const separated = input.value === "ㅂㄱㅅ";
+      if(input.value !== "ㅂㄳ" || document.activeElement !== input) throw new Error("활성 IME 조합 또는 초점을 변경함");
+      if(input.parentElement.querySelector('.ime-preview')?.textContent!=="ㅂㄱㅅ")throw new Error("입력 도중 개별 초성 표시가 없음");
       input.dispatchEvent(
         new CompositionEvent("compositionend", { bubbles: true, data: "ㅂㄳ" }),
       );
-      if (!separated) throw new Error("입력 도중 겹받침이 분리되지 않음");
+      // Windows 10 IMEs may send the final input after compositionend.
+      value(input,"ㅂㄳ");
       await until(
         () =>
           input.value === "ㅂㄱㅅ" &&
@@ -114,6 +116,43 @@
       if (input.value !== "보고ㅅ") throw new Error("일반 한글 음절 조합이 변경됨");
       input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
     });
+    for (const selector of ['[aria-label="파일 검색"]','.explorer-pane.active .folder-filter input']) {
+      await test(`IME 마지막 input 순서·연속 조합·커서 편집 ${selector}`, async () => {
+        const input=document.querySelector(selector);
+        input.focus();
+        let blurred=0;const blur=()=>blurred++;input.addEventListener("blur",blur);
+        try {
+          for(const late of [true,false]){
+            value(input,"");
+            input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));
+            value(input,"ㅂㄱ");value(input,"ㅂㄳ");
+            if(!late)value(input,"ㅂㄳ");
+            input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true,data:"ㄳ"}));
+            if(late)value(input,"ㅂㄳ");
+            await until(()=>input.value==="ㅂㄱㅅ","중복 없는 확정");
+            if(blurred||document.activeElement!==input)throw new Error("초점을 강제로 변경함");
+          }
+          input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));
+          value(input,"ㅆㄹㅁㅇㄷ");
+          input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true,data:"ㄷ"}));
+          input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));
+          value(input,"ㅆㄹㅁㅇㄷㅂㄳ");
+          input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true,data:"ㄳ"}));
+          await until(()=>input.value==="ㅆㄹㅁㅇㄷㅂㄱㅅ","연속 입력");
+          value(input,"앞 ㅂㄳ 뒤");
+          await until(()=>input.value==="앞 ㅂㄱㅅ 뒤","붙여넣기");
+          input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));
+          value(input,"앞 ㄳ 뒤");input.setSelectionRange(3,3);
+          input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true,data:"ㄳ"}));
+          await until(()=>input.value==="앞 ㄱㅅ 뒤"&&input.selectionStart===4,"가운데 조합 후 커서 복원");
+          value(input,"ㄱㄱ ㅆㅆ");
+          if(input.value!=="ㄱㄱ ㅆㅆ")throw new Error("의도적으로 반복한 자음을 제거함");
+          input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));value(input,"보고서 값");
+          input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true,data:"값"}));
+          await until(()=>input.value==="보고서 값","일반 한글 음절 보존");
+        }finally{input.removeEventListener("blur",blur);value(input,"");}
+      });
+    }
     for (const [query, mode, expected] of [
       ["README", "normal", "README.md"],
       ["*.md", "wildcard", "README.md"],

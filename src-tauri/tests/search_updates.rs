@@ -21,7 +21,7 @@ fn entry(n: usize) -> Entry {
         extension: if n % 5 == 0 { "txt" } else { "dat" }.into(),
         size: Some(n as u64),
         modified: n as u64,
-        hidden: false,
+        hidden:false,created:None,accessed:None,readonly:false,
     }
 }
 

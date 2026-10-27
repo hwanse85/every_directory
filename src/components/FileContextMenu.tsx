@@ -73,6 +73,8 @@ export function FileContextMenu({
   hidden,
   onAction,
   onClose,
+  pasteLabel = "현재 폴더에 붙여넣기",
+  onWindowsNew,
 }: {
   x: number;
   y: number;
@@ -82,6 +84,8 @@ export function FileContextMenu({
   hidden: boolean;
   onAction: (action: Action) => void;
   onClose: () => void;
+  pasteLabel?: string;
+  onWindowsNew?:(point:{x:number;y:number})=>void;
 }) {
   const layer = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -141,7 +145,7 @@ export function FileContextMenu({
         },
         {
           action: "paste",
-          label: "현재 폴더에 붙여넣기",
+          label: pasteLabel,
           icon: ClipboardPaste,
           shortcut: `${mod}V`,
           disabled: !pasteable,
@@ -320,7 +324,7 @@ export function FileContextMenu({
         },
         {
           action: "exportList",
-          label: "폴더 파일 목록 CSV 저장…",
+          label: "파일 목록 내보내기…",
           icon: Download,
         },
         {
@@ -334,6 +338,7 @@ export function FileContextMenu({
     create: {
       title: "새로 만들기",
       items: [
+        ...(onWindowsNew?[{action:"nativeNew" as const,label:"Windows 새로 만들기…",icon:FilePlus2}]:[]),
         {
           action: "mkdir",
           label: "새 폴더…",
@@ -446,8 +451,9 @@ export function FileContextMenu({
   }
 
   // 메뉴 항목 실행과 하위 작업 그룹 이동을 구분한다.
-  function choose(item: Item) {
+  function choose(item: Item,source?:HTMLElement) {
     if (item.disabled) return;
+    if(item.action==="nativeNew"&&onWindowsNew){const bounds=(source??document.activeElement as HTMLElement)?.getBoundingClientRect();const point={x:bounds?.left??x,y:bounds?.bottom??y};onClose();onWindowsNew(point);return;}
     if (item.action) {
       onAction(item.action);
       onClose();
@@ -589,9 +595,11 @@ export function FileContextMenu({
                 else closeSubmenu();
               }}
               onClick={(event) =>
-                item.group
+                item.group==="create"&&onWindowsNew
+                  ? choose({action:"nativeNew",label:"Windows 새로 만들기",icon:FilePlus2},event.currentTarget)
+                  : item.group
                   ? openGroup(item, event.currentTarget, event.detail === 0)
-                  : choose(item)
+                  : choose(item,event.currentTarget)
               }
             >
               <item.icon size={16} />
@@ -633,7 +641,7 @@ export function FileContextMenu({
                 role="menuitem"
                 className={`${item.separator ? "menu-separator" : ""} ${item.danger ? "menu-danger" : ""}`}
                 disabled={item.disabled}
-                onClick={() => choose(item)}
+                onClick={event => choose(item,event.currentTarget)}
               >
                 <item.icon size={16} />
                 <span>{item.label}</span>

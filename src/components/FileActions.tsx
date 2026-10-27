@@ -70,6 +70,8 @@ export function FileActions({
   onSelectAll,
   toolRequest,
   onMore,
+  scope = "explorer",
+  selectionOnly = false,
 }: {
   client: IndexClient;
   entries: FileEntry[];
@@ -84,6 +86,8 @@ export function FileActions({
   onSelectAll: () => void;
   toolRequest?: ToolRequest;
   onMore: (x: number, y: number) => void;
+  scope?: "explorer" | "search";
+  selectionOnly?: boolean;
 }) {
   const [imageTool, setImageTool] = useState<"resizeImages" | "ocr">();
   const handledTool = useRef<number | undefined>(undefined);
@@ -168,12 +172,14 @@ export function FileActions({
 
   // 공유 클립보드의 항목을 현재 탐색 폴더에 복사하거나 이동한다.
   async function paste(): Promise<void> {
+    const destination=selectionOnly?(entries.length===1&&entries[0].kind==="directory"?{rootId:entries[0].rootId,path:entries[0].path}:undefined):location;
+    if(!destination){onMessage("붙여넣을 폴더 하나를 선택해 주세요.",true);return;}
     if (isDesktop) {
       if (busy || disabled) return;
       setBusy(true);
       setError("");
       try {
-        const result = await pasteFiles(location, clipboard);
+        const result = await pasteFiles(destination, clipboard);
         if (result.cut) onClipboard(undefined);
         onChanged();
         onMessage("붙여넣기를 완료했습니다.");
@@ -190,7 +196,7 @@ export function FileActions({
       {
         action: clipboard.cut ? "move" : "copy",
         entries: clipboard.entries,
-        destination: location,
+        destination,
       },
       "붙여넣기를 완료했습니다.",
     );
@@ -344,7 +350,7 @@ export function FileActions({
       if (
         event.defaultPrevented ||
         event.isComposing || event.keyCode === 229 ||
-        !!target?.closest(".search-table") ||
+        (scope==="search"?!target?.closest(".search-panel"):!!target?.closest(".search-panel")) ||
         !!target?.closest('[role="menu"]') ||
         !active ||
         disabled ||
@@ -362,7 +368,7 @@ export function FileActions({
       if (event.altKey && event.key === "Enter" && entries.length) {
         event.preventDefault();
         show("properties");
-      } else if (modifier && event.shiftKey && key === "n") {
+      } else if (!selectionOnly && modifier && event.shiftKey && key === "n") {
         event.preventDefault();
         show("mkdir");
       } else if (modifier && !event.shiftKey && key === "d" && entries.length) {
@@ -374,6 +380,10 @@ export function FileActions({
       } else if (modifier && !event.shiftKey && key === "i" && entries.length) {
         event.preventDefault();
         show("properties");
+      } else if(event.key==="Insert"&&event.ctrlKey&&!event.shiftKey&&!event.altKey){
+        event.preventDefault();void copy(false);
+      } else if(event.key==="Insert"&&event.shiftKey&&!modifier&&!event.altKey){
+        event.preventDefault();void paste();
       } else if (
         modifier &&
         !event.shiftKey &&
@@ -404,7 +414,7 @@ export function FileActions({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [active, disabled, busy, entries, clipboard, location]);
+  }, [active, disabled, busy, entries, clipboard, location,scope,selectionOnly]);
 
   // 현재 입력을 실제 서버 파일 작업으로 적용한다.
   async function submit(): Promise<void> {
@@ -435,15 +445,16 @@ export function FileActions({
         ref={toolbar}
         className={`file-action-bar ${compact ? "compact" : ""}`}
         aria-label="파일 작업"
+        hidden={selectionOnly&&!entries.length}
       >
-        <button
+        {!selectionOnly && <button
           disabled={blocked}
           onClick={() => show("mkdir")}
           title="새 폴더"
         >
           <FolderPlus size={14} />
           <span>새 폴더</span>
-        </button>
+        </button>}
         <button
           disabled={blocked || !entries.length}
           onClick={() => copy(false)}
@@ -461,9 +472,9 @@ export function FileActions({
           <span>잘라내기</span>
         </button>
         <button
-          disabled={blocked || (!isDesktop && !clipboard)}
+          disabled={blocked || (!isDesktop && !clipboard) || (selectionOnly&&(entries.length!==1||entries[0]?.kind!=="directory"))}
           onClick={() => void paste()}
-          title="붙여넣기 · Ctrl/⌘ V"
+          title={selectionOnly?"선택한 폴더에 붙여넣기 · Ctrl/⌘ V":"붙여넣기 · Ctrl/⌘ V"}
         >
           <ClipboardPaste size={14} />
           <span>붙여넣기</span>

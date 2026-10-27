@@ -10,6 +10,8 @@ pub mod search;
 pub mod store;
 #[cfg(windows)]
 mod windows_file_ops;
+#[cfg(windows)]
+pub mod windows_new_menu;
 
 use crate::{
     model::{Location, Operation, SearchOptions},
@@ -29,6 +31,12 @@ use tauri::{
 
 // 화면 요청을 Rust 검색·파일 엔진의 동작으로 연결한다.
 pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Value, String> {
+    let wait_for_index = !matches!(kind, "status" | "licenseNotices" | "openExternalLink");
+    #[cfg(feature = "smoke-test")]
+    let wait_for_index = wait_for_index && kind != "smokeReport";
+    if wait_for_index {
+        engine.wait_ready()?;
+    }
     let mut result = match kind {
         "analysis" => analysis::run(
             engine,
@@ -90,8 +98,10 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
         "search" => {
             let options: SearchOptions =
                 serde_json::from_value(payload).map_err(|e| e.to_string())?;
-            serde_json::to_value(engine.store.lock().unwrap().index.search(&options)?)
-                .map_err(|e| e.to_string())
+            let store=engine.store.lock().unwrap();
+            let mut result=serde_json::to_value(store.index.search(&options)?).map_err(|e|e.to_string())?;
+            result["indexVersion"]=json!(store.version);
+            Ok(result)
         }
         "directoryLocation" => {
             let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
@@ -126,18 +136,17 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
                 .ok_or("내보낼 내용이 필요합니다.")?;
             if destination
                 .extension()
-                .is_none_or(|s| !s.eq_ignore_ascii_case("csv"))
+                .is_none_or(|s| !["csv","txt","tsv","html"].iter().any(|extension|s.eq_ignore_ascii_case(extension)))
                 || content.len() > 4 * 1024 * 1024
             {
-                return Err("CSV 파일로 최대 4MB까지 저장할 수 있습니다.".into());
+                return Err("CSV·TXT·TSV·HTML 파일로 최대 4MB까지 저장할 수 있습니다.".into());
             }
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(destination)
-                .map_err(|e| format!("저장하지 못했습니다. 다른 파일명을 선택해 주세요: {e}"))?;
+            let parent=destination.parent().ok_or("저장 폴더가 올바르지 않습니다.")?;
+            let mut file=tempfile::NamedTempFile::new_in(parent).map_err(|error|error.to_string())?;
             file.write_all(content.as_bytes())
                 .map_err(|e| e.to_string())?;
+            file.as_file().sync_all().map_err(|error|error.to_string())?;
+            file.persist_noclobber(destination).map_err(|error|format!("저장하지 못했습니다. 다른 파일명을 선택해 주세요: {error}"))?;
             Ok(json!({"count":1}))
         }
         "directories" => {
@@ -171,6 +180,16 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
 }
 
 // 긴 파일 작업을 화면 스레드 밖에서 실행한다.
+#[tauri::command]
+async fn shell_new_menu(window:tauri::WebviewWindow,engine:State<'_,Arc<Engine>>,location:Location,point:Option<Value>)->Result<Value,String>{
+    #[cfg(windows)]{
+        let point=point.map(serde_json::from_value).transpose().map_err(|_|"메뉴 위치가 올바르지 않습니다.")?;
+        let result=windows_new_menu::show_for_window(window,engine,location,point).await?;
+        serde_json::to_value(result).map_err(|error|error.to_string())
+    }
+    #[cfg(not(windows))]{let _=(window,engine,location,point);Err("Windows에서 제공하는 새로 만들기 메뉴입니다.".into())}
+}
+
 #[tauri::command]
 async fn ed_request(
     window: tauri::WebviewWindow,
@@ -207,6 +226,15 @@ async fn ed_request(
         window.set_size(tauri::LogicalSize::new(width as f64, height as f64)).map_err(|error| error.to_string())?;
         return Ok(json!({"width":width,"height":height}));
     }
+    #[cfg(all(windows,feature="smoke-test"))]
+    if window.label()=="main"&&kind=="smokeShellNew"{
+        match payload["action"].as_str(){
+            Some("next")=>{windows_new_menu::test_choice(payload["verb"].as_str().ok_or("검증 명령이 필요합니다.")?)?;return Ok(Value::Null);}
+            Some("status")=>return Ok(json!({"tracked":windows_new_menu::test_tracked()})),
+            Some("items")=>{let location:Location=serde_json::from_value(payload["location"].clone()).map_err(|error|error.to_string())?;let engine=engine.inner().clone();return tauri::async_runtime::spawn_blocking(move||windows_new_menu::test_items(&engine,&location).map(|items|json!(items))).await.map_err(|error|error.to_string())?;}
+            _=>return Err("지원하지 않는 검증 요청입니다.".into()),
+        }
+    }
     let changed =
         kind == "quickAccess" && payload["action"].as_str().is_some_and(|a| a != "snapshot");
     let engine = engine.inner().clone();
@@ -230,6 +258,7 @@ async fn quick_search(
     let engine = engine.inner().clone();
     let epoch = engine.quick_search_epoch.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
         let access = quick_access::request(&engine, json!({}))
             .unwrap_or_else(|_| json!(quick_access::QuickAccess::default()));
         let mut boosts = std::collections::HashMap::new();
@@ -292,6 +321,7 @@ async fn copy_files(
     };
     let engine = engine.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
         file_clipboard::copy(&engine, &locations, owner, cut.unwrap_or(false))
     })
     .await
@@ -315,6 +345,7 @@ async fn paste_files(
     let owner = 0;
     let engine = engine.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
         let sequence = file_clipboard::sequence();
         let paths = file_clipboard::read_files(owner)?;
         if paths.is_empty() { return Err("복사된 파일이 없습니다. Finder 또는 탐색기에서 파일을 먼저 복사해 주세요.".into()); }
@@ -344,6 +375,7 @@ async fn import_files(
     }
     let engine = engine.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
         operations::paste_external(&engine, &paths, &destination)
     })
     .await
@@ -494,12 +526,10 @@ pub fn run() {
             let data = std::env::var_os("EVERY_DIRECTORY_DATA")
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
-            if std::env::var_os("EVERY_DIRECTORY_DATA").is_none() {
-                import_legacy(&data);
-            }
-            let engine = Engine::new(data).map_err(std::io::Error::other)?;
+            let engine = Engine::start(data, std::env::var_os("EVERY_DIRECTORY_DATA").is_none()).map_err(std::io::Error::other)?;
             #[cfg(feature = "smoke-test")]
             if let Some(root) = std::env::var_os("EVERY_DIRECTORY_SMOKE_ROOT") {
+                engine.wait_ready().map_err(std::io::Error::other)?;
                 engine
                     .scan(&json!({"absolutePath":root.to_string_lossy()}))
                     .map_err(std::io::Error::other)?;
@@ -559,6 +589,26 @@ pub fn run() {
             #[cfg(not(feature = "smoke-test"))]
             let _ = (webview, payload);
             #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("shell-new") {
+                let _ = webview.eval(include_str!("../../scripts/shell-new-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("explorer") {
+                let _ = webview.eval(include_str!("../../scripts/explorer-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("audit") {
+                let _ = webview.eval(include_str!("../../scripts/audit-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("tree") {
+                let _ = webview.eval(include_str!("../../scripts/tree-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("columns") {
+                let _ = webview.eval(include_str!("../../scripts/columns-e2e.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("layout") {
                 let _ = webview.eval(include_str!("../../scripts/layout-e2e.js"));
             }
@@ -596,7 +646,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control])
+        .invoke_handler(tauri::generate_handler![ed_request, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

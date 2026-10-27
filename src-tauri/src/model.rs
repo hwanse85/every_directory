@@ -16,6 +16,19 @@ pub struct Entry {
     pub modified: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accessed: Option<u64>,
+    #[serde(default)]
+    pub readonly: bool,
+}
+impl Entry {
+    // Access-time-only changes must not invalidate result pages while browsing.
+    // Explorer reads live metadata; indexed access times are refreshed by a full scan.
+    pub fn same_index_data(&self,other:&Self)->bool {
+        self.id==other.id&&self.root_id==other.root_id&&self.name==other.name&&self.path==other.path&&self.parent==other.parent&&self.kind==other.kind&&self.extension==other.extension&&self.size==other.size&&self.modified==other.modified&&self.hidden==other.hidden&&self.created==other.created&&self.readonly==other.readonly
+    }
 }
 
 // 사용자가 연결한 폴더와 마지막 인덱싱 상태다.
@@ -30,6 +43,8 @@ pub struct Root {
     pub skipped: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub watch_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_paths: Vec<String>,
 }
 
 // 등록된 폴더 안의 상대 경로만 파일 작업에 사용한다.
@@ -56,6 +71,10 @@ pub struct SearchOptions {
     #[serde(default)]
     pub full_path: bool,
     pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub sort_by: Option<String>,
+    #[serde(default)]
+    pub descending: bool,
 }
 
 // 지정하지 않은 검색 방식의 기본값을 반환한다.

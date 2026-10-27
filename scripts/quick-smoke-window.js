@@ -74,10 +74,12 @@
     );
     search("ㅂㄳ");
     await new Promise((resolve) => setTimeout(resolve, 80));
-    verify("빠른 검색 IME 입력 도중 초성 분리", imeInput.value === "ㅂㄱㅅ");
+    verify("빠른 검색 IME 입력 중 원본 조합 보존", imeInput.value === "ㅂㄳ");
+    verify("빠른 검색 조합 중에도 개별 초성으로 표시",imeInput.parentElement.querySelector('.ime-preview')?.textContent==="ㅂㄱㅅ");
     imeInput.dispatchEvent(
       new CompositionEvent("compositionend", { bubbles: true, data: "ㅂㄳ" }),
     );
+    search("ㅂㄳ"); // Late IME commit must not duplicate a consonant.
     await until(
       () =>
         imeInput.value === "ㅂㄱㅅ" &&

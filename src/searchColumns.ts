@@ -1,4 +1,4 @@
-import type { ConnectedRoot, FileEntry } from "./types";
+import type { ConnectedRoot, FileEntry, TableSort } from "./types";
 import { locationLabel, locationPath } from "./paths";
 
 export const searchColumnOptions = [
@@ -24,6 +24,9 @@ export const searchColumnOptions = [
     width: 130,
     hint: "검색 인덱스에 연결한 폴더",
   },
+  {id:"created",label:"만든 날짜",width:150,hint:"파일 시스템에 기록된 생성 시각"},
+  {id:"accessed",label:"액세스한 날짜",width:150,hint:"운영체제 정책에 따라 갱신되는 최근 접근 시각"},
+  {id:"attributes",label:"특성",width:100,hint:"읽기 전용·숨김 등 기본 파일 특성"},
   {
     id: "fullPath",
     label: "전체 경로",
@@ -33,6 +36,11 @@ export const searchColumnOptions = [
 ] as const;
 
 export type SearchColumn = (typeof searchColumnOptions)[number]["id"];
+export function normalizeTableSort(value:unknown):TableSort|undefined {
+  if(!value||typeof value!=="object")return undefined;
+  const candidate=value as TableSort;
+  return searchColumnOptions.some(column=>column.id===candidate.key)&&typeof candidate.descending==="boolean"?{key:candidate.key,descending:candidate.descending}:undefined;
+}
 export const defaultSearchColumns: SearchColumn[] = [
   "name",
   "location",
@@ -71,6 +79,9 @@ export function searchColumnValue(
       return entry.kind === "directory" ? -1 : (entry.size ?? -1);
     case "modified":
       return entry.modified ?? -1;
+    case "created":return entry.created??-1;
+    case "accessed":return entry.accessed??-1;
+    case "attributes":return [entry.readonly?"읽기 전용":"",entry.hidden?"숨김":""].filter(Boolean).join(" · ");
     case "root":
       return locationLabel(root);
     case "fullPath": {

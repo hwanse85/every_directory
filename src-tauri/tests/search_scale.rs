@@ -13,7 +13,7 @@ fn fixture(count: usize) -> Index {
             extension: "dat".into(),
             size: Some(1),
             modified: 0,
-            hidden: false,
+            hidden:false,created:None,accessed:None,readonly:false,
         })
         .collect();
     for name in ["업무 보고서.txt", "쏠리마인드.txt"] {
@@ -27,7 +27,7 @@ fn fixture(count: usize) -> Index {
             extension: "txt".into(),
             size: Some(1),
             modified: 0,
-            hidden: false,
+            hidden:false,created:None,accessed:None,readonly:false,
         });
     }
     let mut index = Index::default();

@@ -218,11 +218,8 @@ const server = http.createServer(async (request, response) => {
                   process.platform === "win32" &&
                   entry.path.toLowerCase() === relative.toLowerCase(),
               );
-            if (!entry)
-              throw new Error(
-                "인덱스에 없는 폴더입니다. 경로를 확인하거나 새로고침해 주세요.",
-              );
-            relative = entry.path;
+            if(!entry)await service.resolveLocation(location);
+            relative = entry?.path??relative;
           }
           const target = { rootId: location.rootId, path: relative };
           if (
@@ -249,7 +246,7 @@ const server = http.createServer(async (request, response) => {
             if (!(await stat(directory)).isDirectory())
               throw new Error("탐색 경로는 폴더여야 합니다.");
           }
-          json(response, service.index.list(location.rootId, location.path));
+          json(response, await service.list(location));
           return;
         }
         case "/api/search": {
@@ -279,7 +276,8 @@ const server = http.createServer(async (request, response) => {
                 options.limit > 1000))
           )
             throw new Error("검색 조건이 올바르지 않습니다.");
-          json(response, service.index.search(options));
+          service.index.setRoots(service.roots());
+          json(response, {...service.index.search(options),indexVersion:service.version});
           return;
         }
         default:

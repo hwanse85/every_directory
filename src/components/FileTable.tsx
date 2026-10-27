@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, SearchX } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { ArrowDown, ArrowUp, ArrowUpRight, Columns3, SearchX } from "lucide-react";
 import { FileIcon, formatSize } from "./FileIcon";
-import { fileCollator } from "../search";
-import type { ConnectedRoot, FileEntry } from "../types";
+import { fileCollator, choseong, categoryOf } from "../search";
+import type { ConnectedRoot, ExplorerView, FileEntry, TableSort, SearchSortKey } from "../types";
+import {defaultExplorerColumns,groupedEntries} from "../explorerView";
 import { locationPath } from "../paths";
 import { isDesktop } from "../client";
 import { startFileDrag } from "../fileDrag";
+import { ColumnResizeHandle } from "./ColumnResizeHandle";
+import { clampColumnWidth, normalizeColumnWidths, resolveColumnWidths, type ColumnWidths } from "../columnWidths";
+import { readPreference, savePreference } from "../storage";
 import {
   defaultSearchColumns,
   searchColumnOptions,
   searchColumnValue,
+  normalizeTableSort,
   type SearchColumn,
 } from "../searchColumns";
 
@@ -28,17 +34,22 @@ interface Props {
   search?: boolean;
   columns?: SearchColumn[];
   compact?: boolean;
-  view?: "list" | "grid";
+  view?: ExplorerView;
+  groupBy?:SearchSortKey|"none";
   selected?: string;
   revealEntry?: FileEntry;
   selectedIds?: string[];
   onMultiSelect?: (entries: FileEntry[]) => void;
   onQuickPreview?: (entry: FileEntry) => void;
   query?: string;
-  onSelect: (entry: FileEntry) => void;
+  onSelect: (entry: FileEntry, multi?:boolean) => void;
   onOpen: (entry: FileEntry) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
   resetKey?: string;
+  columnLayoutKey?: string;
+  sortState?: TableSort | null;
+  onSortChange?: (sort:TableSort|undefined)=>void;
+  onColumnsChange?:(columns:SearchColumn[])=>void;
 }
 
 // 검색어와 일치하는 파일명 부분을 강조한다.
@@ -64,9 +75,10 @@ export function FileTable({
   entries,
   roots,
   search,
-  columns = defaultSearchColumns,
+  columns,
   compact,
   view = "list",
+  groupBy="none",
   selected,
   revealEntry,
   selectedIds,
@@ -77,40 +89,73 @@ export function FileTable({
   onOpen,
   onContextMenu,
   resetKey,
+  columnLayoutKey = search ? "searchColumnWidths" : "explorerColumnWidths",
+  sortState,
+  onSortChange,
+  onColumnsChange,
 }: Props) {
   const anchor = useRef<string | undefined>(undefined);
-  const rowHeight = compact ? 34 : 43;
+  const rowHeight = !search&&view==="content"?72:compact ? 34 : 43;
   const container = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
   const [horizontalScroll, setHorizontalScroll] = useState(0);
   const [height, setHeight] = useState(400);
   const [viewportWidth, setViewportWidth] = useState(0);
-  const [sort, setSort] = useState<SearchColumn>();
-  const [descending, setDescending] = useState(false);
+  const [localSort, setLocalSort] = useState<TableSort|undefined>(()=>normalizeTableSort(readPreference(`${columnLayoutKey}:sort`,null)));
+  const actualSort=sortState===undefined?localSort:sortState;
+  const sort=actualSort?.key;
+  const descending=actualSort?.descending??false;
   const [gridLimit, setGridLimit] = useState(300);
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => normalizeColumnWidths(readPreference(columnLayoutKey, null)));
+  const [columnMenu, setColumnMenu] = useState<{x: number; y: number}>();
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const beforeResize = useRef<ColumnWidths | undefined>(undefined);
   const lastSelection = useRef<string | undefined>(undefined);
   const lastReveal = useRef<FileEntry | undefined>(undefined);
+  const typeAhead=useRef({text:"",time:0});
   const rootById = useMemo(
     () => new Map(roots.map((root) => [root.id, root])),
     [roots],
   );
-  const visibleColumns = searchColumnOptions.filter((column) =>
-    columns.includes(column.id),
-  );
-  const searchWidth = visibleColumns.reduce(
-    (total, column) => total + column.width,
-    48,
-  );
-  const searchGrid = [
-    ...visibleColumns.map(
-      (column) =>
-        `minmax(${column.width}px, ${column.id === "name" || column.id === "location" ? "1fr" : `${column.width}px`})`,
-    ),
-    "24px",
-  ].join(" ");
-  const sorted = useMemo(
+  const activeColumns=columns??(search?defaultSearchColumns:defaultExplorerColumns);
+  const visibleColumns = searchColumnOptions.filter(column=>activeColumns.includes(column.id)).map(column=>search?column:{...column,label:column.id==="extension"?"유형":column.label,width:column.id==="modified"?100:column.width});
+  const resolvedWidths = resolveColumnWidths(visibleColumns, columnWidths, viewportWidth);
+  const tableWidth = Math.max(viewportWidth, resolvedWidths.reduce((sum, width) => sum + width, 48));
+  const tableGrid = [...resolvedWidths.map(width => `${width}px`), "minmax(24px, 1fr)"].join(" ");
+  function updateWidth(id: SearchColumn, width: number, persist: boolean) {
+    if(!persist && beforeResize.current===undefined)beforeResize.current=columnWidths;
+    const next = {...columnWidths, ...Object.fromEntries(visibleColumns.map((column,index) => [column.id,resolvedWidths[index]])), [id]:clampColumnWidth(id,width)};
+    setColumnWidths(next);
+    if (persist) { savePreference(columnLayoutKey, next);beforeResize.current=undefined; }
+  }
+  // Measure real rendered fonts, including Unicode names; avoid mounting thousands of DOM rows.
+  function fitWidth(id: SearchColumn): number {
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return 200;
+    const cell = container.current?.querySelector<HTMLElement>(`[data-column="${id}"]`);
+    context.font = getComputedStyle(cell ?? container.current!).font || "13px sans-serif";
+    const column = visibleColumns.find(column => column.id === id)!;
+    const extra = id === "name" ? (onMultiSelect ? 68 : 44) : 24;
+    return clampColumnWidth(id, Math.max(context.measureText(column.label).width + 40, ...entries.slice(0, 1000).map(entry => context.measureText(columnText(entry,id)).width + extra)));
+  }
+  function fitAllColumns() {
+    const next = {...columnWidths, ...Object.fromEntries(visibleColumns.map(column => [column.id, fitWidth(column.id)]))};
+    setColumnWidths(next);savePreference(columnLayoutKey,next);setColumnMenu(undefined);
+  }
+  useEffect(() => {
+    if(!columnMenu)return;
+    const close=(event:PointerEvent) => {if(!columnMenuRef.current?.contains(event.target as Node)&&!menuTrigger.current?.contains(event.target as Node))setColumnMenu(undefined);};
+    const key=(event:KeyboardEvent) => {if(event.key==="Escape"){event.stopPropagation();setColumnMenu(undefined);menuTrigger.current?.focus();}};
+    const resize=()=>setColumnMenu(undefined);
+    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key,true);window.addEventListener("resize",resize);
+    columnMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus({preventScroll:true});
+    const bounds=columnMenuRef.current?.getBoundingClientRect();if(bounds&&bounds.bottom>innerHeight-8)setColumnMenu(previous=>previous?{...previous,y:Math.max(8,innerHeight-bounds.height-8)}:previous);
+    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key,true);window.removeEventListener("resize",resize);};
+  },[columnMenu]);
+  const ordered = useMemo(
     () =>
-      search && !sort
+      (search&&onSortChange) || (search && !sort)
         ? entries
         : [...entries].sort((a, b) => {
             const first = searchColumnValue(
@@ -131,12 +176,18 @@ export function FileTable({
                 (descending ? -1 : 1)
             );
           }),
-    [entries, search, sort, descending, rootById],
+    [entries, search, sort, descending, rootById,onSortChange],
   );
+  const grouped=useMemo(()=>groupedEntries(ordered,search?"none":groupBy,roots),[ordered,groupBy,search,roots]);
+  const sorted=grouped.entries,displayRows=grouped.rows;
+  const positions=useMemo(()=>new Map(displayRows.flatMap((row,index)=>row.kind==="entry"?[[row.entry.id,index] as const]:[])),[displayRows]);
   useEffect(() => {
-    if (search && sort && !columns.includes(sort)) setSort(undefined);
-  }, [columns, search, sort]);
-  const grid = view === "grid" && !search;
+    if (search && sort && !activeColumns.includes(sort)) {
+      if(onSortChange)onSortChange(undefined);else setLocalSort(undefined);
+    }
+  }, [columns, search, sort,onSortChange]);
+  const grid = !search&&(view==="grid"||view.startsWith("icons-"));
+  const details=search||view==="list";
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       setHeight(entry.contentRect.height);
@@ -161,36 +212,34 @@ export function FileTable({
     if (index < 0) return;
     if (grid) {
       setGridLimit((previous) =>
-        Math.max(previous, Math.ceil((index + 1) / 300) * 300),
+        Math.max(previous, Math.ceil(((positions.get(selected)??index) + 1) / 300) * 300),
       );
       return;
     }
-    const top = index * rowHeight;
+    const top = (positions.get(selected)??index) * rowHeight;
     const current = container.current;
     if (top < current.scrollTop) current.scrollTop = top;
     else if (top + rowHeight > current.scrollTop + current.clientHeight)
       current.scrollTop = top + rowHeight - current.clientHeight;
-  }, [selected, sorted, grid, revealEntry, rowHeight]);
+  }, [selected, sorted, grid, revealEntry, rowHeight,positions]);
   const start = grid ? 0 : Math.max(0, Math.floor(scroll / rowHeight) - 5);
   const end = grid
-    ? Math.min(sorted.length, gridLimit)
-    : Math.min(sorted.length, start + Math.ceil(height / rowHeight) + 10);
+    ? Math.min(displayRows.length, gridLimit)
+    : Math.min(displayRows.length, start + Math.ceil(height / rowHeight) + 10);
 
   // 표시 열을 기준으로 정렬 방향을 변경한다.
   function changeSort(key: SearchColumn) {
-    if (sort === key) setDescending(!descending);
-    else {
-      setSort(key);
-      setDescending(false);
-    }
+    const next={key,descending:sort===key?!descending:false};
+    if(onSortChange)onSortChange(next);else{setLocalSort(next);savePreference(`${columnLayoutKey}:sort`,next);}
   }
 
   // 검색 속성을 사람이 읽기 쉬운 크기와 날짜로 표시한다.
   function columnText(entry: FileEntry, column: SearchColumn): string {
+    if(!search&&column==="extension"&&entry.kind==="directory")return "폴더";
     const value = searchColumnValue(entry, rootById.get(entry.rootId), column);
     if (column === "size")
       return Number(value) < 0 ? "—" : formatSize(Number(value));
-    if (column === "modified")
+    if (["modified","created","accessed"].includes(column))
       return Number(value) < 0 || !Number.isFinite(Number(value))
         ? "—"
         : modifiedFormat.format(Number(value));
@@ -199,14 +248,14 @@ export function FileTable({
 
   // Ctrl 또는 Command는 토글하고 Shift는 마지막 선택부터 범위를 선택한다.
   function selectEntry(entry: FileEntry, toggle = false, range = false): void {
-    onSelect(entry);
+    onSelect(entry,toggle||range);
     if (!onMultiSelect) return;
-    if (range && anchor.current) {
-      const from = sorted.findIndex((item) => item.id === anchor.current);
+    if (range) {
+      const from = sorted.findIndex((item) => item.id === (anchor.current??sorted[0]?.id));
       const to = sorted.findIndex((item) => item.id === entry.id);
-      onMultiSelect(
-        sorted.slice(Math.min(Math.max(0, from), to), Math.max(from, to) + 1),
-      );
+      const selectedRange=sorted.slice(Math.min(Math.max(0,from),to),Math.max(from,to)+1);
+      if(toggle){const ids=new Set([...(selectedIds??[]),...selectedRange.map(item=>item.id)]);onMultiSelect(sorted.filter(item=>ids.has(item.id)));}
+      else onMultiSelect(selectedRange);
     } else if (toggle) {
       const previous = new Set(selectedIds ?? []);
       if (previous.has(entry.id)) previous.delete(entry.id);
@@ -221,26 +270,35 @@ export function FileTable({
 
   return (
     <div
-      className={`file-table ${search ? "search-table" : ""} ${grid ? "grid-table" : ""}`}
+      className={`file-table ${search ? "search-table" : ""} ${grid ? "grid-table" : ""} view-${view}`}
+      data-view={view} data-group={groupBy}
+      style={!grid ? {"--file-columns":tableGrid} as CSSProperties : undefined}
+      onKeyDown={event=>{
+        if((event.target as HTMLElement).closest("input,textarea,select"))return;
+        if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="a"&&onMultiSelect){event.preventDefault();event.stopPropagation();onMultiSelect(sorted);}
+        if((event.ctrlKey||event.metaKey)&&["+","Add"].includes(event.key)&&!grid){event.preventDefault();event.stopPropagation();fitAllColumns();}
+      }}
     >
-      {search && (
-        <div className="search-column-viewport">
+      {details && (
+        <div className="search-column-viewport table-column-viewport" onContextMenu={event => {
+          event.preventDefault();event.stopPropagation();setColumnMenu({x:Math.max(8,Math.min(event.clientX,innerWidth-224)),y:Math.max(8,Math.min(event.clientY,innerHeight-142))});
+        }}>
           <div
-            className="file-columns search-column-headings"
+            className={`file-columns ${search ? "search-column-headings" : ""} resizable-column-headings`}
             role="row"
             style={{
-              gridTemplateColumns: searchGrid,
-              width: Math.max(viewportWidth, searchWidth),
+              gridTemplateColumns: tableGrid,
+              width: tableWidth,
               transform: `translateX(${-horizontalScroll}px)`,
             }}
           >
-            {visibleColumns.map((column) => (
+            {visibleColumns.map((column, index) => (
               <span
                 key={column.id}
                 role="columnheader"
                 data-column={column.id}
                 aria-sort={
-                  sort === column.id
+                  sort === column.id || (!search && !sort && column.id === "name")
                     ? descending
                       ? "descending"
                       : "ascending"
@@ -252,50 +310,39 @@ export function FileTable({
                   onClick={() => changeSort(column.id)}
                 >
                   {column.label}
-                  {sort === column.id &&
+                  {(sort === column.id || (!search && !sort && column.id === "name")) &&
                     (descending ? (
                       <ArrowDown size={11} />
                     ) : (
                       <ArrowUp size={11} />
                     ))}
                 </button>
+                <ColumnResizeHandle id={column.id} label={column.label} width={resolvedWidths[index]}
+                  onCancel={() => {if(beforeResize.current!==undefined)setColumnWidths(beforeResize.current);beforeResize.current=undefined;}}
+                  onResize={(width,persist) => updateWidth(column.id,width,persist)} onFit={() => updateWidth(column.id,fitWidth(column.id),true)} />
               </span>
             ))}
-            <span aria-hidden="true" />
+            <button ref={menuTrigger} className="column-options-button" aria-label="칼럼 너비 설정" title="칼럼 자동 맞춤 · 너비 초기화" aria-expanded={Boolean(columnMenu)}
+              onClick={event => {const bounds=event.currentTarget.getBoundingClientRect();setColumnMenu(columnMenu?undefined:{x:Math.max(8,Math.min(bounds.right-216,innerWidth-224)),y:Math.min(bounds.bottom+4,innerHeight-142)});}}><Columns3 size={13}/></button>
           </div>
         </div>
       )}
-      {!grid && !search && (
-        <div className="file-columns" role="row">
-          <button onClick={() => changeSort("name")} aria-label="이름으로 정렬">
-            이름{" "}
-            {(sort === "name" || (!sort && !search)) &&
-              (descending ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
-          </button>
-          <button onClick={() => changeSort("extension")}>유형</button>
-          <button onClick={() => changeSort("size")} aria-label="크기로 정렬">
-            크기 {sort === "size" && (descending ? "↓" : "↑")}
-          </button>
-          <button
-            className="file-modified"
-            onClick={() => changeSort("modified")}
-            aria-label="수정일로 정렬"
-          >
-            수정일 {sort === "modified" && (descending ? "↓" : "↑")}
-          </button>
-          <span />
-        </div>
-      )}
+      {columnMenu && createPortal(<div className="column-width-menu" ref={columnMenuRef} role="dialog" aria-label="칼럼 너비 설정" style={{left:columnMenu.x,top:columnMenu.y}} onContextMenu={event=>event.preventDefault()}>
+        <button onClick={fitAllColumns}>모든 칼럼 내용에 맞춤</button>
+        <button onClick={()=>{setColumnWidths({});savePreference(columnLayoutKey,{});setColumnMenu(undefined);menuTrigger.current?.focus();}}>기본 너비로 복원</button>
+        {onColumnsChange&&<fieldset className="column-menu-fields"><legend>표시할 속성</legend>{searchColumnOptions.map(column=><label key={column.id}><input type="checkbox" disabled={column.id==="name"} checked={activeColumns.includes(column.id)} onChange={event=>onColumnsChange(searchColumnOptions.filter(item=>item.id==="name"||(item.id===column.id?event.target.checked:activeColumns.includes(item.id))).map(item=>item.id))}/>{column.label}</label>)}</fieldset>}
+        <small>경계선 드래그 · 더블클릭 자동 맞춤<br/>방향키 10px · Shift+방향키 40px</small>
+      </div>,document.body)}
       <div
         className="file-scroll"
         ref={container}
         onScroll={(e) => {
           setScroll(e.currentTarget.scrollTop);
-          if (search) setHorizontalScroll(e.currentTarget.scrollLeft);
+          setHorizontalScroll(e.currentTarget.scrollLeft);
         }}
         role="grid"
         aria-label={search ? "검색 결과" : "폴더 내용"}
-        aria-colcount={search ? visibleColumns.length + 1 : undefined}
+        aria-colcount={!grid ? visibleColumns.length + 1 : undefined}
       >
         {!sorted.length ? (
           <div className="empty-files">
@@ -316,14 +363,15 @@ export function FileTable({
               grid
                 ? undefined
                 : {
-                    height: sorted.length * rowHeight,
-                    minWidth: search ? searchWidth : undefined,
+                    height: displayRows.length * rowHeight,
+                    minWidth: details?tableWidth:undefined,
                   }
             }
           >
-            {sorted.slice(start, end).map((entry, i) => (
+            {displayRows.slice(start, end).map((record, i) => record.kind==="group"?<div key={`group:${record.label}`} className="file-group-heading" role="row" style={grid?undefined:{position:"absolute",top:(start+i)*rowHeight,height:rowHeight,left:0,right:0}}><strong>{record.label}</strong><span>{record.count.toLocaleString()}개</span></div>:(()=>{const entry=record.entry,index=record.index;return (
               <div
                 key={entry.id}
+                data-category={entry.kind==="directory"?"directory":categoryOf(entry)}
                 className={`file-row ${(selectedIds ? selectedIds.includes(entry.id) : selected === entry.id) ? "selected" : ""}`}
                 style={
                   grid
@@ -333,7 +381,7 @@ export function FileTable({
                         top: (start + i) * rowHeight,
                         height: rowHeight,
                         width: "100%",
-                        gridTemplateColumns: search ? searchGrid : undefined,
+                        gridTemplateColumns: details?tableGrid:"minmax(0,1fr) 24px",
                       }
                 }
                 role="row"
@@ -343,7 +391,7 @@ export function FileTable({
                     ? selectedIds.includes(entry.id)
                     : selected === entry.id
                 }
-                data-index={start + i}
+                data-index={index}
                 data-drop-location={entry.kind === "directory" ? JSON.stringify({ rootId: entry.rootId, path: entry.path }) : undefined}
                 title={locationPath(rootById.get(entry.rootId), entry.path)}
                 onClick={(event) =>
@@ -364,6 +412,7 @@ export function FileTable({
                   onContextMenu(entry, event.clientX, event.clientY);
                 }}
                 onKeyDown={(e) => {
+                  if(e.nativeEvent.isComposing||e.nativeEvent.keyCode===229)return;
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   if (
                     onContextMenu &&
@@ -371,7 +420,7 @@ export function FileTable({
                   ) {
                     e.preventDefault();
                     const bounds = e.currentTarget.getBoundingClientRect();
-                    selectEntry(entry);
+                    if(!selectedIds?.includes(entry.id))selectEntry(entry);
                     onContextMenu(entry, bounds.left + 32, bounds.top + 16);
                     return;
                   }
@@ -392,13 +441,14 @@ export function FileTable({
                     const gridElement = container.current?.querySelector(".file-grid");
                     const columns = grid && gridElement ? getComputedStyle(gridElement).gridTemplateColumns.split(" ").length : 1;
                     const delta = e.key === "ArrowDown" ? columns : e.key === "ArrowUp" ? -columns : e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "PageDown" ? page : -page;
-                    const nextIndex = e.key === "Home" ? 0 : e.key === "End" ? sorted.length - 1 : Math.max(0, Math.min(sorted.length - 1, start + i + delta));
+                    const nextIndex = e.key === "Home" ? 0 : e.key === "End" ? sorted.length - 1 : Math.max(0, Math.min(sorted.length - 1, index + delta));
                     const next = sorted[nextIndex];
                     if (next) {
-                      if (!e.ctrlKey && !e.metaKey) selectEntry(next, false, e.shiftKey);
-                      if (grid) setGridLimit((previous) => Math.max(previous, Math.ceil((nextIndex + 1) / 300) * 300));
+                      if(e.shiftKey)selectEntry(next,e.ctrlKey||e.metaKey,true);
+                      else if (!e.ctrlKey && !e.metaKey) selectEntry(next);
+                      if (grid) setGridLimit((previous) => Math.max(previous, Math.ceil(((positions.get(next.id)??nextIndex) + 1) / 300) * 300));
                       else container.current?.scrollTo({
-                        top: Math.max(0, nextIndex * rowHeight - height / 2),
+                        top: Math.max(0, (positions.get(next.id)??nextIndex) * rowHeight - height / 2),
                       });
                       requestAnimationFrame(() => {
                         const nextRow = container.current
@@ -408,6 +458,20 @@ export function FileTable({
                         nextRow?.focus({ preventScroll: true });
                         if (grid) nextRow?.scrollIntoView({ block: "nearest" });
                       });
+                    }
+                  }else if(e.key.length===1&&e.key!==" "&&!e.altKey&&!e.ctrlKey&&!e.metaKey){
+                    const time=performance.now(),old=time-typeAhead.current.time<900?typeAhead.current.text:"";
+                    const text=(old+e.key).slice(-64),repeat=Array.from(text).every(char=>char.toLocaleLowerCase()===e.key.toLocaleLowerCase());
+                    const query=(repeat?e.key:text).normalize("NFC").toLocaleLowerCase();typeAhead.current={text,time};
+                    const initial=choseong(query).replaceAll(" ","");
+                    const from=old&&!repeat?index:index+1;
+                    const korean=/[ㄱ-ㅎ]/.test(query);let nextIndex:number|undefined;
+                    for(let offset=0;offset<sorted.length;offset++){const index=(from+offset)%sorted.length;if(sorted[index].name.toLocaleLowerCase().startsWith(query)||(korean&&choseong(sorted[index].name).replaceAll(" ","").startsWith(initial))){nextIndex=index;break;}}
+                    if(nextIndex!==undefined){
+                      e.preventDefault();selectEntry(sorted[nextIndex]);
+                      if(grid)setGridLimit(previous=>Math.max(previous,Math.ceil(((positions.get(sorted[nextIndex].id)??nextIndex)+1)/300)*300));
+                      else container.current?.scrollTo({top:Math.max(0,(positions.get(sorted[nextIndex].id)??nextIndex)*rowHeight-height/2)});
+                      requestAnimationFrame(()=>container.current?.querySelector<HTMLElement>(`[data-index="${nextIndex}"]`)?.focus({preventScroll:true}));
                     }
                   }
                 }}
@@ -438,7 +502,7 @@ export function FileTable({
                 <span
                   className="file-name"
                   role="gridcell"
-                  data-column={search ? "name" : undefined}
+                  data-column="name"
                 >
                   {onMultiSelect && (
                     <input
@@ -463,14 +527,14 @@ export function FileTable({
                     </small>
                   )}
                 </span>
-                {!grid &&
-                  (search ? (
+                {details &&
+                  (
                     visibleColumns
                       .filter((column) => column.id !== "name")
                       .map((column) => (
                         <span
                           key={column.id}
-                          className={`search-cell search-cell-${column.id}`}
+                        className={`search-cell search-cell-${column.id} ${!search?`file-${column.id==="extension"?"type":column.id}`:""}`}
                           data-column={column.id}
                           role="gridcell"
                           title={columnText(entry, column.id)}
@@ -478,38 +542,8 @@ export function FileTable({
                           {columnText(entry, column.id)}
                         </span>
                       ))
-                  ) : (
-                    <>
-                      <span className="file-type" role="gridcell">
-                        {entry.kind === "directory"
-                          ? "폴더"
-                          : entry.extension.toUpperCase() || "파일"}
-                      </span>
-                      <span className="file-size" role="gridcell">
-                        {formatSize(entry.size)}
-                      </span>
-                      <span
-                        className="file-modified"
-                        role="gridcell"
-                        title={
-                          entry.modified
-                            ? new Date(entry.modified).toLocaleString("ko-KR")
-                            : ""
-                        }
-                      >
-                        {entry.modified
-                          ? new Date(entry.modified).toLocaleDateString(
-                              "ko-KR",
-                              {
-                                year: "2-digit",
-                                month: "2-digit",
-                                day: "2-digit",
-                              },
-                            )
-                          : "—"}
-                      </span>
-                    </>
-                  ))}
+                  )}
+                {!search&&view==="content"&&<span className="content-meta">{columnText(entry,"type")} · {formatSize(entry.size)} · {columnText(entry,"modified")}</span>}
                 {!grid && (
                   <button
                     className="row-open icon-button"
@@ -524,10 +558,10 @@ export function FileTable({
                   </button>
                 )}
               </div>
-            ))}
+            );})())}
           </div>
         )}
-        {grid && sorted.length > end && (
+        {grid && displayRows.length > end && (
           <p className="grid-limit">
             {end.toLocaleString()} / {sorted.length.toLocaleString()}개 표시{" "}
             <button

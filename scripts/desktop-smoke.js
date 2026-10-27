@@ -207,12 +207,12 @@
         await until(() => checkbox.checked, "표시 항목 선택");
       }
     }
-    await until(() => columnIds().length === 8, "전체 검색 속성 표시");
+    await until(() => columnIds().length === picker.querySelectorAll('label').length, "전체 검색 속성 표시");
     verify(
-      "사용자 선택 8개 속성과 실제 파일 메타데이터",
+      "사용자 선택 속성과 실제 파일 메타데이터",
       document
         .querySelector(".search-table .file-row")
-        .querySelectorAll('[role="gridcell"]').length === 8 &&
+        .querySelectorAll('[role="gridcell"]').length === columnIds().length &&
         /\d{4}/.test(
           document.querySelector(
             '.search-table .file-row [data-column="modified"]',
@@ -224,7 +224,7 @@
     );
     await until(() => {
       const stored = sessionStorage.getItem("ed:searchColumns");
-      return stored && JSON.parse(stored).length === 8;
+      return stored && JSON.parse(stored).length === columnIds().length;
     }, "검색 열 설정 저장");
     verify("검색 표시 항목 설정 자동 저장", true);
     picker.querySelector('[aria-label="표시 항목 닫기"]').click();
@@ -255,7 +255,7 @@
       () =>
         document
           .querySelector('.search-column-headings [data-column="size"]')
-          .getAttribute("aria-sort") === "ascending",
+            .getAttribute("aria-sort") === "ascending" && !document.querySelector('.result-summary .spin'),
       "검색 크기 오름차순",
     );
     const sortedRows = [
@@ -414,7 +414,6 @@
     verify("파일 크기 정렬", true);
     pane.querySelector('[aria-label="폴더 트리 표시"]').click();
     await until(() => pane.querySelector(".folder-tree"), "폴더 트리");
-    pane.querySelector(".tree-toggle").click();
     await until(
       () => pane.querySelectorAll(".tree-folder").length > 1,
       "폴더 트리 펼치기",
@@ -702,7 +701,8 @@
         menu.querySelectorAll("kbd").length >= 8 &&
         menu.querySelectorAll('[aria-haspopup="menu"]').length === 5,
     );
-    await menuItem("새로 만들기");
+    document.querySelector('.file-context-menu [data-group="create"]').dispatchEvent(new PointerEvent("pointerover",{bubbles:true,pointerType:"mouse"}));
+    await until(()=>document.querySelector('.context-submenu'),"간단한 새로 만들기 하위 메뉴");
     await menuItem("새 텍스트 파일");
     let input = await until(
       () => document.querySelector('[aria-label="작업 이름"]'),

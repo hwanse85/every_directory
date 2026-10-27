@@ -74,6 +74,7 @@ export function Preview({
       subtitle={locationLabel(root, entry.parent)}
       onClose={onClose}
       wide
+      className="preview-modal"
     >
       <div className="preview-meta">
         <span>{entry.extension.toUpperCase()} 파일</span>

@@ -1,8 +1,10 @@
 import { RE2JS } from "re2js";
 import { normalizeSearchInput } from "./quickSearch";
+import { searchColumnOptions, searchColumnValue } from "./searchColumns";
 import type {
   FileCategory,
   FileEntry,
+  ConnectedRoot,
   SearchOptions,
   SearchResult,
 } from "./types";
@@ -204,6 +206,8 @@ export class FileIndex {
   private grams = new Map<string, number[]>();
   private initialGrams = new Map<string, number[]>();
   private children = new Map<string, FileEntry[]>();
+  private roots = new Map<string, ConnectedRoot>();
+  setRoots(roots:ConnectedRoot[]):void {this.roots=new Map(roots.map(root=>[root.id,root]));}
 
   // 완료된 스냅샷으로 검색 키와 탐색 목록을 교체한다.
   replace(entries: FileEntry[]): void {
@@ -314,6 +318,9 @@ export class FileIndex {
     let partial = false;
     const count = candidates?.length ?? this.entries.length;
     const limit = Math.max(1, Math.min(1000, options.limit ?? 500));
+    if(options.offset!==undefined&&(!Number.isInteger(options.offset)||options.offset<0))throw new Error("페이지 위치가 올바르지 않습니다.");
+    if(options.sortBy!==undefined&&!searchColumnOptions.some(column=>column.id===options.sortBy))throw new Error("지원하지 않는 정렬 항목입니다.");
+    const offset=Math.min(options.offset??0,this.entries.length);
     for (let n = 0; n < count; n++) {
       if (n % 128 === 0 && performance.now() - started > 650) {
         partial = true;
@@ -354,13 +361,21 @@ export class FileIndex {
                 );
       if (!matched) continue;
       total++;
-      if (mode === "fuzzy" || matches.length < limit)
+      if (options.sortBy || mode === "fuzzy" || matches.length < offset+limit)
         matches.push({ entry, score, order: i });
     }
-    if (mode === "fuzzy")
+    if(options.sortBy){
+      const key=options.sortBy;
+      matches.sort((a,b)=>{
+        const first=searchColumnValue(a.entry,this.roots.get(a.entry.rootId),key);
+        const second=searchColumnValue(b.entry,this.roots.get(b.entry.rootId),key);
+        return Number(b.entry.kind==="directory")-Number(a.entry.kind==="directory")||
+          (typeof first==="number"&&typeof second==="number"?first-second:fileCollator.compare(String(first),String(second)))*(options.descending?-1:1)||fileCollator.compare(a.entry.id,b.entry.id);
+      });
+    }else if (mode === "fuzzy")
       matches.sort((a, b) => a.score - b.score || a.order - b.order);
     return {
-      entries: matches.slice(0, limit).map((match) => match.entry),
+      entries: matches.slice(offset, offset+limit).map((match) => match.entry),
       total,
       elapsed: performance.now() - started,
       partial,

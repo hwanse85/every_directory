@@ -1,4 +1,4 @@
-import { writeClipboard, isDesktop, importDroppedFiles } from "../client";
+import { writeClipboard, isDesktop, importDroppedFiles, supportsWindowsNew, windowsNewMenu } from "../client";
 import type { FileDrag } from "../fileDrag";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -20,11 +20,14 @@ import {
   X,
   EyeOff,
   Palette,
+  Pin,
+  ExternalLink,
 } from "lucide-react";
 import type { IndexClient } from "../client";
 import type {
   ConnectedRoot,
   ExplorerPane,
+  ExplorerTab,
   FileEntry,
   Location,
   FileClipboard,
@@ -46,7 +49,16 @@ import {
 } from "../paths";
 import { tabColor } from "../tabs";
 import { filenameFilter } from "../search";
-import { normalizeSearchInput, searchInputValue } from "../quickSearch";
+import { useSearchInput } from "../useSearchInput";
+import { SearchTextInput } from "./SearchTextInput";
+import { duplicateTab, moveTab, restoreClosedTabs, closedTabSnapshot } from "../tabs";
+import { formatSize } from "./FileIcon";
+import { TabMenu } from "./TabMenu";
+import { useTabReorder } from "../useTabReorder";
+import {TreeWidthHandle,treeWidth} from "./TreeWidthHandle";
+import {SearchColumnPicker} from "./SearchColumnPicker";
+import {defaultExplorerColumns,explorerViews} from "../explorerView";
+import {normalizeSearchColumns,normalizeTableSort,searchColumnOptions} from "../searchColumns";
 export { createTab, createPane } from "../tabs";
 
 interface Props {
@@ -106,6 +118,8 @@ export function Explorer({
   const tab = pane.tabs.find((t) => t.id === pane.activeTab) ?? pane.tabs[0];
   const location = tab.history[tab.cursor];
   const root = roots.find((r) => r.id === location.rootId);
+  const explorerColumns=normalizeSearchColumns(pane.columns??defaultExplorerColumns);
+  const explorerSort=pane.sort??normalizeTableSort(readPreference(`explorerColumnWidths:${pane.id}:sort`,null))??{key:"name" as const,descending:false};
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState<FileEntry>();
   const [selection, setSelection] = useState<FileEntry[]>([]);
@@ -117,9 +131,19 @@ export function Explorer({
   const addressRef = useRef<HTMLInputElement>(null);
   const revealed = useRef<FileEntry | undefined>(undefined);
   const [filter, setFilter] = useState("");
-  const composingFilter = useRef(false);
+  const filterEditing = useSearchInput("initials", setFilter);
+  const composingFilter = filterEditing.composing;
   const filterRef = useRef<HTMLInputElement>(null);
-  const [tree, setTree] = useState(false);
+  const [tree, setTree] = useState(readPreference(`folderTreeVisible:${pane.id}`,false));
+  const [treeSize,setTreeSize]=useState(()=>treeWidth(readPreference(`folderTreeWidth:${pane.id}`,165)));
+  useEffect(()=>{savePreference(`folderTreeWidth:${pane.id}`,treeSize);},[pane.id,treeSize]);
+  const [closedTabs,setClosedTabs]=useState<ExplorerTab[]>(()=>restoreClosedTabs(readPreference(`closedTabs:${pane.id}`,[])));
+  const [tabMenu,setTabMenu]=useState<{id:string;x:number;y:number}>();
+  const [renamingTab,setRenamingTab]=useState<{id:string;name:string}>();
+  const tabDrag=useTabReorder((id,target,after)=>onChange({...pane,tabs:moveTab(pane.tabs,id,target,after)}));
+  const closeTabMenu=useCallback(()=>setTabMenu(undefined),[]);
+  useEffect(()=>{savePreference(`closedTabs:${pane.id}`,closedTabs);},[closedTabs,pane.id]);
+  useEffect(()=>{savePreference(`folderTreeVisible:${pane.id}`,tree);},[tree,pane.id]);
   const [context, setContext] = useState<{ x: number; y: number }>();
   const [localTool, setLocalTool] = useState<ToolRequest>();
   const [transfer, setTransfer] = useState<Location[]>();
@@ -127,6 +151,37 @@ export function Explorer({
   const [transferDestination, setTransferDestination] = useState<Location>();
   const paneRef = useRef<HTMLElement>(null);
   const [transferring, setTransferring] = useState(false);
+  const [nativeCreating, setNativeCreating] = useState(false);
+  const currentLocation = useRef(location);
+  currentLocation.current = location;
+  async function createNative(point: {x: number; y: number}) {
+    if (nativeCreating || !root || root.demo) return;
+    const destination = {...location};
+    const stillCurrent = () => destination.rootId === currentLocation.current.rootId
+      && destination.path === currentLocation.current.path;
+    setNativeCreating(true);
+    try {
+      const result = await windowsNewMenu(destination, point);
+      if (!result.invoked) return;
+      onChanged();
+      if (stillCurrent()) {
+        const files = await client.request<FileEntry[]>("list", destination);
+        const created = files.filter(file => result.created.some(item => item.rootId === file.rootId && item.path === file.path));
+        if (stillCurrent() && created.length) {
+          setSelection(created);
+          setSelected(created[0]);
+        }
+      }
+      onMessage(result.created.length
+        ? `${result.created.length}개 항목을 Windows에서 만들었습니다. F2로 이름을 변경할 수 있습니다.`
+        : "Windows 새로 만들기를 실행했습니다. 생성이 끝나면 목록에 표시됩니다.");
+    } catch (cause) {
+      onChanged();
+      onError(String(cause));
+    } finally {
+      setNativeCreating(false);
+    }
+  }
   const [transferError, setTransferError] = useState("");
   useEffect(() => {
     const paneElement = paneRef.current;
@@ -293,20 +348,25 @@ export function Explorer({
         !active ||
         event.defaultPrevented ||
         event.isComposing ||
+        event.keyCode === 229 ||
+        (event.target instanceof Element && !!event.target.closest('.search-panel')) ||
         document.querySelector('dialog[open],[role="menu"]')
       )
         return;
       const modifier = event.metaKey || event.ctrlKey;
+      if(modifier&&event.shiftKey&&event.key.toLowerCase()==="t"){
+        event.preventDefault();reopenTab();return;
+      }
       if (modifier && !event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         filterRef.current?.focus();
         filterRef.current?.select();
         return;
       }
-      if (modifier && !event.altKey && event.key === "Tab") {
+      if (modifier && !event.altKey && (event.key === "Tab" || (["PageUp","PageDown"].includes(event.key)&&(event.target as HTMLElement)?.closest?.('.explorer-pane')))) {
         event.preventDefault();
         const index = pane.tabs.findIndex(item => item.id === tab.id);
-        const next = (index + (event.shiftKey ? pane.tabs.length - 1 : 1)) % pane.tabs.length;
+        const next = (index + (event.shiftKey || event.key==="PageUp" ? pane.tabs.length - 1 : 1)) % pane.tabs.length;
         onChange({...pane, activeTab:pane.tabs[next].id});
         return;
       }
@@ -384,7 +444,7 @@ export function Explorer({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [active, pane, root, location, onNavigate, onChange]);
+  }, [active, pane, root, location, onNavigate, onChange,closedTabs]);
 
   useEffect(() => {
     let alive = true;
@@ -455,6 +515,7 @@ export function Explorer({
 
   // 활성 탭의 기록 위치만 바꾸어 뒤로 또는 앞으로 이동한다.
   function travel(delta: number) {
+    if(tab.locked){onNavigate(tab.history[tab.cursor+delta],true);return;}
     onChange({
       ...pane,
       tabs: pane.tabs.map((t) =>
@@ -465,14 +526,32 @@ export function Explorer({
 
   // 탭을 닫고 남은 인접 탭을 선택한다.
   function closeTab(id: string) {
+    const closed=pane.tabs.find(tab=>tab.id===id);
+    if(!closed||closed.locked)return;
     const tabs = pane.tabs.filter((t) => t.id !== id);
     if (!tabs.length) return;
+    setClosedTabs(previous=>[...previous,closedTabSnapshot(closed)].slice(-20));
     onChange({
       ...pane,
       tabs,
       activeTab:
-        pane.activeTab === id ? tabs[tabs.length - 1].id : pane.activeTab,
+        pane.activeTab === id ? tabs[Math.min(pane.tabs.findIndex(tab=>tab.id===id),tabs.length-1)].id : pane.activeTab,
     });
+  }
+
+  function reopenTab(){
+    const closed=closedTabs.at(-1);if(!closed)return;
+    if(!roots.some(root=>root.id===closed.history[closed.cursor].rootId)){onMessage("닫은 탭의 폴더 연결이 해제되었습니다.",true);return;}
+    const restored=pane.tabs.some(tab=>tab.id===closed.id)?{...closed,id:crypto.randomUUID()}:closed;
+    setClosedTabs(previous=>previous.slice(0,-1));onChange({...pane,tabs:[...pane.tabs,restored],activeTab:restored.id});
+  }
+
+  function closeOtherTabs(id:string,rightOnly=false){
+    const position=pane.tabs.findIndex(tab=>tab.id===id);
+    const removed=pane.tabs.filter((tab,index)=>tab.id!==id&&!tab.locked&&(!rightOnly||index>position));
+    if(!removed.length)return;
+    setClosedTabs(previous=>[...previous,...removed.map(closedTabSnapshot)].slice(-20));
+    const tabs=pane.tabs.filter(tab=>!removed.includes(tab));onChange({...pane,tabs,activeTab:tabs.some(tab=>tab.id===pane.activeTab)?pane.activeTab:id});
   }
 
   // 실제 경로를 클립보드에 복사한다.
@@ -588,15 +667,20 @@ export function Explorer({
         >
           {pane.tabs.map((t) => {
             const loc = t.history[t.cursor];
-            const name =
+            const name = (typeof t.title==="string"&&t.title.trim().slice(0,64)) ||
               loc.path.split("/").pop() ||
               locationLabel(roots.find((r) => r.id === loc.rootId)) ||
               "폴더";
             const color = tabColor(t.color);
             return (
               <div
-                className={`explorer-tab ${t.id === tab.id ? "current" : ""}`}
+                className={`explorer-tab ${t.id === tab.id ? "current" : ""} ${tabDrag.visual?.id===t.id?"dragging-tab":""} ${tabDrag.visual?.target===t.id&&tabDrag.visual.id!==t.id?"tab-drop-target":""}`}
                 key={t.id}
+                data-tab-id={t.id}
+                data-drop-edge={tabDrag.visual?.after?"after":"before"}
+                onPointerDown={tabDrag.onPointerDown} onPointerMove={tabDrag.onPointerMove} onPointerUp={tabDrag.onPointerUp}
+                onPointerCancel={tabDrag.onPointerCancel} onLostPointerCapture={tabDrag.onLostPointerCapture}
+                onContextMenu={event=>{if((event.target as HTMLElement).closest('input'))return;event.preventDefault();event.stopPropagation();setTabMenu({id:t.id,x:event.clientX,y:event.clientY});}}
                 style={
                   color
                     ? {
@@ -609,11 +693,13 @@ export function Explorer({
                 <button
                   role="tab"
                   aria-selected={t.id === tab.id}
-                  title={name}
-                  onClick={() => onChange({ ...pane, activeTab: t.id })}
+                  title={`${locationPath(roots.find(root=>root.id===loc.rootId),loc.path)}${t.locked?" · 고정됨":""}`}
+                  onClick={() => {if(!tabDrag.suppressClick(t.id))onChange({ ...pane, activeTab: t.id });}}
+                  onAuxClick={event=>{if(event.button===1){event.preventDefault();closeTab(t.id);}}}
                 >
                   <Folder size={14} />
                   <span>{name}</span>
+                  {t.locked&&<Pin size={11} aria-label="고정된 탭"/>}
                 </button>
                 <label
                   className={`tab-color-control ${color ? "has-color" : "no-color"}`}
@@ -667,7 +753,7 @@ export function Explorer({
                     <X size={10} />
                   </button>
                 )}
-                {pane.tabs.length > 1 && (
+                {pane.tabs.length > 1 && !t.locked && (
                   <button
                     className="close-tab"
                     aria-label={`${name} 탭 닫기`}
@@ -831,6 +917,7 @@ export function Explorer({
             <RotateCw size={14} />
           </button>
           <span className="tool-divider" />
+          {isDesktop&&<button className="icon-button" title="현재 폴더를 운영체제 기본 탐색기에서 열기" aria-label="기본 탐색기에서 열기" disabled={!root||!!root.demo} onClick={()=>void client.request("operation",{action:"open",entries:[location]}).catch(cause=>onError(String(cause)))}><ExternalLink size={14}/></button>}
           <button
             className={`icon-button ${pane.view === "list" ? "chosen" : ""}`}
             title="목록 보기"
@@ -879,16 +966,17 @@ export function Explorer({
         >
           <FolderTreeIcon size={14} />
         </button>
-        <input
+        <SearchTextInput
           aria-label={`탐색창 ${number} 파일 필터`}
+          preview={filterEditing.preview}
           ref={filterRef}
           placeholder="현재 폴더에서 필터…"
           title="이름 일부·한글 초성·와일드카드로 필터"
           maxLength={512}
           value={filter}
-          onCompositionStart={() => { composingFilter.current = true; }}
-          onCompositionEnd={(event) => { composingFilter.current = false; setFilter(normalizeSearchInput(event.currentTarget.value, "initials")); }}
-          onChange={(event) => setFilter(searchInputValue(event.currentTarget, "initials", composingFilter))}
+          onCompositionStart={filterEditing.onCompositionStart}
+          onCompositionEnd={filterEditing.onCompositionEnd}
+          onChange={filterEditing.onChange}
           onKeyDown={(event) => {
             if (event.key === "Escape" && !composingFilter.current && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -908,6 +996,13 @@ export function Explorer({
           </button>
         )}
       </div>
+      <div className="explorer-view-controls" aria-label={`탐색창 ${number} 보기 설정`}>
+        <label><span>보기</span><select aria-label={`탐색창 ${number} 보기 종류`} value={pane.view} onChange={event=>onChange({...pane,view:event.target.value as ExplorerPane["view"]})}>{explorerViews.map(view=><option key={view.id} value={view.id}>{view.label}</option>)}</select></label>
+        <label><span>정렬</span><select aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+        <button className="sort-direction" aria-label={`탐색창 ${number} ${explorerSort.descending?"오름차순":"내림차순"}으로 정렬`} title={explorerSort.descending?"내림차순 · 클릭하여 오름차순":"오름차순 · 클릭하여 내림차순"} onClick={()=>onChange({...pane,sort:{...explorerSort,descending:!explorerSort.descending}})}>{explorerSort.descending?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</button>
+        <label><span>분류</span><select aria-label={`탐색창 ${number} 분류 기준`} value={pane.group??"none"} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+        <SearchColumnPicker label={`탐색창 ${number} 표시 항목`} defaults={defaultExplorerColumns} columns={explorerColumns} onChange={columns=>onChange({...pane,columns,view:"list"})}/>
+      </div>
       <div
         className="explorer-files"
         onContextMenu={(event) => {
@@ -923,16 +1018,23 @@ export function Explorer({
           setContext({ x: event.clientX, y: event.clientY });
         }}
       >
-        {tree && (
+        {tree && <>
           <FolderTree
+            key={tab.id}
+            storageKey={`folderTreeExpanded:${pane.id}:${tab.id}`}
+            label={`탐색창 ${number} 폴더 트리`}
+            width={treeSize}
+            showHidden={showHidden}
             roots={roots}
             location={location}
             client={client}
             revision={revision}
             onNavigate={onNavigate}
           />
-        )}
+          <TreeWidthHandle width={treeSize} onChange={setTreeSize}/>
+        </>}
         <FileTable
+          columnLayoutKey={`explorerColumnWidths:${pane.id}`}
           resetKey={`${tab.id}:${location.rootId}:${location.path}:${filter}:${showHidden}`}
           compact={compact}
           entries={visibleEntries}
@@ -943,6 +1045,11 @@ export function Explorer({
           onMultiSelect={setSelection}
           onQuickPreview={onPreview}
           view={pane.view}
+          columns={explorerColumns}
+          onColumnsChange={columns=>onChange({...pane,columns})}
+          groupBy={pane.group??"none"}
+          sortState={explorerSort}
+          onSortChange={sort=>onChange({...pane,sort:sort??{key:"name",descending:false}})}
           onSelect={setSelected}
           onOpen={openEntry}
           onContextMenu={
@@ -961,6 +1068,7 @@ export function Explorer({
           hidden={showHidden}
           onClose={closeContext}
           onAction={(action) => setLocalTool({ action, id: performance.now() })}
+          onWindowsNew={supportsWindowsNew&&!nativeCreating&&root&&!root.demo?(point)=>void createNative(point):undefined}
         />
       )}
       {analysis && (
@@ -1090,7 +1198,7 @@ export function Explorer({
               {filter && ` · 필터 ${visibleEntries.length}개`}
               {selection.length > 0 && (
                 <span className="selection-count">
-                  · {selection.length}개 선택
+                  · {selection.length.toLocaleString()}개 선택{selection.some(entry=>entry.kind==="file")&&` · 파일 ${formatSize(selection.reduce((bytes,entry)=>bytes+(entry.kind==="file"?(entry.size??0):0),0))}`}
                 </span>
               )}
             </>
@@ -1113,6 +1221,19 @@ export function Explorer({
           <ArrowDown size={24} /> 이 탐색창에서 위치 열기
         </div>
       )}
+      {tabMenu&&(()=>{const target=pane.tabs.find(tab=>tab.id===tabMenu.id);if(!target)return null;return <TabMenu x={tabMenu.x} y={tabMenu.y} onClose={closeTabMenu} items={[
+        {label:"탭 복제",run:()=>{const next=duplicateTab(target);onChange({...pane,tabs:[...pane.tabs,next],activeTab:next.id});}},
+        {label:"탭 이름 변경…",run:()=>setRenamingTab({id:target.id,name:target.title??""})},
+        {label:target.locked?"탭 고정 해제":"탭 고정",run:()=>onChange({...pane,tabs:pane.tabs.map(tab=>tab.id===target.id?{...tab,locked:!tab.locked}:tab)})},
+        {label:"다른 탭 닫기",disabled:!pane.tabs.some(tab=>tab.id!==target.id&&!tab.locked),run:()=>closeOtherTabs(target.id)},
+        {label:"오른쪽 탭 닫기",disabled:!pane.tabs.slice(pane.tabs.indexOf(target)+1).some(tab=>!tab.locked),run:()=>closeOtherTabs(target.id,true)},
+        {label:"닫은 탭 다시 열기 · Ctrl+Shift+T",disabled:!closedTabs.length,run:reopenTab},
+        {label:"탭 닫기",disabled:target.locked||pane.tabs.length<=1,run:()=>closeTab(target.id)},
+      ]}/>;})()}
+      {renamingTab&&<Modal title="탭 이름 변경" onClose={()=>setRenamingTab(undefined)}><form className="modal-content" onSubmit={event=>{event.preventDefault();onChange({...pane,tabs:pane.tabs.map(tab=>tab.id===renamingTab.id?{...tab,title:renamingTab.name.trim()||undefined}:tab)});setRenamingTab(undefined);}}>
+        <label>탭 이름<input aria-label="탭 이름" autoFocus maxLength={64} placeholder="비우면 폴더 이름 사용" value={renamingTab.name} onChange={event=>setRenamingTab({...renamingTab,name:event.target.value})}/></label>
+        <button className="button primary" type="submit">저장</button>
+      </form></Modal>}
     </section>
   );
 }

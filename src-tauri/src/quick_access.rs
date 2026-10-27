@@ -46,15 +46,19 @@ pub fn entry(engine: &Engine, location: &Location) -> Result<Entry, String> {
             extension: String::new(),
             size: None,
             modified: 0,
-            hidden: false,
+            hidden:false,created:None,accessed:None,readonly:false,
         });
     }
-    snapshot
+    let root=snapshot.root.clone();
+    let found=snapshot
         .entries
         .iter()
         .find(|e| e.path == location.path)
-        .cloned()
-        .ok_or_else(|| "파일 위치가 바뀌었습니다. 연결 폴더를 새로고침해 주세요.".into())
+        .cloned();
+    drop(store);
+    if let Some(entry)=found{return Ok(entry);}
+    let path=engine.resolve(location)?;let metadata=std::fs::metadata(&path).map_err(|error|error.to_string())?;
+    crate::store::entry_metadata(&root,&path,&metadata).ok_or_else(|| "파일 위치가 바뀌었습니다. 연결 폴더를 새로고침해 주세요.".into())
 }
 
 // 현재 인덱스에서 검증한 항목만 바로가기 데이터로 변환한다.

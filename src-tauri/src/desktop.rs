@@ -112,7 +112,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
     let start_hidden = (settings.start_in_tray
         || std::env::args().any(|arg| arg == "--background"))
-        && !engine.roots().is_empty();
+        && engine.data.join("index.json").exists();
     let keep_running = settings.keep_running;
     let shortcut = settings.shortcut.clone();
     app.manage(DesktopState {
@@ -259,6 +259,14 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
         }
+        // An empty/corrupt saved index must not strand a first-time user in the tray.
+        let handle = app.handle().clone();
+        let engine = engine.inner().clone();
+        std::thread::spawn(move || {
+            if engine.wait_ready().is_err() || engine.roots().is_empty() {
+                show(&handle, "search");
+            }
+        });
     }
     Ok(())
 }
@@ -315,6 +323,7 @@ pub async fn desktop_control(
                 .map_err(|e| e.to_string())?;
         }
         "show" => show(&app, "show"),
+        "fullscreen" => window.set_fullscreen(!window.is_fullscreen().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?,
         "quit" => app.exit(0),
         _ => return Err("지원하지 않는 창 작업입니다.".into()),
     }

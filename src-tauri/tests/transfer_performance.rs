@@ -33,7 +33,7 @@ fn small_transfer_with_large_unrelated_index() {
             extension: "dat".into(),
             size: Some(1),
             modified: 0,
-            hidden: false,
+            hidden:false,created:None,accessed:None,readonly:false,
         }));
         snapshot.root.count = snapshot.entries.len();
         let entries = snapshot.entries.clone();

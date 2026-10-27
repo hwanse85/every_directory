@@ -61,6 +61,7 @@ import {
   quickAccess,
   isDesktop,
   supportsOCR,
+  writeClipboard,
   type DesktopStatus,
 } from "./client";
 import { demoRoots, createDemoEntries } from "./demo";
@@ -80,19 +81,26 @@ import type {
   QuickAccess,
   SearchMode,
   ToolRequest,
+  TableSort,
 } from "./types";
 import { Explorer, createPane, createTab } from "./components/Explorer";
 import { FileTable } from "./components/FileTable";
 import { SearchColumnPicker } from "./components/SearchColumnPicker";
-import { normalizeSearchColumns } from "./searchColumns";
+import { normalizeSearchColumns, normalizeTableSort } from "./searchColumns";
+import { restorePaneState } from "./tabs";
 import { Modal } from "./components/Modal";
 import { FolderPicker } from "./components/FolderPicker";
 import { Preview } from "./components/Preview";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { CommandPalette, type QuickCommand } from "./components/CommandPalette";
 import { exportEntries } from "./export";
+import {IndexExclusions} from "./components/IndexExclusions";
 import { FileContextMenu } from "./components/FileContextMenu";
-import { normalizeSearchInput, searchInputValue, shortcutLabel } from "./quickSearch";
+import { FileActions } from "./components/FileActions";
+import { locationPath, fileUri } from "./paths";
+import { shortcutLabel } from "./quickSearch";
+import { useSearchInput } from "./useSearchInput";
+import { SearchTextInput } from "./components/SearchTextInput";
 import { AboutPanel } from "./components/AboutPanel";
 
 const filters = [
@@ -202,6 +210,8 @@ interface SavedSearch {
   scope: string;
   fullPath: boolean;
   caseSensitive: boolean;
+  columns?: string[];
+  sort?: TableSort;
 }
 interface SavedWorkspace {
   id: string;
@@ -215,26 +225,7 @@ interface SavedWorkspace {
 
 // 저장된 탐색창 구조가 현재 버전에서 읽을 수 있는지 확인한다.
 function restorePanes(): ExplorerPane[] {
-  const saved = readPreference<ExplorerPane[]>("panes", defaultPanes);
-  if (!Array.isArray(saved) || saved.length < 1 || saved.length > 4)
-    return defaultPanes;
-  return saved.every(
-    (p) =>
-      p.id &&
-      Array.isArray(p.tabs) &&
-      p.tabs.length &&
-      p.tabs.every(
-        (t) =>
-          Array.isArray(t.history) &&
-          t.cursor >= 0 &&
-          t.cursor < t.history.length &&
-          t.history.every(
-            (l) => typeof l.rootId === "string" && typeof l.path === "string",
-          ),
-      ),
-  )
-    ? saved
-    : defaultPanes;
+  return restorePaneState(readPreference<unknown>("panes",null),defaultPanes);
 }
 
 // 검색, 폴더 연결과 여러 탐색창을 하나의 작업 공간으로 연결한다.
@@ -248,19 +239,21 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [revision, setRevision] = useState(0);
   const [query, setQuery] = useState("");
-  const composingSearch = useRef(false);
   const [mode, setMode] = useState<SearchMode>(
     readPreference<SearchMode>("defaultSearchMode", "initials"),
   );
   const [defaultMode, setDefaultMode] = useState<SearchMode>(
     readPreference("defaultSearchMode", "initials"),
   );
+  const searchEditing = useSearchInput(mode, setQuery);
+  const composingSearch = searchEditing.composing;
   const [onboarding, setOnboarding] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(
     readPreference("caseSensitive", false),
   );
   const [searchError, setSearchError] = useState("");
   const [folderPicker, setFolderPicker] = useState(false);
+  const [exclusionRoot,setExclusionRoot]=useState<ConnectedRoot>();
   const serverVersion = useRef("");
   const [category, setCategory] = useState<FileCategory>("all");
   const [scope, setScope] = useState("");
@@ -268,11 +261,24 @@ export default function App() {
   const [searchColumns, setSearchColumns] = useState(() =>
     normalizeSearchColumns(readPreference("searchColumns", null)),
   );
+  const [searchSort,setSearchSort]=useState<TableSort|undefined>(()=>normalizeTableSort(readPreference("searchSort",null)));
+  const [fileColors,setFileColors]=useState(()=>readPreference<unknown>("fileColors",false)===true);
+  useEffect(()=>{savePreference("fileColors",fileColors);},[fileColors]);
+  const [searchPage,setSearchPage]=useState({key:"",offset:0});
+  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,revision]);
+  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort]);
+  const lastSearchCondition=useRef("");
+  const searchOffset=searchPage.key===searchKey?searchPage.offset:0;
+  useEffect(()=>{setSearchPage(previous=>previous.key===searchKey?previous:{key:searchKey,offset:0});},[searchKey]);
   const [result, setResult] = useState<SearchResult>({
     entries: [],
     total: 0,
     elapsed: 0,
   });
+  const [searchSelection,setSearchSelection]=useState<FileEntry[]>([]);
+  const [searchTool,setSearchTool]=useState<ToolRequest>();
+  const [searchTransfer,setSearchTransfer]=useState<{action:"copy"|"move";paneId:string}>();
+  const [searchTransferBusy,setSearchTransferBusy]=useState(false);
   const [searching, setSearching] = useState(false);
   const [latency, setLatency] = useState(0);
   const [selected, setSelected] = useState<FileEntry>();
@@ -515,6 +521,7 @@ export default function App() {
   useEffect(() => {
     savePreference("searchColumns", searchColumns);
   }, [searchColumns]);
+  useEffect(()=>{savePreference("searchSort",searchSort??null);},[searchSort]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(
@@ -558,19 +565,29 @@ export default function App() {
           rootId: scope,
           fullPath,
           limit: 1000,
+          offset:searchOffset,
+          sortBy:searchSort?.key,
+          descending:searchSort?.descending,
         })
         .then((data) => {
           if (!alive) return;
           measurementStart.current = started;
-          setResult(data);
-          setSelected(undefined);
+          if(searchOffset>0 && result.indexVersion!==undefined && data.indexVersion!==undefined && result.indexVersion!==data.indexVersion){
+            setSearchPage({key:searchKey,offset:0});setSearching(false);notify("파일 목록이 변경되어 검색 결과를 다시 불러옵니다.");return;
+          }
+          setResult(previous=>searchOffset>0?{...data,entries:[...new Map([...previous.entries,...data.entries].map(entry=>[entry.id,entry])).values()]}:data);
+          if(searchOffset===0){
+            if(lastSearchCondition.current!==searchConditionKey){setSelected(undefined);setSearchSelection([]);}
+            else {const current=new Map(data.entries.map(entry=>[entry.id,entry]));setSelected(previous=>previous?current.get(previous.id):undefined);setSearchSelection(previous=>previous.flatMap(entry=>{const updated=current.get(entry.id);return updated?[updated]:[];}));}
+          }
+          lastSearchCondition.current=searchConditionKey;
           setSearching(false);
         })
         .catch((error) => {
           if (alive) {
             setSearching(false);
             setSearchError(error.message);
-            setResult({ entries: [], total: 0, elapsed: 0 });
+            if(searchOffset===0)setResult({ entries: [], total: 0, elapsed: 0 });
           }
         });
     }, 60);
@@ -589,6 +606,8 @@ export default function App() {
     caseSensitive,
     revision,
     notify,
+    searchSort,
+    searchPage,
   ]);
 
   useLayoutEffect(() => {
@@ -605,7 +624,9 @@ export default function App() {
       setPanes((previous) =>
         previous.map((pane) => {
           if (pane.id !== paneId) return pane;
-          if (newTab) {
+          const active= pane.tabs.find(tab=>tab.id===pane.activeTab)??pane.tabs[0];
+          const previousLocation=active.history[active.cursor];
+          if (newTab || (active.locked && (previousLocation.rootId!==location.rootId||previousLocation.path!==location.path))) {
             const tab = createTab(location);
             return { ...pane, tabs: [...pane.tabs, tab], activeTab: tab.id };
           }
@@ -652,9 +673,20 @@ export default function App() {
       if (
         event.defaultPrevented ||
         event.isComposing ||
+        event.keyCode === 229 ||
         document.querySelector('dialog[open],[role="menu"]')
       )
         return;
+      if(!event.ctrlKey&&!event.metaKey&&!event.altKey){
+        if(event.key==="F1"){event.preventDefault();setModal("help");return;}
+        if(event.key==="F3"){event.preventDefault();searchInput.current?.focus();searchInput.current?.select();return;}
+        if(event.key==="F11"){
+          event.preventDefault();
+          if(isDesktop)void desktopControl("fullscreen").then(setDesktop).catch(cause=>notify(String(cause),true));
+          else void (document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()).catch(()=>{});
+          return;
+        }
+      }
       if (
         (event.metaKey || event.ctrlKey) &&
         event.shiftKey &&
@@ -697,7 +729,7 @@ export default function App() {
   async function indexRoot(root: ConnectedRoot) {
     if (scanLock.current) {
       notify("현재 인덱싱이 끝난 뒤 다시 시도해 주세요.");
-      return;
+      return false;
     }
     scanLock.current = true;
     setScanning(true);
@@ -725,11 +757,13 @@ export default function App() {
       notify(
         `${updated.name}: ${updated.count.toLocaleString()}개 항목 인덱싱 완료${updated.skipped ? ` · 제외 항목 ${updated.skipped}개` : ""}`,
       );
+      return true;
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "인덱싱하지 못했습니다.",
         true,
       );
+      return false;
     } finally {
       scanLock.current = false;
       setScanning(false);
@@ -841,9 +875,6 @@ export default function App() {
     );
     if (entry.kind === "file") {
       setRevealTargets((previous) => ({ ...previous, [paneId]: { ...entry } }));
-      setPanes((previous) =>
-        previous.map((p) => (p.id === paneId ? { ...p, view: "list" } : p)),
-      );
     }
     if (isDesktop) {
       void quickAccess(entry.kind === "directory" ? "opened" : "query", {
@@ -864,9 +895,9 @@ export default function App() {
   }
 
   // 검색 항목을 선택하면 활성 탐색창에서 해당 위치와 파일을 표시한다.
-  function selectResult(entry: FileEntry): void {
+  function selectResult(entry: FileEntry,multi=false): void {
     setSelected(entry);
-    reveal(entry);
+    if(!multi)reveal(entry);
   }
 
   // 검색 파일은 기본 앱으로 실행하고 폴더는 활성 탐색창에서 연다.
@@ -950,6 +981,27 @@ export default function App() {
     });
   }
 
+  function runSearchTool(action:ToolRequest["action"]):void {
+    if(action==="selectAll"){setSearchSelection(result.entries);return;}
+    if(action==="invertSelection"){const ids=new Set(searchSelection.map(entry=>entry.id));setSearchSelection(result.entries.filter(entry=>!ids.has(entry.id)));return;}
+    if(["copy","cut","paste","rename","batchRename","trash","duplicate","zip","unzip","properties","hash","preview","resizeImages","ocr","reveal","open"].includes(action)){
+      setSearchTool({action,id:performance.now()});return;
+    }
+    if(action==="copyOtherPane"||action==="moveOtherPane"){
+      const target=panes.find(pane=>pane.id!==activePane);if(target)setSearchTransfer({action:action==="copyOtherPane"?"copy":"move",paneId:target.id});return;
+    }
+    if(["copyName","copyPath","copyRelativePath","copyMarkdown"].includes(action)){
+      const content=searchSelection.map(entry=>{
+        const path=locationPath(roots.find(root=>root.id===entry.rootId),entry.path);
+        return action==="copyName"?entry.name:action==="copyRelativePath"?entry.path:action==="copyMarkdown"?`[${entry.name.replace(/([\\\[\]])/g,"\\$1")}](${fileUri(path)})`:path;
+      }).join("\n");
+      void writeClipboard(content).then(()=>notify(`${searchSelection.length}개 항목을 복사했습니다.`)).catch(cause=>notify(String(cause),true));return;
+    }
+    if(action==="exportList"){void exportEntries(searchSelection,roots).catch(cause=>notify(String(cause),true));return;}
+    if(action==="refresh"){setRevision(value=>value+1);return;}
+    const entry=searchSelection[0];if(entry)runTool(action,entry);
+  }
+
   // 분석 결과를 현재 인덱스 항목과 연결해 활성 탐색창에서 표시한다.
   async function revealLocation(location: Location, open = false) {
     try {
@@ -986,6 +1038,8 @@ export default function App() {
             scope,
             fullPath,
             caseSensitive,
+            columns:[...searchColumns],
+            sort:searchSort,
           },
         ].slice(-30),
       );
@@ -1035,7 +1089,7 @@ export default function App() {
     try {
       if (await exportEntries(result.entries, roots))
         notify(
-          `표시된 ${result.entries.length}개 결과를 CSV로 저장했습니다.${result.total > result.entries.length ? " 전체 결과 중 처음 1,000개입니다." : ""}`,
+          `불러온 ${result.entries.length.toLocaleString()}개 결과를 저장했습니다.${result.total > result.entries.length ? ` 전체 ${result.total.toLocaleString()}개 중 일부입니다.` : ""}`,
         );
     } catch (cause) {
       notify(String(cause), true);
@@ -1114,7 +1168,7 @@ export default function App() {
       : {};
 
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} data-file-colors={fileColors}>
       <header className="app-header">
         <button className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar" title={sidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"} onClick={() => setSidebarCollapsed(!sidebarCollapsed)}><PanelLeft size={17} /></button>
         <a
@@ -1458,6 +1512,8 @@ export default function App() {
                   );
                   setFullPath(saved.fullPath);
                   setCaseSensitive(saved.caseSensitive);
+                  if(saved.columns)setSearchColumns(normalizeSearchColumns(saved.columns));
+                  setSearchSort(normalizeTableSort(saved.sort));
                 }}
               >
                 <Search size={13} />
@@ -1572,34 +1628,30 @@ export default function App() {
             className={`workspace-split placement-${placement}`}
             style={workspaceStyle}
           >
-            <section className="search-panel" aria-label="빠른 검색">
+            <section className="search-panel" aria-label="빠른 검색" onKeyDown={event=>{
+              if(event.defaultPrevented||event.nativeEvent.isComposing||event.nativeEvent.keyCode===229||document.querySelector('dialog[open],[role="menu"]')||(event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]'))return;
+              const modifier=event.ctrlKey||event.metaKey;
+              if(event.key==="Enter"&&modifier&&searchSelection.length===1){event.preventDefault();reveal(searchSelection[0]);}
+              else if(event.key==="F5"){event.preventDefault();if(event.shiftKey)runSearchTool("copyOtherPane");else setRevision(value=>value+1);}
+              else if(event.key==="F7"){event.preventDefault();runSearchTool("moveOtherPane");}
+              else if(modifier&&event.shiftKey&&event.key.toLowerCase()==="c"){event.preventDefault();runSearchTool("copyPath");}
+              else if(modifier&&event.shiftKey&&event.key.toLowerCase()==="i"){event.preventDefault();runSearchTool("invertSelection");}
+            }}>
 
               <div className="search-controls">
                 <div className="search-input-wrap">
                   <Search size={19} />
-                  <input
+                  <SearchTextInput
                     ref={searchInput}
+                    preview={searchEditing.preview}
                     aria-label="파일 검색"
                     aria-describedby="search-hint"
                     placeholder="파일 이름으로 검색"
                     value={query}
                     maxLength={512}
-                    onCompositionStart={() => {
-                      composingSearch.current = true;
-                    }}
-                    onChange={(e) =>
-                      setQuery(
-                        searchInputValue(e.currentTarget, mode, composingSearch),
-                      )
-                    }
-                    onCompositionEnd={(event) => {
-                      composingSearch.current = false;
-                      const value = normalizeSearchInput(
-                        event.currentTarget.value,
-                        mode,
-                      );
-                      setQuery(value);
-                    }}
+                    onCompositionStart={searchEditing.onCompositionStart}
+                    onChange={searchEditing.onChange}
+                    onCompositionEnd={searchEditing.onCompositionEnd}
                     onKeyDown={(e) => {
                       if (
                         composingSearch.current ||
@@ -1698,8 +1750,8 @@ export default function App() {
                     <Star size={12} />
                   </button>
                   <button
-                    title={`표시된 ${result.entries.length}개 결과를 CSV로 저장`}
-                    aria-label="검색 결과 CSV 내보내기"
+                    title={`불러온 ${result.entries.length.toLocaleString()}개 결과를 CSV·TXT·TSV·HTML로 저장`}
+                    aria-label="검색 결과 내보내기"
                     disabled={!result.entries.length}
                     onClick={() => void exportResults()}
                   >
@@ -1755,7 +1807,7 @@ export default function App() {
               )}
               <div className="result-summary">
                 <span title={`검색 엔진 ${result.elapsed.toFixed(2)}ms · 전체 ${Math.round(latency)}ms`}>
-                  {query || category !== "all" || scope ? (
+                  {!ready ? <span role="status"><LoaderCircle size={12} className="spin" /> 인덱스 불러오는 중…</span> : query || category !== "all" || scope ? (
                     <>
                       검색 결과 <strong>{result.total.toLocaleString()}</strong>
                     </>
@@ -1767,7 +1819,7 @@ export default function App() {
                   {searching && <LoaderCircle size={12} className="spin" />}
                 </span>
                 {result.total > result.entries.length && (
-                  <span className="result-hint">처음 {result.entries.length.toLocaleString()}개 표시</span>
+                  <><span className="result-hint">{result.entries.length.toLocaleString()}개 표시</span><button className="load-more-results" disabled={searching} onClick={()=>setSearchPage({key:searchKey,offset:result.entries.length})}>더 보기</button></>
                 )}
                 <SearchColumnPicker
                   columns={searchColumns}
@@ -1782,33 +1834,41 @@ export default function App() {
                   category,
                   scope,
                   fullPath,
+                  searchSort,
                 ])}
                 entries={result.entries}
                 roots={roots}
                 search
                 columns={searchColumns}
+                onColumnsChange={setSearchColumns}
+                sortState={searchSort??null}
+                onSortChange={setSearchSort}
                 selected={selected?.id}
+                selectedIds={searchSelection.map(entry=>entry.id)}
+                onMultiSelect={entries=>{setSearchSelection(entries);if(!entries.length)setSelected(undefined);}}
                 query={mode === "normal" ? query : ""}
                 onSelect={selectResult}
                 onOpen={(entry) => void openResult(entry)}
                 onQuickPreview={setPreview}
                 compact={density === "compact"}
-                onContextMenu={(entry, x, y) =>
-                  setSearchContext({ entry, x, y })
-                }
+                onContextMenu={(entry,x,y)=>{if(!searchSelection.some(item=>item.id===entry.id))setSearchSelection([entry]);setSearchContext({entry,x,y});}}
               />
-              {selected && (
+              <FileActions client={client} entries={searchSelection} location={{rootId:searchSelection[0]?.rootId??"",path:searchSelection[0]?.parent??""}}
+                disabled={!ready||demo} active scope="search" selectionOnly clipboard={clipboard} onClipboard={setClipboard}
+                onChanged={()=>setRevision(value=>value+1)} onMessage={notify} onPreview={setPreview} onSelectAll={()=>setSearchSelection(result.entries)}
+                toolRequest={searchTool} onMore={(x,y)=>{if(searchSelection[0])setSearchContext({entry:searchSelection[0],x,y});}} />
+              {searchSelection.length>0 && (
                 <div className="search-selection">
-                  <span title={selected.name}>{selected.name}</span>
+                  <span title={searchSelection[0]?.name}>{searchSelection.length>1?`${searchSelection.length.toLocaleString()}개 선택`:searchSelection[0]?.name}</span>
                   <button
                     title="활성 탐색창의 새 탭에서 위치 열기"
-                    onClick={() => reveal(selected, true)}
+                    onClick={() => {const entry=selected??searchSelection[0];if(entry)reveal(entry,true);}}
                   >
                     새 탭에서 열기
                     <ArrowUpRight size={12} />
                   </button>
-                  {selected.kind === "file" && (
-                    <button onClick={() => setPreview(selected)}>
+                  {(selected??searchSelection[0])?.kind === "file" && (
+                    <button onClick={() => setPreview(selected??searchSelection[0])}>
                       미리보기
                     </button>
                   )}
@@ -1943,14 +2003,29 @@ export default function App() {
         <FileContextMenu
           x={searchContext.x}
           y={searchContext.y}
-          entries={[searchContext.entry]}
-          pasteable={isDesktop || !!clipboard}
+          entries={searchSelection}
+          pasteable={(isDesktop || !!clipboard)&&searchSelection.length===1&&searchSelection[0]?.kind==="directory"}
+          pasteLabel="선택한 폴더에 붙여넣기"
           otherPane={panes.length > 1}
           hidden={readPreference("showHidden", true)}
           onClose={closeSearchContext}
-          onAction={(action) => runTool(action, searchContext.entry)}
+          onAction={runSearchTool}
         />
       )}
+      {searchTransfer&&<Modal title={searchTransfer.action==="copy"?"검색 결과를 다른 탐색창으로 복사":"검색 결과를 다른 탐색창으로 이동"} onClose={()=>{if(!searchTransferBusy)setSearchTransfer(undefined);}}>
+        <div className="modal-content"><p>{searchSelection.length.toLocaleString()}개 항목을 전송할 탐색창을 선택하세요.</p>
+          <select aria-label="검색 결과 전송 대상" value={searchTransfer.paneId} disabled={searchTransferBusy} onChange={event=>setSearchTransfer({...searchTransfer,paneId:event.target.value})}>
+            {panes.map(pane=>{const tab=pane.tabs.find(tab=>tab.id===pane.activeTab)??pane.tabs[0],location=tab.history[tab.cursor];return <option key={pane.id} value={pane.id}>탐색창 {panes.indexOf(pane)+1} · {locationPath(roots.find(root=>root.id===location.rootId),location.path)}</option>;})}
+          </select>
+          <button className="button primary" disabled={searchTransferBusy||!searchSelection.length} onClick={async()=>{
+            const pane=panes.find(pane=>pane.id===searchTransfer.paneId);if(!pane)return;
+            const tab=pane.tabs.find(tab=>tab.id===pane.activeTab)??pane.tabs[0];setSearchTransferBusy(true);
+            try{await client.request("operation",{action:searchTransfer.action,entries:searchSelection.map(({rootId,path})=>({rootId,path})),destination:tab.history[tab.cursor]});setRevision(value=>value+1);setSearchTransfer(undefined);notify("선택한 검색 결과를 전송했습니다.");}
+            catch(cause){notify(String(cause),true);}finally{setSearchTransferBusy(false);}
+          }}>{searchTransferBusy?"전송 중…":searchTransfer.action==="copy"?"복사":"이동"}</button>
+        </div>
+      </Modal>}
+      {exclusionRoot&&<IndexExclusions root={exclusionRoot} onSave={indexRoot} onClose={()=>setExclusionRoot(undefined)}/>}
       {modal === "tools" && (
         <Modal
           title="파일 도구"
@@ -2044,6 +2119,7 @@ export default function App() {
                         )}
                       </p>
                     </div>
+                    <button className="button secondary small" disabled={scanning} aria-label={`${root.name} 인덱스 제외 폴더 설정`} onClick={()=>setExclusionRoot(root)}>제외 폴더{root.excludedPaths?.length?` ${root.excludedPaths.length}`:""}</button>
                     <button
                       className="icon-button"
                       disabled={scanning}
@@ -2369,6 +2445,7 @@ export default function App() {
                 <ArrowUpRight size={12} />
               </button>
             </div>
+            <label className="setting-row"><span><strong>파일 종류별 색상</strong><p>문서·이미지·코드·미디어·압축 파일을 색으로 구분합니다.</p></span><input type="checkbox" className="toggle" checked={fileColors} onChange={event=>setFileColors(event.target.checked)} /></label>
             <AboutPanel />
             <div className="info-note">
               <Zap size={16} />
@@ -2471,6 +2548,10 @@ export default function App() {
                 <kbd>⌘ / Ctrl + W</kbd>
               </div>
               <div><span>탭 순환 / 역순</span><kbd>Ctrl + Tab / Ctrl + Shift + Tab</kbd></div>
+              <div><span>닫은 탭 다시 열기</span><kbd>Ctrl + Shift + T</kbd></div>
+              <div><span>칼럼 전체 내용 맞춤</span><kbd>Ctrl + +</kbd></div>
+              <div><span>검색창 / 도움말 / 전체 화면</span><kbd>F3 / F1 / F11</kbd></div>
+              <div><span>복사 / 붙여넣기 (추가 단축키)</span><kbd>Ctrl + Insert / Shift + Insert</kbd></div>
               <div><span>현재 폴더에서 필터 / 해제</span><kbd>Ctrl + F / Esc</kbd></div>
               <div><span>새 폴더 / 파일 속성</span><kbd>Ctrl + Shift + N / Alt + Enter</kbd></div>
               <div>

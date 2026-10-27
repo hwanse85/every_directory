@@ -136,6 +136,25 @@
     document.querySelector("dialog[open] .button.primary").click();
     await until(async () => (await list("문서")).some(x => x.name === "단축키 새 폴더"), "새 폴더 실제 반영");
     verify("Ctrl+Shift+N 새 폴더", true);
+    await until(()=>!document.querySelector('dialog[open]'),"새 폴더 대화상자 닫기");
+    const searchInput=document.querySelector('[aria-label="파일 검색"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(searchInput,"쏠리 | README");
+    searchInput.dispatchEvent(new Event("input",{bubbles:true}));
+    await until(()=>document.querySelectorAll('.search-table .file-row').length===2&&!document.querySelector('.result-summary .spin'),"검색 파일 두 개");
+    const searchRows=[...document.querySelectorAll('.search-table .file-row')];
+    searchRows[0].click();await new Promise(r=>setTimeout(r,80));searchRows[1].dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true}));await new Promise(r=>setTimeout(r,80));
+    await invoke("ed_request",{kind:"operation",payload:{action:"mkdir",destination:{rootId:root.id,path:""},name:"선택 유지 검증"}});
+    await until(()=>!document.querySelector('.result-summary .spin')&&document.querySelector('.search-selection')?.textContent.includes("2개 선택"),"인덱스 갱신 후 선택 유지");
+    await new Promise(r=>setTimeout(r,350));
+    verify("인덱스 자동 갱신은 검색 다중 선택을 보존",document.querySelector('.search-selection')?.textContent.includes("2개 선택"));
+    document.querySelectorAll('.search-table .file-row')[1].focus();key(document.activeElement,"Insert");
+    await until(()=>document.querySelector('.toast')?.textContent.includes("2개 항목 복사"),"검색 Ctrl+Insert 다중 복사");
+    verify("검색 Ctrl+Insert는 선택 그룹만 Windows 클립보드로 복사",true);
+    clickRow(pane(1),"문서",true);
+    await until(()=>pane(1).querySelector('.breadcrumbs')?.textContent.includes("문서"),"검색 사본 붙여넣을 폴더");
+    pane(1).querySelector('[role="tab"]').focus();await ready(pane(1));key(document.activeElement,"Insert",{ctrlKey:false,shiftKey:true});
+    await until(async()=>{const entries=await list("문서");return entries.some(x=>x.name==="쏠리마인드.txt")&&entries.some(x=>x.name==="README.md");},"검색 그룹 Shift+Insert 붙여넣기");
+    verify("검색 다중 복사 → 탐색창 Shift+Insert 실제 붙여넣기",true);
     report.passed = true;
   } catch (e) {
     report.errors.push(String(e));

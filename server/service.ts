@@ -15,6 +15,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { FileIndex, fileCollator } from "../src/search";
 import { createDemoEntries, demoRoots } from "../src/demo";
 import type { ConnectedRoot, FileEntry, IndexProgress } from "../src/types";
+import {isIndexExcluded,normalizeExclusions} from "../src/indexExclusions";
 
 interface Snapshot {
   root: ConnectedRoot;
@@ -186,6 +187,7 @@ export class LocalFiles {
       count: 0,
       skipped: 0,
       lastIndexed: 0,
+      excludedPaths:normalizeExclusions((background?existing?.excludedPaths:input.excludedPaths)??duplicate?.root.excludedPaths??[]),
     };
     const entries: FileEntry[] = [];
     const queue = [""];
@@ -217,7 +219,7 @@ export class LocalFiles {
             children.slice(start, start + 32).map(async (child) => {
               const relative = parent ? `${parent}/${child.name}` : child.name;
               const filename = path.join(absolutePath, relative);
-              if (child.isSymbolicLink() || this.ignored(filename)) {
+              if (child.isSymbolicLink() || this.ignored(filename)||isIndexExcluded(root.excludedPaths,relative,process.platform==="win32")) {
                 root.skipped++;
                 return;
               }
@@ -238,6 +240,7 @@ export class LocalFiles {
                       : "",
                   size: kind === "file" ? metadata.size : undefined,
                   modified: metadata.mtimeMs,
+                  created:metadata.birthtimeMs||undefined,accessed:metadata.atimeMs||undefined,readonly:(metadata.mode&0o222)===0,
                 });
                 if (kind === "directory") queue.push(relative);
               } catch {
@@ -337,11 +340,9 @@ export class LocalFiles {
     const entry = snapshot.entries.find(
       (item) => item.path === relative && item.kind === "file",
     );
-    if (!entry)
+    if (!entry&&!isIndexExcluded(snapshot.root.excludedPaths,relative,process.platform==="win32"))
       throw new Error("인덱스에 없는 파일입니다. 폴더를 새로고침해 주세요.");
-    const absolute = await realpath(
-      path.join(snapshot.root.absolutePath!, relative),
-    );
+    const absolute = await this.resolveLocation({rootId, path:relative});
     if (!within(snapshot.root.absolutePath!, absolute))
       throw new Error("연결 폴더 밖의 파일은 열 수 없습니다.");
     return absolute;
@@ -373,14 +374,14 @@ export class LocalFiles {
       relative &&
       !this.snapshots
         .get(root.id)!
-        .entries.some((entry) => entry.path === relative)
+        .entries.some((entry) => entry.path === relative)&&!isIndexExcluded(root.excludedPaths,relative,process.platform==="win32")
     )
       throw new Error("인덱스에 없는 항목입니다. 새로고침해 주세요.");
     let current = root.absolutePath;
     for (const part of relative.split("/").filter(Boolean)) {
       current = path.join(current, part);
       if ((await lstat(current)).isSymbolicLink())
-        throw new Error("심볼릭 링크는 파일 작업에서 제외합니다.");
+        throw new Error("심볼릭 링크는 연결 폴더 밖으로 이어질 수 있어 파일 작업에서 제외합니다.");
     }
     const absolute = await realpath(current);
     if (!within(root.absolutePath, absolute))
@@ -389,6 +390,19 @@ export class LocalFiles {
   }
 
   // 파일 작업과 인덱스 갱신을 같은 대기열에서 실행한다.
+  async list(location:{rootId:string;path:string}):Promise<FileEntry[]>{
+    const root=this.roots().find(root=>root.id===location.rootId);if(root?.demo)return this.index.list(location.rootId,location.path);
+    const absolute=await this.resolveLocation(location);if(!(await stat(absolute)).isDirectory())throw new Error("탐색 경로는 폴더여야 합니다.");
+    const entries:FileEntry[]=[];
+    for(const child of await readdir(absolute,{withFileTypes:true})){
+      const filename=path.join(absolute,child.name);if(child.isSymbolicLink()||this.ignored(filename)||(!child.isDirectory()&&!child.isFile()))continue;
+      try{const metadata=await lstat(filename);if(metadata.isSymbolicLink())continue;const relative=location.path?location.path+'/'+child.name:child.name;
+        entries.push({id:`${location.rootId}:${relative}`,rootId:location.rootId,path:relative,parent:location.path,name:child.name,kind:metadata.isDirectory()?"directory":"file",extension:metadata.isDirectory()?"":path.extname(child.name).slice(1).toLowerCase(),size:metadata.isDirectory()?undefined:metadata.size,modified:metadata.mtimeMs,created:metadata.birthtimeMs||undefined,accessed:metadata.atimeMs||undefined,hidden:child.name.startsWith('.'),readonly:(metadata.mode&0o222)===0});
+      }catch{}
+    }
+    return entries.sort((a,b)=>Number(b.kind==="directory")-Number(a.kind==="directory")||fileCollator.compare(a.name,b.name));
+  }
+
   mutate<T>(action: () => Promise<T>): Promise<T> {
     return this.enqueue(async () => {
       let result: T;

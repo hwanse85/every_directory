@@ -13,9 +13,9 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Condvar, Mutex,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -77,6 +77,63 @@ mod checkpoint_tests {
         assert!(reopened.roots().is_empty());
     }
 }
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    fn saved_index(data: &Path, root: &Path, count: usize) {
+        fs::create_dir_all(root).unwrap();
+        let entries = (0..count).map(|n| Entry {
+            id: format!("root:{n}"), root_id: "root".into(), name: format!("업무 보고서 {n:06}.txt"),
+            path: format!("Reports/{n:06}/업무 보고서 {n:06}.txt"), parent: format!("Reports/{n:06}"),
+            kind: "file".into(), extension: "txt".into(), size: Some(128), modified: 1, hidden:false,created:None,accessed:None,readonly:false,
+        }).collect();
+        write_json(&data.join("index.json"), &DiskIndex {format:1,generation:String::new(),sequence:0,snapshots:vec![Snapshot {
+            root:Root{id:"root".into(),name:"Fixture".into(),absolute_path:root.to_string_lossy().into_owned(),count,last_indexed:1,skipped:0,watch_error:None,excluded_paths:vec![],}, entries,
+        }]}).unwrap();
+    }
+
+    #[test]
+    fn pending_startup_exposes_status_but_init_waits_without_discarding_saved_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let data=temp.path().join("data");saved_index(&data,&temp.path().join("files"),100);
+        let engine=Engine::prepare(data).unwrap();
+        assert_eq!(engine.status()["ready"],false);
+        let (tx,rx)=mpsc::channel();let request=engine.clone();
+        std::thread::spawn(move||tx.send(crate::dispatch(&request,"init",json!({}))).unwrap());
+        assert!(rx.recv_timeout(Duration::from_millis(60)).is_err());
+        let result=engine.restore();engine.finish_startup(result);
+        let roots=rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!(roots[0]["id"],"root");assert_eq!(roots[0]["count"],100);
+        assert_eq!(engine.status()["ready"],true);
+        assert_eq!(engine.store.lock().unwrap().index.entries.len(),100);
+    }
+
+    #[test]
+    fn failed_background_restore_preserves_corrupt_data_and_rejects_operations() {
+        let temp=tempfile::tempdir().unwrap();let data=temp.path().join("data");fs::create_dir(&data).unwrap();
+        fs::write(data.join("index.json"),"{incomplete").unwrap();
+        let engine=Engine::start(data.clone(),false).unwrap();
+        assert!(engine.wait_ready().is_err());
+        assert!(engine.status()["startupError"].is_string());
+        assert!(crate::dispatch(&engine,"scan",json!({"absolutePath":temp.path()})).is_err());
+        assert_eq!(fs::read_to_string(data.join("index.json")).unwrap(),"{incomplete");
+    }
+
+    #[test]
+    #[ignore = "100k-entry startup benchmark; run explicitly"]
+    fn benchmark_saved_index_startup() {
+        let temp=tempfile::tempdir().unwrap();let data=temp.path().join("data");
+        saved_index(&data,&temp.path().join("files"),100_000);
+        let started=Instant::now();let sync=Engine::new(data.clone()).unwrap();
+        let synchronous_ms=started.elapsed().as_millis();drop(sync);
+        let started=Instant::now();let background=Engine::start(data,false).unwrap();
+        let return_ms=started.elapsed().as_millis();background.wait_ready().unwrap();
+        println!("STARTUP_BENCHMARK {{\"entries\":100000,\"blockingSetupMs\":{synchronous_ms},\"backgroundSetupMs\":{return_ms},\"backgroundReadyMs\":{}}}",started.elapsed().as_millis());
+        assert_eq!(background.store.lock().unwrap().index.entries.len(),100_000);
+    }
+}
 // 기존 로컬 서버 인덱스도 읽을 수 있는 저장 형식이다.
 #[derive(Serialize, Deserialize)]
 pub struct DiskIndex {
@@ -110,6 +167,10 @@ pub struct Engine {
     checkpoint_write: Mutex<()>,
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
     pub instance: String,
+    startup: Mutex<Option<Result<(), String>>>,
+    startup_complete: Condvar,
+    startup_started: Instant,
+    startup_elapsed_ms: AtomicU64,
 }
 
 // 유닉스 기준 밀리초를 화면에서 사용하는 시각으로 변환한다.
@@ -131,6 +192,26 @@ pub fn excluded(path: &Path, data: &Path) -> bool {
             _ => false,
         })
 }
+
+pub fn user_excluded(root:&Root,path:&Path)->bool {
+    let Ok(relative)=path.strip_prefix(Path::new(&root.absolute_path)) else{return false};
+    let relative=relative.to_string_lossy().replace('\\',"/");
+    #[cfg(windows)]
+    let relative=relative.to_lowercase();
+    root.excluded_paths.iter().any(|rule|{
+        #[cfg(windows)] let rule=rule.to_lowercase();
+        relative==rule.as_str()||relative.strip_prefix(rule.as_str()).is_some_and(|tail|tail.starts_with('/'))
+    })
+}
+
+pub(crate) fn entry_metadata(root:&Root,path:&Path,metadata:&fs::Metadata)->Option<Entry>{
+    let relative=path.strip_prefix(&root.absolute_path).ok()?.to_string_lossy().replace('\\',"/");
+    let name=path.file_name()?.to_string_lossy().into_owned();let directory=metadata.is_dir();
+    let timestamp=|time:Result<SystemTime,std::io::Error>|time.ok().and_then(|time|time.duration_since(UNIX_EPOCH).ok()).map(|time|time.as_millis() as u64);
+    #[cfg(windows)] let hidden={use std::os::windows::fs::MetadataExt;metadata.file_attributes()&2!=0};
+    #[cfg(not(windows))] let hidden=name.starts_with('.');
+    Some(Entry{id:format!("{}:{relative}",root.id),root_id:root.id.clone(),name,parent:relative.rsplit_once('/').map_or("",|(parent,_)|parent).into(),path:relative,kind:if directory{"directory"}else{"file"}.into(),extension:if directory{String::new()}else{path.extension().map_or(String::new(),|ext|ext.to_string_lossy().to_lowercase())},size:if directory{None}else{Some(metadata.len())},modified:timestamp(metadata.modified()).unwrap_or(0),created:timestamp(metadata.created()),accessed:timestamp(metadata.accessed()),readonly:metadata.permissions().readonly(),hidden})
+}
 // 임시 파일을 완성한 뒤 교체해 저장 중 손상을 방지한다.
 pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let parent = path.parent().ok_or("저장 경로가 올바르지 않습니다.")?;
@@ -150,10 +231,53 @@ pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
 impl Engine {
     // 별도 앱 데이터 폴더에서 인덱스를 복원한다.
     pub fn new(data: PathBuf) -> Result<Arc<Self>, String> {
+        let engine = Self::prepare(data)?;
+        let result = engine.restore();
+        engine.finish_startup(result.clone());
+        result?;
+        Ok(engine)
+    }
+
+    // Keep disk parsing, search-key generation and watcher setup off the window thread.
+    pub fn start(data: PathBuf, import_legacy: bool) -> Result<Arc<Self>, String> {
+        let engine = Self::prepare(data)?;
+        let worker = engine.clone();
+        std::thread::Builder::new().name("index-startup".into()).spawn(move || {
+            if import_legacy { crate::import_legacy(&worker.data); }
+            let result = worker.restore();
+            worker.finish_startup(result);
+        }).map_err(|error| error.to_string())?;
+        Ok(engine)
+    }
+
+    fn prepare(data: PathBuf) -> Result<Arc<Self>, String> {
         fs::create_dir_all(&data).map_err(|e| e.to_string())?;
         let data = data.canonicalize().map_err(|e| e.to_string())?;
+        Ok(Arc::new(Self {
+            data,
+            store: Mutex::new(Store::default()),
+            operations: Mutex::new(()),
+            quick_access: Mutex::new(()),
+            quick_search_epoch: AtomicU64::new(0),
+            progress: Mutex::new(None),
+            busy: AtomicUsize::new(0),
+            analysis_busy: AtomicBool::new(false),
+            analysis_cancel: AtomicBool::new(false),
+            analysis_progress: Mutex::new(Value::Null),
+            journal: Mutex::new(Journal::empty()),
+            checkpoint_write: Mutex::new(()),
+            watchers: Mutex::new(HashMap::new()),
+            instance: Uuid::new_v4().to_string(),
+            startup: Mutex::new(None),
+            startup_complete: Condvar::new(),
+            startup_started: Instant::now(),
+            startup_elapsed_ms: AtomicU64::new(0),
+        }))
+    }
+
+    fn restore(self: &Arc<Self>) -> Result<(), String> {
         let mut store = Store::default();
-        let path = data.join("index.json");
+        let path = self.data.join("index.json");
         let mut saved = if path.exists() {
             serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?
@@ -168,7 +292,7 @@ impl Engine {
         if saved.format != 1 {
             return Err("지원하지 않는 인덱스 형식입니다.".into());
         }
-        let journal = Journal::load(&data, &mut saved)?;
+        let journal = Journal::load(&self.data, &mut saved)?;
         store.snapshots = saved.snapshots;
         // 웹 버전/이전 버전의 일반 Windows 경로도 내부 canonical 경로와 맞춘다.
         for snapshot in &mut store.snapshots {
@@ -178,27 +302,24 @@ impl Engine {
             snapshot.root.name = crate::file_clipboard::path_text(Path::new(&snapshot.root.name));
         }
         Self::rebuild(&mut store);
-        let engine = Arc::new(Self {
-            data,
-            store: Mutex::new(store),
-            operations: Mutex::new(()),
-            quick_access: Mutex::new(()),
-            quick_search_epoch: AtomicU64::new(0),
-            progress: Mutex::new(None),
-            busy: AtomicUsize::new(0),
-            analysis_busy: AtomicBool::new(false),
-            analysis_cancel: AtomicBool::new(false),
-            analysis_progress: Mutex::new(Value::Null),
-            journal: Mutex::new(journal),
-            checkpoint_write: Mutex::new(()),
-            watchers: Mutex::new(HashMap::new()),
-            instance: Uuid::new_v4().to_string(),
-        });
-        for root in engine.roots() {
-            engine.watch(&root);
+        *self.journal.lock().unwrap() = journal;
+        *self.store.lock().unwrap() = store;
+        for root in self.roots() {
+            self.watch(&root);
         }
-        engine.schedule_checkpoint();
-        Ok(engine)
+        self.schedule_checkpoint();
+        Ok(())
+    }
+
+    fn finish_startup(&self, result: Result<(), String>) {
+        self.startup_elapsed_ms.store(self.startup_started.elapsed().as_millis() as u64, Ordering::Relaxed);
+        *self.startup.lock().unwrap() = Some(result);
+        self.startup_complete.notify_all();
+    }
+
+    pub fn wait_ready(&self) -> Result<(), String> {
+        let result = self.startup_complete.wait_while(self.startup.lock().unwrap(), |state| state.is_none()).unwrap();
+        result.as_ref().unwrap().clone()
     }
 
     // 등록된 연결 폴더만 반환한다.
@@ -213,11 +334,16 @@ impl Engine {
     }
     // 인덱싱 진행 상태와 버전을 전달한다.
     pub fn status(&self) -> Value {
-        json!({"instanceId":self.instance,"roots":self.roots(),"version":self.store.lock().unwrap().version,
+        let startup = self.startup.lock().unwrap();
+        let ready = startup.as_ref().is_some_and(|result| result.is_ok());
+        let error = startup.as_ref().and_then(|result| result.as_ref().err());
+        json!({"ready":ready,"startupError":error,"startupElapsedMs":self.startup_elapsed_ms.load(Ordering::Relaxed),
+        "instanceId":self.instance,"roots":self.roots(),"version":self.store.lock().unwrap().version,
         "scanning":self.busy.load(Ordering::SeqCst)>0,"progress":self.progress.lock().unwrap().clone(),"runtime":"tauri"})
     }
     // 스냅샷에서 검색 키를 재구성한다.
     fn rebuild(store: &mut Store) {
+        store.index.set_roots(store.snapshots.iter().map(|snapshot|snapshot.root.clone()));
         store.index.replace(
             store
                 .snapshots
@@ -321,7 +447,7 @@ impl Engine {
         for item in WalkDir::new(start)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| !excluded(e.path(), &self.data))
+            .filter_entry(|e| !excluded(e.path(), &self.data)&&!user_excluded(root,e.path()))
         {
             let item = match item {
                 Ok(v) => v,
@@ -366,6 +492,9 @@ impl Engine {
                 root_id: root.id.clone(),
                 name,
                 hidden,
+                created: metadata.created().ok().and_then(|time|time.duration_since(UNIX_EPOCH).ok()).map(|time|time.as_millis() as u64),
+                accessed: metadata.accessed().ok().and_then(|time|time.duration_since(UNIX_EPOCH).ok()).map(|time|time.as_millis() as u64),
+                readonly: metadata.permissions().readonly(),
                 extension: if directory {
                     String::new()
                 } else {
@@ -429,6 +558,17 @@ impl Engine {
             .roots()
             .into_iter()
             .find(|r| Path::new(&r.absolute_path) == absolute);
+        let excluded_paths=if let Some(rules)=payload.get("excludedPaths"){
+            let rules:Vec<String>=serde_json::from_value(rules.clone()).map_err(|_|"제외 폴더 목록이 올바르지 않습니다.")?;
+            if rules.len()>128{return Err("제외 폴더는 연결 폴더당 128개까지 지정할 수 있습니다.".into());}
+            let mut normalized=vec![];
+            for rule in rules{
+                let rule=rule.trim().replace('\\',"/").trim_end_matches('/').to_owned();
+                if rule.is_empty()||rule.contains(':')||rule.starts_with('/')||rule.len()>32760||rule.split('/').any(|part|part.is_empty()||part=="."||part=="..") {return Err("연결 폴더 안의 상대 폴더 경로를 입력하세요. 상위 경로(..)는 사용할 수 없습니다.".into());}
+                if !normalized.contains(&rule){normalized.push(rule);}
+            }
+            normalized
+        }else{old.as_ref().map_or_else(Vec::new,|root|root.excluded_paths.clone())};
         let mut root = Root {
             id: old.map_or_else(|| Uuid::new_v4().to_string(), |r| r.id),
             name: absolute.file_name().map_or_else(
@@ -440,6 +580,7 @@ impl Engine {
             last_indexed: now(),
             skipped: 0,
             watch_error: None,
+            excluded_paths,
         };
         *self.progress.lock().unwrap() =
             Some(json!({"rootId":root.id,"count":0,"directory":root.name}));
@@ -489,7 +630,7 @@ impl Engine {
         {
             return Err("연결 폴더 안의 올바른 경로가 필요합니다.".into());
         }
-        if !location.path.is_empty() && !snapshot.entries.iter().any(|e| e.path == location.path) {
+        if !location.path.is_empty() && !snapshot.entries.iter().any(|e| e.path == location.path)&&!user_excluded(&snapshot.root,&Path::new(&snapshot.root.absolute_path).join(relative)) {
             return Err(format!(
                 "인덱스에 없는 항목입니다: {}. 새로고침해 주세요.",
                 location.path
@@ -543,7 +684,7 @@ impl Engine {
             let base = Path::new(&root.absolute_path);
             let relevant: Vec<_> = paths
                 .iter()
-                .filter(|p| p.starts_with(base) && !excluded(p, &self.data))
+                .filter(|p| p.starts_with(base) && !excluded(p, &self.data)&&!user_excluded(&root,p))
                 .collect();
             if relevant.is_empty() {
                 continue;
@@ -597,7 +738,7 @@ impl Engine {
                     continue;
                 }
                 match incoming.remove(&entry.id) {
-                    Some(next) if next == *entry => {}
+                    Some(next) if next.same_index_data(entry) => {}
                     Some(next) => mutation.entries.push(next),
                     None => mutation.removed.push(entry.id.clone()),
                 }
@@ -662,6 +803,7 @@ impl Engine {
                 let push_event =
                     |event: notify::Result<notify::Event>, paths: &mut Vec<PathBuf>| match event {
                         Ok(e) => {
+                            if !e.need_rescan()&&(e.kind.is_access()||matches!(e.kind,notify::EventKind::Modify(notify::event::ModifyKind::Metadata(notify::event::MetadataKind::AccessTime)))){return;}
                             if e.need_rescan() {
                                 paths.push(root_path.clone());
                             } else if !matches!(e.kind, notify::EventKind::Access(_)) {
@@ -711,11 +853,9 @@ impl Engine {
                     .filter(matches)
                     .find(|entry| cfg!(windows) && entry.path.to_lowercase() == folded_path)
             };
-            exact
-                .or_else(folded)
-                .ok_or("인덱스에 없는 폴더입니다. 경로를 확인하거나 새로고침해 주세요.")?
-                .path
-                .clone()
+            if let Some(entry)=exact.or_else(folded){entry.path.clone()}
+            else if store.snapshots.iter().any(|snapshot|snapshot.root.id==location.root_id&&user_excluded(&snapshot.root,&Path::new(&snapshot.root.absolute_path).join(&location.path))){location.path.clone()}
+            else{return Err("인덱스에 없는 폴더입니다. 경로를 확인하거나 새로고침해 주세요.".into());}
         };
         let result = Location {
             root_id: location.root_id.clone(),
@@ -729,15 +869,16 @@ impl Engine {
 
     // 폴더의 직접 자식만 정렬해 탐색창에 전달한다.
     pub fn list(&self, location: &Location) -> Result<Vec<Entry>, String> {
-        self.resolve(location)?;
-        let store = self.store.lock().unwrap();
-        let mut entries: Vec<_> = store
-            .index
-            .entries
-            .iter()
-            .filter(|e| e.root_id == location.root_id && e.parent == location.path)
-            .cloned()
-            .collect();
+        let directory=self.resolve(location)?;
+        let root=self.roots().into_iter().find(|root|root.id==location.root_id).ok_or("연결되지 않은 폴더입니다.")?;
+        let mut entries=vec![];
+        for item in fs::read_dir(directory).map_err(|error|error.to_string())?{
+            let Ok(item)=item else{continue};let path=item.path();
+            if excluded(&path,&self.data){continue;}
+            let Ok(metadata)=fs::symlink_metadata(&path) else{continue};
+            if metadata.file_type().is_symlink()||(!metadata.is_file()&&!metadata.is_dir()){continue;}
+            if let Some(entry)=entry_metadata(&root,&path,&metadata){entries.push(entry);}
+        }
         entries.sort_by(|a, b| {
             (b.kind == "directory")
                 .cmp(&(a.kind == "directory"))

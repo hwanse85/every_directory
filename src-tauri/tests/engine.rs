@@ -447,7 +447,7 @@ fn benchmark_two_hundred_thousand_entries() {
             extension: "pdf".into(),
             size: Some(1024),
             modified: 0,
-            hidden: false,
+            hidden:false,created:None,accessed:None,readonly:false,
         })
         .collect();
     index.replace(entries);

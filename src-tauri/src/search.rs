@@ -1,10 +1,11 @@
 use crate::{
-    model::{Entry, SearchOptions, SearchResult},
+    model::{Entry, Root, SearchOptions, SearchResult},
     query::Query,
 };
 use regex::RegexBuilder;
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet},
     time::Instant,
 };
@@ -219,9 +220,56 @@ pub struct Index {
     paths: Vec<String>,
     grams: HashMap<String, Vec<u32>>,
     initial_grams: HashMap<String, Vec<u32>>,
+    root_labels: HashMap<String, (String, String)>,
+}
+
+// Numeric filename segments sort naturally without allocating UTF-16 on each comparison.
+fn logical_compare(first: &str, second: &str) -> Ordering {
+    let (a,b)=(first.as_bytes(),second.as_bytes());let(mut i,mut j)=(0,0);
+    while i<a.len() && j<b.len() {
+        if a[i].is_ascii_digit() && b[j].is_ascii_digit() {
+            let (start_i,start_j)=(i,j);
+            while i<a.len() && a[i].is_ascii_digit(){i+=1;}
+            while j<b.len() && b[j].is_ascii_digit(){j+=1;}
+            let (mut x,mut y)=(start_i,start_j);
+            while x<i && a[x]==b'0'{x+=1;}while y<j && b[y]==b'0'{y+=1;}
+            let order=(i-x).cmp(&(j-y)).then_with(||a[x..i].cmp(&b[y..j])).then_with(||(i-start_i).cmp(&(j-start_j)));
+            if order!=Ordering::Equal{return order;}
+        }else{
+            let order=a[i].cmp(&b[j]);if order!=Ordering::Equal{return order;}i+=1;j+=1;
+        }
+    }
+    a.len().cmp(&b.len())
 }
 
 impl Index {
+    fn root_label<'a>(&'a self, entry:&'a Entry, absolute:bool)->&'a str {
+        self.root_labels.get(&entry.root_id).map(|value|if absolute{value.1.as_str()}else{value.0.as_str()}).unwrap_or(&entry.root_id)
+    }
+    pub fn set_roots(&mut self, roots: impl IntoIterator<Item=Root>) {
+        self.root_labels=roots.into_iter().map(|root|(root.id,(normalize(&root.name),normalize(&root.absolute_path).replace('\\',"/")))).collect();
+    }
+
+    fn compare(&self, first:usize, second:usize, key:&str, descending:bool) -> Ordering {
+        let(a,b)=(&self.entries[first],&self.entries[second]);
+        let folders=(b.kind=="directory").cmp(&(a.kind=="directory"));
+        if folders!=Ordering::Equal{return folders;}
+        let parent=|index:usize|self.paths[index].rsplit_once('/').map(|(parent,_)|parent).unwrap_or("");
+        let order=match key {
+            "name"=>logical_compare(&self.names[first],&self.names[second]),
+            "size"=>a.size.cmp(&b.size),
+            "modified"=>a.modified.cmp(&b.modified),
+            "created"=>a.created.cmp(&b.created),
+            "accessed"=>a.accessed.cmp(&b.accessed),
+            "attributes"=>(a.readonly,a.hidden).cmp(&(b.readonly,b.hidden)),
+            "extension"|"type"=>logical_compare(&a.extension,&b.extension),
+            "root"=>logical_compare(self.root_label(a,false),self.root_label(b,false)),
+            "location"=>logical_compare(self.root_label(a,false),self.root_label(b,false)).then_with(||logical_compare(parent(first),parent(second))),
+            "fullPath"=>logical_compare(self.root_label(a,true),self.root_label(b,true)).then_with(||logical_compare(&self.paths[first],&self.paths[second])),
+            _=>Ordering::Equal,
+        };
+        (if descending{order.reverse()}else{order}).then_with(||a.id.cmp(&b.id))
+    }
     // 완료된 스냅샷으로 검색 자료를 한 번에 교체한다.
     pub fn replace(&mut self, mut entries: Vec<Entry>) {
         // 긴 경로를 비교할 때마다 다시 정규화하지 않고 항목당 한 번만 계산한다.
@@ -429,6 +477,11 @@ impl Index {
         let candidates = planned.as_deref();
         let count = candidates.map_or(self.entries.len(), <[u32]>::len);
         let limit = options.limit.unwrap_or(500).clamp(1, 1000);
+        let offset=if boosts.is_some(){0}else{options.offset.unwrap_or(0).min(self.entries.len())};
+        let explicit_sort=boosts.is_none() && options.sort_by.is_some();
+        if options.sort_by.as_deref().is_some_and(|key| !["name","location","type","extension","size","modified","created","accessed","attributes","root","fullPath"].contains(&key)) {
+            return Err("지원하지 않는 정렬 항목입니다.".into());
+        }
         let mut matches = vec![];
         let mut ranked = BinaryHeap::new();
         let name_query = normalize(options.query.trim());
@@ -498,7 +551,7 @@ impl Index {
                     if ranked.len() > limit {
                         ranked.pop();
                     }
-                } else if options.mode == "fuzzy" || matches.len() < limit {
+                } else if explicit_sort || options.mode == "fuzzy" || matches.len() < offset.saturating_add(limit) {
                     matches.push((score, i));
                 }
             }
@@ -509,12 +562,21 @@ impl Index {
                 .into_iter()
                 .map(|(_, _, score, i)| (score, i))
                 .collect();
-        } else if options.mode == "fuzzy" {
-            matches.sort_unstable();
+        } else if explicit_sort || options.mode == "fuzzy" {
+            let compare=|a:&(usize,usize),b:&(usize,usize)| {
+                if let Some(key)=options.sort_by.as_deref(){self.compare(a.1,b.1,key,options.descending)}else{a.cmp(b)}
+            };
+            let end=offset.saturating_add(limit).min(matches.len());
+            if end<matches.len(){matches.select_nth_unstable_by(end,compare);matches.truncate(end);}
+            if offset<matches.len(){
+                if offset>0{matches.select_nth_unstable_by(offset,compare);}
+                matches[offset..].sort_unstable_by(compare);
+            }
         }
         Ok(SearchResult {
             entries: matches
                 .into_iter()
+                .skip(offset)
                 .take(limit)
                 .map(|(_, i)| self.entries[i].clone())
                 .collect(),

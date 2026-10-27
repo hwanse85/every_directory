@@ -15,6 +15,9 @@ export interface FileEntry {
   size?: number;
   modified?: number;
   hidden?: boolean;
+  created?:number;
+  accessed?:number;
+  readonly?:boolean;
 }
 
 export interface ConnectedRoot {
@@ -26,6 +29,7 @@ export interface ConnectedRoot {
   lastIndexed: number;
   skipped: number;
   demo?: boolean;
+  excludedPaths?:string[];
 }
 
 export interface Location {
@@ -38,14 +42,20 @@ export interface ExplorerTab {
   history: Location[];
   cursor: number;
   color?: string;
+  locked?: boolean;
+  title?: string;
 }
 
 export interface ExplorerPane {
   id: string;
   tabs: ExplorerTab[];
   activeTab: string;
-  view: "list" | "grid";
+  view: ExplorerView;
+  columns?:SearchSortKey[];
+  sort?:TableSort;
+  group?:SearchSortKey|"none";
 }
+export type ExplorerView="list"|"grid"|"compact"|"content"|"icons-small"|"icons-medium"|"icons-large"|"icons-extra";
 
 export interface SearchOptions {
   query: string;
@@ -55,13 +65,20 @@ export interface SearchOptions {
   rootId: string;
   fullPath: boolean;
   limit?: number;
+  offset?: number;
+  sortBy?: SearchSortKey;
+  descending?: boolean;
 }
+
+export type SearchSortKey = "name" | "location" | "type" | "extension" | "size" | "modified" | "root" | "fullPath" | "created" | "accessed" | "attributes";
+export interface TableSort { key: SearchSortKey; descending: boolean }
 
 export interface SearchResult {
   entries: FileEntry[];
   total: number;
   elapsed: number;
   partial?: boolean;
+  indexVersion?: number;
   scanned?: number;
 }
 
@@ -161,6 +178,7 @@ export interface ToolRequest {
     | "unzip"
     | "properties"
     | "mkfile"
+    | "nativeNew"
     | "duplicate"
     | "hash"
     | "terminal"

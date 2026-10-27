@@ -12,9 +12,13 @@ import {
 export function SearchColumnPicker({
   columns,
   onChange,
+  label="검색 결과 표시 항목",
+  defaults=defaultSearchColumns,
 }: {
   columns: SearchColumn[];
   onChange: (columns: SearchColumn[]) => void;
+  label?:string;
+  defaults?:SearchColumn[];
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -77,7 +81,7 @@ export function SearchColumnPicker({
       <button
         ref={trigger}
         className="search-columns-trigger"
-        aria-label="검색 결과 표시 항목"
+        aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -92,7 +96,7 @@ export function SearchColumnPicker({
             ref={panel}
             className="search-columns-picker"
             role="dialog"
-            aria-label="검색 결과 표시 항목"
+            aria-label={label}
             style={position}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -144,7 +148,7 @@ export function SearchColumnPicker({
             </div>
             <footer>
               <span>자동 저장 · 열이 많으면 가로로 스크롤</span>
-              <button onClick={() => onChange([...defaultSearchColumns])}>
+              <button onClick={() => onChange([...defaults])}>
                 <RotateCcw size={12} />
                 기본값
               </button>

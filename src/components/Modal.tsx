@@ -8,12 +8,14 @@ export function Modal({
   onClose,
   children,
   wide,
+  className="",
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  className?:string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -26,7 +28,7 @@ export function Modal({
   return (
     <dialog
       ref={dialog}
-      className={`modal ${wide ? "wide" : ""}`}
+      className={`modal ${wide ? "wide" : ""} ${className}`}
       onCancel={(e) => {
         e.preventDefault();
         onClose();

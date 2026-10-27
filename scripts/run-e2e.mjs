@@ -26,7 +26,12 @@ if (
 const reports = [];
 for (const suite of [
   "search",
+  "audit",
+  "explorer",
+  "shell-new",
   "layout",
+  "columns",
+  "tree",
   "desktop",
   "actions",
   "quick",

@@ -32,10 +32,10 @@ import {
 } from "../client";
 import {
   isComposingKey,
-  normalizeSearchInput,
-  searchInputValue,
   quickSearchMode,
 } from "../quickSearch";
+import { useSearchInput } from "../useSearchInput";
+import { SearchTextInput } from "./SearchTextInput";
 import { categoryOf } from "../search";
 import { readPreference } from "../storage";
 import { locationLabel } from "../paths";
@@ -84,7 +84,8 @@ export default function QuickSearch() {
   const [destination, setDestination] = useState<Location>();
   const [directories, setDirectories] = useState<FileEntry[]>([]);
   const input = useRef<HTMLInputElement>(null);
-  const composing = useRef(false);
+  const searchEditing = useSearchInput(text => quickSearchMode(text,defaultMode), setQuery);
+  const composing = searchEditing.composing;
   const busyRef = useRef(false);
   const requestVersion = useRef(0);
   const previousSearch = useRef("");
@@ -445,8 +446,9 @@ export default function QuickSearch() {
       </header>
       <div className="quick-input-row">
         <Search size={23} />
-        <input
+        <SearchTextInput
           ref={input}
+          preview={searchEditing.preview}
           autoFocus
           role="combobox"
           aria-label="파일·폴더 빠른 검색"
@@ -458,21 +460,10 @@ export default function QuickSearch() {
           placeholder="파일이나 폴더 이름을 입력하세요"
           maxLength={512}
           value={query}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onCompositionEnd={(event) => {
-            composing.current = false;
-            const text = normalizeSearchInput(
-              event.currentTarget.value,
-              defaultMode,
-            );
-            setQuery(text);
-          }}
+          onCompositionStart={searchEditing.onCompositionStart}
+          onCompositionEnd={searchEditing.onCompositionEnd}
           onChange={(event) => {
-            setQuery(
-              searchInputValue(event.currentTarget, quickSearchMode(event.currentTarget.value, defaultMode), composing),
-            );
+            searchEditing.onChange(event);
             setView("results");
             setMessage("");
           }}

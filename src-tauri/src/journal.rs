@@ -75,6 +75,9 @@ impl Mutation {
 }
 
 impl Journal {
+    pub fn empty() -> Self {
+        Self { generation: String::new(), sequence: 0, bytes: 0, pending: None, changed: Instant::now() }
+    }
     pub fn load(data: &Path, disk: &mut DiskIndex) -> Result<Self, String> {
         let path = data.join("index-journal.jsonl");
         let bytes = match fs::read(&path) {
@@ -228,7 +231,7 @@ mod tests {
                 extension: "txt".into(),
                 size: Some(1),
                 modified: 1,
-                hidden: false,
+                hidden:false,created:None,accessed:None,readonly:false,
             }],
         }
     }

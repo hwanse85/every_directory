@@ -35,6 +35,25 @@ function pdf() {
 }
 export async function prepare(root, suite) {
   await mkdir(root, { recursive: true });
+  if(suite==="explorer"){
+    for(const folder of ["문서/하위","비공개/하위","대상"])await mkdir(path.join(root,folder),{recursive:true});
+    await writeFile(path.join(root,"업무 보고서.txt"),"미리보기 검증\n".repeat(60));
+    await writeFile(path.join(root,"문서/하위/보관.txt"),"자료");
+    await writeFile(path.join(root,"비공개/하위/제외 검증.txt"),"검색 제외 · 탐색 유지");
+    await writeFile(path.join(root,"안내.pdf"),pdf());
+    await sharp({create:{width:320,height:180,channels:3,background:"#6389c6"}}).png().toFile(path.join(root,"이미지.png"));
+    return;
+  }
+  if(suite==="audit"){
+    await mkdir(path.join(root,"대상"));
+    await Promise.all(Array.from({length:1205},(_,n)=>writeFile(path.join(root,`audit_${String(n).padStart(4,"0")}.txt`),"x".repeat(n+1))));
+    return;
+  }
+  if(suite==="tree"){
+    for(const folder of ["문서/2026/분기","문서함/개인","대상/보관",".숨김/내부"])
+      await mkdir(path.join(root,folder),{recursive:true});
+    await writeFile(path.join(root,"문서/2026/분기/업무 보고서.txt"),"트리 검증용 예시");
+  }
   if (suite === "drag") await writeFile(path.join(path.dirname(root), "외부 드롭.txt"), "외부 원본");
   if (suite === "windows") {
     await mkdir(path.join(root, "Reports", "하위"), { recursive: true });
@@ -59,8 +78,8 @@ export async function prepare(root, suite) {
       .png()
       .toFile(path.join(root, "이미지", "작업 화면.png"));
   } else {
-    await mkdir(path.join(root, "대상"));
-    await mkdir(path.join(root, "문서"));
+    await mkdir(path.join(root, "대상"), {recursive:true});
+    await mkdir(path.join(root, "문서"), {recursive:true});
     await writeFile(path.join(root, "업무 보고서.txt"), "한글 원본 내용");
     await writeFile(path.join(root, "쏠리마인드.txt"), "된소리 검색");
     await writeFile(path.join(root, "README.md"), "# readme");

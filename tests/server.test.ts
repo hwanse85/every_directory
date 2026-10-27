@@ -14,6 +14,23 @@ import os from "node:os";
 import path from "node:path";
 import { LocalFiles, within } from "../server/service";
 
+test("web exclusions persist without hiding folders from browsing",async()=>{
+  const temporary=await mkdtemp(path.join(os.tmpdir(),"ed-exclusions-")),directory=path.join(temporary,"workspace"),data=path.join(temporary,"data");
+  const files=new LocalFiles(data,false);
+  try{
+    await mkdir(path.join(directory,"private"),{recursive:true});await mkdir(path.join(directory,"private-copy"));
+    await writeFile(path.join(directory,"private/secret.txt"),"private");await writeFile(path.join(directory,"private-copy/visible.txt"),"public");
+    await files.initialize();const root=await files.scan({absolutePath:directory,excludedPaths:["private"]});
+    assert.ok(!files.index.entries.some(entry=>entry.path.startsWith("private/")));assert.ok(files.index.entries.some(entry=>entry.path==="private-copy/visible.txt"));
+    assert.ok((await files.list({rootId:root.id,path:""})).some(entry=>entry.name==="private"));
+    const list=await files.list({rootId:root.id,path:"private"});assert.equal(list[0].name,"secret.txt");assert.ok(list[0].created);
+    assert.equal(await files.resolveEntry(root.id,"private/secret.txt"),await realpath(path.join(directory,"private/secret.txt")));
+    await files.scan({id:root.id});assert.deepEqual(files.roots()[0].excludedPaths,["private"]);
+    const restored=new LocalFiles(data,false);await restored.initialize();assert.deepEqual(restored.roots()[0].excludedPaths,["private"]);await restored.close();
+    await files.scan({id:root.id,excludedPaths:[]});assert.ok(files.index.entries.some(entry=>entry.path==="private/secret.txt"));
+  }finally{await files.close();assert.ok(path.basename(temporary).startsWith("ed-exclusions-"));await rm(temporary,{recursive:true,force:true});}
+});
+
 // 실제 임시 폴더에서 서버 인덱싱과 복원을 검증한다.
 test("local scanning persists metadata, skips links, and isolates connected paths", async () => {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "ed-service-"));

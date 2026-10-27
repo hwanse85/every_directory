@@ -93,7 +93,9 @@
         label,
       );
       if (item.disabled) throw new Error(`메뉴 비활성: ${label}`);
-      item.click();
+      if (label === "새로 만들기" && labels.length > 1) {
+        item.dispatchEvent(new PointerEvent("pointerover", {bubbles: true, pointerType: "mouse"}));
+      } else item.click();
       await new Promise((r) => setTimeout(r, 60));
     }
   }
