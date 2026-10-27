@@ -38,6 +38,7 @@ impl Default for DesktopSettings {
 
 // 창을 닫아도 검색 엔진을 유지할지와 전역 단축키 등록 결과를 보관한다.
 pub struct DesktopState {
+    pub quick_dialog:AtomicBool,
     pub keep_running: AtomicBool,
     pub settings: Mutex<DesktopSettings>,
     pub previous_app: Mutex<isize>,
@@ -89,6 +90,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
+    if !engine.data.join("desktop.json").exists()&&crate::preferences::portable_directory().is_some(){settings.auto_start=false;}
     if !["normal", "initials", "wildcard", "regex", "fuzzy"]
         .contains(&settings.default_search_mode.as_str())
     {
@@ -116,6 +118,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let keep_running = settings.keep_running;
     let shortcut = settings.shortcut.clone();
     app.manage(DesktopState {
+        quick_dialog:AtomicBool::new(false),
         keep_running: AtomicBool::new(keep_running),
         settings: Mutex::new(settings),
         previous_app: Mutex::new(0),
@@ -145,6 +148,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .data_store_identifier(*uuid::Uuid::new_v4().as_bytes())
         .data_directory(engine.data.join("webview-quick"));
+    let quick_window=if let Some(data)=crate::preferences::portable_directory(){quick_window.data_directory(data.join("webview"))}else{quick_window};
     let quick_window = quick_window.build()?;
     #[cfg(target_os = "macos")]
     {
@@ -161,7 +165,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let _ = quick_window;
     let search = MenuItem::with_id(app, "search", "빠른 파일 검색", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "show", "Every Directory 열기", true, None::<&str>)?;
-    let tools = MenuItem::with_id(app, "tools", "파일 도구 열기", true, None::<&str>)?;
+    let tools = MenuItem::with_id(app, "tools", "도구 열기", true, None::<&str>)?;
     let folders = MenuItem::with_id(app, "folders", "인덱스 폴더 관리", true, None::<&str>)?;
     let preferences = MenuItem::with_id(app, "settings", "프로그램 설정", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "창 숨기기", true, None::<&str>)?;
@@ -472,6 +476,8 @@ pub async fn quick_control(
     location: Option<crate::model::Location>,
 ) -> Result<(), String> {
     match action.as_str() {
+        "dialogStart"=>{app.state::<DesktopState>().quick_dialog.store(true,Ordering::SeqCst);},
+        "dialogEnd"=>{app.state::<DesktopState>().quick_dialog.store(false,Ordering::SeqCst);if let Some(window)=app.get_webview_window("quick-search"){if !window.is_focused().unwrap_or(false){let _=window.hide();}}},
         "dismiss" => {
             if let Some(window) = app.get_webview_window("quick-search") {
                 window.hide().map_err(|e| e.to_string())?;

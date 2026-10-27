@@ -221,6 +221,8 @@ pub struct Index {
     grams: HashMap<String, Vec<u32>>,
     initial_grams: HashMap<String, Vec<u32>>,
     root_labels: HashMap<String, (String, String)>,
+    hidden_dirs: HashSet<String>,
+    visibility:Vec<u8>,
 }
 
 // Numeric filename segments sort naturally without allocating UTF-16 on each comparison.
@@ -243,6 +245,11 @@ fn logical_compare(first: &str, second: &str) -> Ordering {
 }
 
 impl Index {
+    fn visibility(entry:&Entry)->u8 {
+        u8::from(entry.hidden||crate::visibility::hidden_name(&entry.path))
+            | (u8::from(crate::visibility::temporary(&entry.name))<<1)
+            | (u8::from(crate::visibility::recycle(&entry.path))<<2)
+    }
     fn root_label<'a>(&'a self, entry:&'a Entry, absolute:bool)->&'a str {
         self.root_labels.get(&entry.root_id).map(|value|if absolute{value.1.as_str()}else{value.0.as_str()}).unwrap_or(&entry.root_id)
     }
@@ -288,6 +295,8 @@ impl Index {
                 self.initial_grams.entry(gram).or_default().push(i as u32);
             }
         }
+        self.visibility=entries.iter().map(Self::visibility).collect();
+        self.hidden_dirs=entries.iter().filter(|e|e.hidden&&e.kind=="directory").map(|e|e.id.clone()).collect();
         self.entries = entries;
     }
 
@@ -324,6 +333,7 @@ impl Index {
                 remap.insert(original, Some(position as u32));
             }
             self.entries.swap_remove(position);
+            self.visibility.swap_remove(position);
             self.names.swap_remove(position);
             self.paths.swap_remove(position);
         }
@@ -362,8 +372,10 @@ impl Index {
             }
             self.names.push(name);
             self.paths.push(path);
+            self.visibility.push(Self::visibility(&entry));
             self.entries.push(entry);
         }
+        self.hidden_dirs=self.entries.iter().filter(|e|e.hidden&&e.kind=="directory").map(|e|e.id.clone()).collect();
     }
 
     // AND는 가장 작은 필수 후보, OR는 각 분기의 합집합을 사용한다.
@@ -505,6 +517,13 @@ impl Index {
                 || (options.category != "all" && category(entry) != options.category)
             {
                 continue;
+            }
+            let flags=self.visibility[i];
+            if flags&4!=0 {if !options.show_recycle_bin {continue;}}
+            else if flags&2!=0 {if !options.show_temporary {continue;}}
+            else if !options.show_hidden {
+                if flags&1!=0 {continue;}
+                if !self.hidden_dirs.is_empty()&&entry.parent.match_indices('/').map(|(i,_)|&entry.parent[..i]).chain(std::iter::once(entry.parent.as_str())).any(|p|self.hidden_dirs.contains(&format!("{}:{p}",entry.root_id))) {continue;}
             }
             let original: String;
             let value = if sensitive || options.mode == "regex" {

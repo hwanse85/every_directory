@@ -23,3 +23,8 @@ output/
 *.dmg
 *.zip
 *.pdb
+
+# Runtime clipboard contents, indexes and browser profiles must stay local.
+portable-data/
+clipboard-history/
+portable.flag

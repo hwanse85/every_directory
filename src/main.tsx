@@ -5,6 +5,7 @@ import "./workbench.css";
 import "./workspace-layout.css";
 import "./column-layout.css";
 import "./quick-search.css";
+import "./user-experience.css";
 
 // 검색 전용 창에서는 메인 탐색기 코드를 불러오지 않는다.
 const Screen = lazy(() =>

@@ -1,3 +1,6 @@
+import {usePreferences} from "./preferences";
+import {AdvancedPreferences} from "./components/AdvancedPreferences";
+import {ClipboardHistory} from "./components/ClipboardHistory";
 import {
   useCallback,
   useEffect,
@@ -257,6 +260,8 @@ export default function App() {
   const serverVersion = useRef("");
   const [category, setCategory] = useState<FileCategory>("all");
   const [scope, setScope] = useState("");
+  const {preferences}=usePreferences();
+  const [toolsTab,setToolsTab]=useState<"files"|"clipboard">("files");
   const [fullPath, setFullPath] = useState(readPreference("fullPath", false));
   const [searchColumns, setSearchColumns] = useState(() =>
     normalizeSearchColumns(readPreference("searchColumns", null)),
@@ -265,8 +270,8 @@ export default function App() {
   const [fileColors,setFileColors]=useState(()=>readPreference<unknown>("fileColors",false)===true);
   useEffect(()=>{savePreference("fileColors",fileColors);},[fileColors]);
   const [searchPage,setSearchPage]=useState({key:"",offset:0});
-  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,revision]);
-  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort]);
+  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,preferences,revision]);
+  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,preferences]);
   const lastSearchCondition=useRef("");
   const searchOffset=searchPage.key===searchKey?searchPage.offset:0;
   useEffect(()=>{setSearchPage(previous=>previous.key===searchKey?previous:{key:searchKey,offset:0});},[searchKey]);
@@ -564,7 +569,7 @@ export default function App() {
           category,
           rootId: scope,
           fullPath,
-          limit: 1000,
+          limit: preferences.searchPageSize,
           offset:searchOffset,
           sortBy:searchSort?.key,
           descending:searchSort?.descending,
@@ -590,7 +595,7 @@ export default function App() {
             if(searchOffset===0)setResult({ entries: [], total: 0, elapsed: 0 });
           }
         });
-    }, 60);
+    }, preferences.searchDelay);
     return () => {
       alive = false;
       clearTimeout(timer);
@@ -608,6 +613,7 @@ export default function App() {
     notify,
     searchSort,
     searchPage,
+    preferences,
   ]);
 
   useLayoutEffect(() => {
@@ -1190,11 +1196,11 @@ export default function App() {
         <div className="workspace-actions" role="toolbar" aria-label="작업 공간 도구">
           <button
             className="button secondary toolbox-trigger"
-            title="파일 도구" aria-label="파일 도구 열기"
+            title="도구" aria-label="도구 열기"
             onClick={() => setModal("tools")}
           >
             <Wrench size={15} />
-            <span className="toolbar-label">파일 도구</span>
+            <span className="toolbar-label">도구</span>
           </button>
           <div className="layout-control" ref={layoutRef}>
             <button
@@ -1393,7 +1399,7 @@ export default function App() {
           </button>
           <button className="sidebar-nav" onClick={() => setModal("tools")}>
             <Wrench size={17} />
-            파일 도구<span className="nav-count">12</span>
+            도구<span className="nav-count">2</span>
           </button>
 
           <div className="sidebar-section-title">
@@ -1846,7 +1852,9 @@ export default function App() {
                 selected={selected?.id}
                 selectedIds={searchSelection.map(entry=>entry.id)}
                 onMultiSelect={entries=>{setSearchSelection(entries);if(!entries.length)setSelected(undefined);}}
-                query={mode === "normal" ? query : ""}
+                query={query}
+                searchMode={mode}
+                caseSensitive={caseSensitive}
                 onSelect={selectResult}
                 onOpen={(entry) => void openResult(entry)}
                 onQuickPreview={setPreview}
@@ -2007,7 +2015,7 @@ export default function App() {
           pasteable={(isDesktop || !!clipboard)&&searchSelection.length===1&&searchSelection[0]?.kind==="directory"}
           pasteLabel="선택한 폴더에 붙여넣기"
           otherPane={panes.length > 1}
-          hidden={readPreference("showHidden", true)}
+          hidden={preferences.showHidden}
           onClose={closeSearchContext}
           onAction={runSearchTool}
         />
@@ -2028,12 +2036,13 @@ export default function App() {
       {exclusionRoot&&<IndexExclusions root={exclusionRoot} onSave={indexRoot} onClose={()=>setExclusionRoot(undefined)}/>}
       {modal === "tools" && (
         <Modal
-          title="파일 도구"
+          title="도구"
           subtitle={`활성 탐색창 ${panes.findIndex((pane) => pane.id === activePane) + 1}의 현재 폴더와 선택 항목에 적용합니다.`}
           onClose={() => setModal(null)}
           wide
         >
-          <div className="toolbox-grid">
+          <div className="tools-tabs" role="tablist" aria-label="도구 종류" onKeyDown={e=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(e.key)){e.preventDefault();const next=e.key==="Home"?"files":e.key==="End"?"clipboard":toolsTab==="files"?"clipboard":"files";setToolsTab(next);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>(`.tools-tabs [data-tab="${next}"]`)?.focus());}}}><button role="tab" data-tab="files" tabIndex={toolsTab==="files"?0:-1} aria-selected={toolsTab==="files"} onClick={()=>setToolsTab("files")}>파일 도구</button><button role="tab" data-tab="clipboard" tabIndex={toolsTab==="clipboard"?0:-1} aria-selected={toolsTab==="clipboard"} onClick={()=>setToolsTab("clipboard")}>클립보드</button></div>
+          {toolsTab==="clipboard"?<ClipboardHistory/>:<><div className="toolbox-grid">
             {toolCards.map((tool) => (
               <button
                 key={tool.action}
@@ -2063,7 +2072,7 @@ export default function App() {
             <Keyboard size={15} />
             <span>우클릭 메뉴에서도 도구를 실행할 수 있습니다.</span>
             <kbd>Esc</kbd>
-          </footer>
+          </footer></>}
         </Modal>
       )}
       {modal === "folders" && (
@@ -2164,10 +2173,11 @@ export default function App() {
       {modal === "settings" && (
         <Modal
           title="프로그램 설정"
-          subtitle="검색, 자동 시작, 트레이와 단축키를 설정하세요."
+          subtitle="사용자 설정은 이 PC에 저장되며 다시 실행해도 유지됩니다."
           onClose={() => setModal(null)}
         >
           <div className="modal-content">
+            <AdvancedPreferences/>
             <label className="setting-row">
               <span>
                 <strong>기본 검색 방식</strong>

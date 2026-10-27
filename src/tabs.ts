@@ -1,3 +1,4 @@
+import {readPreference} from "./storage";
 import type { ExplorerPane, ExplorerTab, Location } from "./types";
 import {normalizeExplorerView} from "./explorerView";
 import {normalizeSearchColumns,normalizeTableSort,searchColumnOptions} from "./searchColumns";
@@ -19,7 +20,7 @@ export function createPane(location: Location): ExplorerPane {
     id: crypto.randomUUID(),
     tabs: [tab],
     activeTab: tab.id,
-    view: "list",
+    view: normalizeExplorerView(readPreference<{defaultExplorerView?:unknown}>("preferences",{}).defaultExplorerView),
   };
 }
 

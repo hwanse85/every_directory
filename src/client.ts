@@ -1,3 +1,4 @@
+import {loadPreferences} from "./preferences";
 import type {
   ConnectedRoot,
   IndexProgress,
@@ -178,6 +179,7 @@ export class IndexClient {
   // API 오류를 사용자에게 표시할 수 있는 메시지로 전달한다.
   async request<T>(type: string, payload: unknown = {}): Promise<T> {
     await this.session;
+    if(type==="search"){const p=await loadPreferences();payload={showHidden:p.showHidden,showTemporary:p.showTemporary,showRecycleBin:p.showRecycleBin,...(payload as object)};}
     if (this.disposed) throw new Error("파일 엔진 연결이 종료되었습니다.");
     if (isDesktop) {
       const result = await invoke<T>("ed_request", {

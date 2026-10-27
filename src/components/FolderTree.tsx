@@ -1,3 +1,4 @@
+import {usePreferences,visibleFile,type Preferences} from "../preferences";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Folder, LoaderCircle } from "lucide-react";
 import type { IndexClient } from "../client";
@@ -7,7 +8,7 @@ import { readPreference, savePreference } from "../storage";
 import { onTreePath, restoreTreeExpansion, treeAncestors, treeKey } from "../treePaths";
 
 interface TreeContext {
-  current: Location; client: IndexClient; revision: number; showHidden: boolean;
+  current: Location; client: IndexClient; revision: number; showHidden: boolean;preferences:Preferences;
   expanded: Set<string>; toggle: (key:string) => void;
   onNavigate: (location:Location,newTab?:boolean) => void;
 }
@@ -36,7 +37,7 @@ function Branch({name,location,context,depth=0}:{name:string;location:Location;c
     const frame=requestAnimationFrame(()=>item.current?.scrollIntoView({block:"nearest",inline:"nearest"}));
     return()=>cancelAnimationFrame(frame);
   },[selected]);
-  const visible=children.filter(entry=>context.showHidden||!(entry.hidden||entry.name.startsWith("."))||onTreePath({rootId:entry.rootId,path:entry.path},context.current));
+  const visible=children.filter(entry=>visibleFile(entry,{...context.preferences,showHidden:context.showHidden})||onTreePath({rootId:entry.rootId,path:entry.path},context.current));
   const expandable=!loaded||Boolean(visible.length)||Boolean(error);
   return <div ref={item} className="tree-node" role="treeitem" tabIndex={-1} aria-label={name} aria-level={depth+1}
     aria-selected={selected} aria-expanded={expandable?open:undefined} aria-busy={loading||undefined}
@@ -68,7 +69,8 @@ export function FolderTree({roots,location,client,revision,onNavigate,storageKey
   useEffect(()=>{setExpanded(previous=>new Set([...previous,...treeAncestors(location)]));},[location.rootId,location.path]);
   useEffect(()=>{savePreference(storageKey,[...expanded].slice(-512));},[expanded,storageKey]);
   const toggle=(key:string)=>setExpanded(previous=>{const next=new Set(previous);if(next.has(key))next.delete(key);else next.add(key);return next;});
-  const context:TreeContext={current:location,client,revision,showHidden,expanded,toggle,onNavigate};
+  const {preferences}=usePreferences();
+  const context:TreeContext={current:location,client,revision,showHidden,preferences,expanded,toggle,onNavigate};
   return <aside ref={tree} style={{width}} className="folder-tree" role="tree" aria-label={label} tabIndex={0}
     onFocus={event=>{if(event.target===event.currentTarget)tree.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({preventScroll:true});}}
     onKeyDown={event=>{

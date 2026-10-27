@@ -1,3 +1,4 @@
+import {usePreferences,visibleFile,updatePreferences} from "../preferences";
 import { writeClipboard, isDesktop, importDroppedFiles, supportsWindowsNew, windowsNewMenu } from "../client";
 import type { FileDrag } from "../fileDrag";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -227,9 +228,13 @@ export function Explorer({
     }).catch((cause) => { if (!stopped) onError(`파일 드롭을 준비할 수 없습니다: ${String(cause)}`); });
     return () => { stopped = true; unlisten?.(); if (paneElement) delete paneElement.dataset.nativeDropReady; window.removeEventListener("ed-file-drag", internal); };
   }, [location.rootId, location.path, root?.id, root?.demo]);
-  const [showHidden, setShowHidden] = useState(
-    readPreference("showHidden", true),
-  );
+  const {preferences}=usePreferences();
+  const [hiddenOverride,setHiddenOverride]=useState<boolean>();
+  const showHidden=hiddenOverride??preferences.showHidden;
+  const setShowHidden=(next:boolean|((old:boolean)=>boolean))=>{
+    const value=typeof next==="function"?next(showHidden):next;setHiddenOverride(value);
+    void updatePreferences({...preferences,showHidden:value}).catch(cause=>{setHiddenOverride(undefined);onError(String(cause));});
+  };
   const [analysis, setAnalysis] = useState<AnalysisKind>();
   const [paneTransfer, setPaneTransfer] = useState<"copy" | "move">();
   const handledExternal = useRef<number | undefined>(undefined);
@@ -238,12 +243,10 @@ export function Explorer({
   const matchesFilter = useMemo(() => filenameFilter(filter), [filter]);
   const visibleEntries = entries.filter(
     (entry) =>
-      (showHidden || !(entry.hidden || entry.name.startsWith("."))) &&
+      visibleFile(entry,{...preferences,showHidden}) &&
       matchesFilter(entry.name),
   );
-  useEffect(() => {
-    savePreference("showHidden", showHidden);
-  }, [showHidden]);
+  useEffect(()=>setHiddenOverride(undefined),[preferences.showHidden]);
 
   useEffect(() => {
     if (!toolRequest || handledExternal.current === toolRequest.id || loading)
@@ -1037,6 +1040,7 @@ export function Explorer({
           columnLayoutKey={`explorerColumnWidths:${pane.id}`}
           resetKey={`${tab.id}:${location.rootId}:${location.path}:${filter}:${showHidden}`}
           compact={compact}
+          query={filter}
           entries={visibleEntries}
           revealEntry={revealEntry}
           roots={roots}

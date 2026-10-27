@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quick-search-window",
-  "description": "빠른 검색창의 이벤트와 텍스트 복사만 허용한다",
+  "description": "빠른 검색창의 이벤트, 텍스트 복사와 사용자가 선택하는 클립보드 사본 저장 대화상자",
   "windows": ["quick-search"],
-  "permissions": ["core:event:default", "clipboard-manager:allow-write-text"]
+  "permissions": ["core:event:default", "clipboard-manager:allow-write-text", "dialog:allow-open", "dialog:allow-save"]
 }

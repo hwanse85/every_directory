@@ -1,3 +1,6 @@
+import {usePreferences,visibleFile} from "../preferences";
+import {ClipboardHistory} from "./ClipboardHistory";
+import {Highlight} from "./Highlight";
 import {
   useCallback,
   useEffect,
@@ -62,8 +65,10 @@ const emptyAccess: QuickAccess = {
 
 // 검색 결과에서 바로 파일 작업을 실행하는 독립 검색창이다.
 export default function QuickSearch() {
+  const {preferences}=usePreferences();
   const client = useMemo(() => new IndexClient(false), []);
   const [query, setQuery] = useState("");
+  const clipboardTrigger=query.trim().toLocaleLowerCase()===preferences.clipboardKeyword.toLocaleLowerCase();
   const [defaultMode, setDefaultMode] = useState<SearchMode>("initials");
   const [roots, setRoots] = useState<ConnectedRoot[]>([]);
   const [scope, setScope] = useState("");
@@ -71,7 +76,7 @@ export default function QuickSearch() {
   const [access, setAccess] = useState<QuickAccess>(emptyAccess);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState(0);
-  const [view, setView] = useState<"results" | "actions" | "destination">(
+  const [view, setView] = useState<"results" | "actions" | "destination" | "clipboard">(
     "results",
   );
   const [actionIndex, setActionIndex] = useState(0);
@@ -84,7 +89,12 @@ export default function QuickSearch() {
   const [destination, setDestination] = useState<Location>();
   const [directories, setDirectories] = useState<FileEntry[]>([]);
   const input = useRef<HTMLInputElement>(null);
-  const searchEditing = useSearchInput(text => quickSearchMode(text,defaultMode), setQuery);
+  const searchEditing = useSearchInput(text => quickSearchMode(text,defaultMode), text=>{
+    requestVersion.current+=1;
+    selectedId.current=undefined;
+    setQuery(text);
+    setSelected(text.trim().toLocaleLowerCase()===preferences.clipboardKeyword.toLocaleLowerCase()?-1:0);
+  });
   const composing = searchEditing.composing;
   const busyRef = useRef(false);
   const requestVersion = useRef(0);
@@ -177,11 +187,11 @@ export default function QuickSearch() {
 
   useEffect(() => {
     const version = ++requestVersion.current;
-    const searchKey = JSON.stringify([query, scope, category]);
+    const searchKey = JSON.stringify([query, scope, category,clipboardTrigger]);
     if (previousSearch.current !== searchKey) {
       previousSearch.current = searchKey;
       selectedId.current = undefined;
-      setSelected(0);
+      setSelected(clipboardTrigger?-1:0);
       setEntries([]);
     }
     setError("");
@@ -189,7 +199,7 @@ export default function QuickSearch() {
     setSearching(true);
     // 기록 변경으로 순위가 갱신되어도 사용자가 선택한 파일을 유지한다.
     function applyEntries(next: FileEntry[]) {
-      setSelected(
+      setSelected(current=>clipboardTrigger&&current===-1?-1:
         Math.max(
           0,
           next.findIndex((file) => file.id === selectedId.current),
@@ -212,6 +222,7 @@ export default function QuickSearch() {
               applyEntries(
                 suggestions.entries.filter(
                   (e) =>
+                    visibleFile(e,preferences) &&
                     (!scope || e.rootId === scope) &&
                     (category === "all" || categoryOf(e) === category),
                 ),
@@ -223,7 +234,7 @@ export default function QuickSearch() {
               mode: quickSearchMode(query, defaultMode),
               rootId: scope,
               category,
-              fullPath: false,
+              fullPath: preferences.quickFullPath,
               limit: 12,
             });
             if (version !== requestVersion.current) return;
@@ -246,7 +257,7 @@ export default function QuickSearch() {
       clearTimeout(timer);
       requestVersion.current += 1;
     };
-  }, [client, query, scope, category, revision, defaultMode]);
+  }, [client, query, scope, category, revision, defaultMode,preferences]);
 
   useEffect(() => {
     document
@@ -366,7 +377,7 @@ export default function QuickSearch() {
 
   // 검색어 편집 단축키를 보존하고 결과 탐색 키만 처리한다.
   function handleKey(event: KeyboardEvent<HTMLDivElement>) {
-    if (isComposingKey(event.nativeEvent, composing.current)) return;
+    if (isComposingKey(event.nativeEvent, composing.current)||view==="clipboard") return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (busyRef.current) return;
@@ -396,8 +407,10 @@ export default function QuickSearch() {
       const delta = event.key === "ArrowDown" ? 1 : -1;
       if (view === "actions")
         setActionIndex((n) => (n + delta + actions.length) % actions.length);
+      else if(clipboardTrigger)setSelected(n=>(n+1+delta+entries.length+1)%(entries.length+1)-1);
       else if (entries.length)
         setSelected((n) => (n + delta + entries.length) % entries.length);
+    } else if(event.key==="Enter"&&clipboardTrigger&&selected===-1){event.preventDefault();setView("clipboard");
     } else if (event.key === "Enter" && entry) {
       event.preventDefault();
       void run(
@@ -455,7 +468,7 @@ export default function QuickSearch() {
           aria-controls="quick-results"
           aria-expanded={view === "results"}
           aria-activedescendant={
-            entry && view === "results" ? `quick-result-${selected}` : undefined
+            clipboardTrigger&&selected===-1?"quick-clipboard-trigger":entry && view === "results" ? `quick-result-${selected}` : undefined
           }
           placeholder="파일이나 폴더 이름을 입력하세요"
           maxLength={512}
@@ -543,7 +556,7 @@ export default function QuickSearch() {
         </div>
       )}
       <section className="quick-content">
-        {view === "destination" ? (
+        {view === "clipboard" ? <ClipboardHistory compact onClose={()=>{setView("results");input.current?.focus();}}/> : view === "destination" ? (
           <>
             <div className="quick-section-title">
               <button onClick={() => setView("actions")}>
@@ -672,6 +685,7 @@ export default function QuickSearch() {
               className="quick-results"
               aria-busy={searching}
             >
+              {clipboardTrigger&&<button id="quick-clipboard-trigger" role="option" aria-selected={selected===-1} className={`quick-result clipboard-trigger ${selected===-1?"active":""}`} onClick={()=>setView("clipboard")}>클립보드 보기 <small>최신 순 이력 · Enter</small></button>}
               {entries.map((file, index) => (
                 <div
                   id={`quick-result-${index}`}
@@ -695,17 +709,14 @@ export default function QuickSearch() {
                 >
                   <FileIcon entry={file} />
                   <div className="quick-result-text">
-                    <strong title={file.name}>{file.name}</strong>
+                    <strong title={file.name}><Highlight text={file.name} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)}/></strong>
                     <span
                       title={locationLabel(
                         roots.find((r) => r.id === file.rootId),
                         file.parent,
                       )}
                     >
-                      {locationLabel(
-                        roots.find((r) => r.id === file.rootId),
-                        file.parent,
-                      )}
+                      <Highlight text={locationLabel(roots.find(r=>r.id===file.rootId),file.parent)} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)} field="path"/>
                     </span>
                   </div>
                   {access.favorites.some(

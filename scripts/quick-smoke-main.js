@@ -12,6 +12,8 @@
     )
       await new Promise((resolve) => setTimeout(resolve, 100));
     const roots = await invoke("ed_request", { kind: "init", payload: {} });
+    const preferences=await invoke("preferences_control",{next:null});
+    await invoke("preferences_control",{next:{...preferences,clipboardKeyword:"cliptest"}});
     const access = await invoke("ed_request", {
       kind: "quickAccess",
       payload: { action: "snapshot" },

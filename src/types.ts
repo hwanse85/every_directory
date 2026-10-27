@@ -64,6 +64,9 @@ export interface SearchOptions {
   category: FileCategory;
   rootId: string;
   fullPath: boolean;
+  showHidden?:boolean;
+  showTemporary?:boolean;
+  showRecycleBin?:boolean;
   limit?: number;
   offset?: number;
   sortBy?: SearchSortKey;

@@ -15,7 +15,7 @@ const suite = process.argv[2] ?? "search";
 await mkdir("test-results/e2e", {recursive:true});
 await writeFile(`test-results/e2e/${suite}.json`,JSON.stringify({suite,passed:false,tests:[],errors:["검증 실행이 완료되지 않았습니다."]}));
 let clipboardGuard;
-if (suite === "clipboard") {
+if (["clipboard","history","history-monitor","quick","desktop","actions"].includes(suite)) {
   clipboardGuard = spawn(
     "powershell.exe",
     [
@@ -56,7 +56,8 @@ if (suite === "clipboard") {
 }
 const temp = await mkdtemp(path.join(os.tmpdir(), `ed-e2e-${suite}-`));
 const root = path.join(temp, "E2E 한글 [1]&'()");
-const data = path.join(temp, "data");
+const data = path.join(temp, suite==="portable"?"portable-data":"data");
+if(suite==="portable")await writeFile(path.join(temp,"portable.flag"),"portable data beside this executable\n");
 await prepare(root, suite);
 const env = {
   ...process.env,
@@ -65,7 +66,9 @@ const env = {
   EVERY_DIRECTORY_SKIP_SMOKE: "1",
   EVERY_DIRECTORY_E2E_SUITE: suite,
 };
+if(suite==="portable")delete env.EVERY_DIRECTORY_DATA;
 if (suite === "quick") env.EVERY_DIRECTORY_QUICK_SMOKE = "1";
+if(suite==="history-monitor")env.EVERY_DIRECTORY_TEST_CLIPBOARD_MONITOR="1";
 if (suite === "windows") env.EVERY_DIRECTORY_WINDOWS_UI = "1";
 if (suite === "empty") {
   delete env.EVERY_DIRECTORY_SMOKE_ROOT;
@@ -97,7 +100,7 @@ await copyFile(
   path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", "debug/every-directory.exe"),
   executable,
 );
-const child = spawn(executable, [], {
+let child = spawn(executable, [], {
   env,
   stdio: "inherit",
   windowsHide: true,
@@ -109,6 +112,7 @@ child.once("error", (e) => {
 try {
   const deadline = Date.now() + 180000;
   let report;
+  let beforeRestart;
   while (Date.now() < deadline) {
     if (startupError) throw startupError;
     if (child.exitCode !== null)
@@ -118,13 +122,28 @@ try {
         await readFile(path.join(data, "smoke-report.json"), "utf8"),
       );
       if (v.finished || v.stage === "complete" || v.stage?.endsWith("failed")) {
+        if(["history","portable"].includes(suite)&&v.restart&&!beforeRestart){
+          beforeRestart=v;
+          child.kill();await new Promise(resolve=>child.exitCode!==null?resolve():child.once("exit",resolve));
+          await writeFile(path.join(data,"smoke-report.json"),JSON.stringify({stage:"restarting"}));
+          child=spawn(executable,[],{env:{...env,EVERY_DIRECTORY_HISTORY_RESTART:"1"},stdio:"inherit",windowsHide:true});
+          child.once("error",e=>{startupError=e;});
+          continue;
+        }
         report = { ...v, passed: v.passed ?? v.stage === "complete" };
+        if(beforeRestart)report.tests=[...beforeRestart.tests,...report.tests];
         break;
       }
     } catch (e) {
       if (e.code !== "ENOENT" && !(e instanceof SyntaxError)) throw e;
     }
     await new Promise((r) => setTimeout(r, 200));
+  }
+  if(suite==="portable"&&report?.passed){
+    const preferences=JSON.parse(await readFile(path.join(data,"preferences.json"),"utf8"));
+    const {stat}=await import("node:fs/promises");
+    if(preferences.clipboardDays!==23||!(await stat(path.join(data,"webview"))).isDirectory())throw new Error("Portable data/profile location mismatch");
+    report.tests.push({name:"설정 파일과 WebView 프로필은 실행 파일 옆 portable-data에 저장",passed:true});
   }
   console.log(`E2E 결과: ${path.join(data, "smoke-report.json")}`);
   console.log(JSON.stringify(report, null, 2));

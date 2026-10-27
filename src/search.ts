@@ -1,3 +1,4 @@
+import {visibleFile} from "./preferences";
 import { RE2JS } from "re2js";
 import { normalizeSearchInput } from "./quickSearch";
 import { searchColumnOptions, searchColumnValue } from "./searchColumns";
@@ -100,7 +101,7 @@ function escapePattern(value: string): string {
 }
 
 // 입력한 초성만 한글 음절 범위로 펼쳐 일반 검색과 함께 적용한다.
-function initialPattern(value: string): RE2JS | undefined {
+export function initialPattern(value: string): RE2JS | undefined {
   const text = normalizeSearchInput(value, "initials");
   const hasInitial = Array.from(text).some((letter) =>
     initials.includes(letter),
@@ -329,6 +330,7 @@ export class FileIndex {
       scanned++;
       const i = candidates ? candidates[n] : n;
       const entry = this.entries[i];
+      if(!visibleFile(entry,{showHidden:options.showHidden??false,showTemporary:options.showTemporary??false,showRecycleBin:options.showRecycleBin??false}))continue;
       if (options.rootId && entry.rootId !== options.rootId) continue;
       if (options.category !== "all" && categoryOf(entry) !== options.category)
         continue;

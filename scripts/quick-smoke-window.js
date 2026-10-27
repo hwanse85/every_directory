@@ -169,6 +169,20 @@
       rejected = true;
     }
     verify("파일 클립보드의 범위 이탈 차단", rejected);
+    await invoke("plugin:clipboard-manager|write_text",{text:"quick clipboard history entry"});
+    await invoke("clipboard_control",{action:"capture",id:null,destination:null,query:null});
+    search("cliptest");
+    await until(()=>document.querySelector("#quick-clipboard-trigger"),"사용자 키워드 클립보드 항목");
+    verify("빠른 검색에서 사용자 키워드의 클립보드 보기 항목을 최상단 표시",document.querySelector("#quick-results").firstElementChild?.id==="quick-clipboard-trigger");
+    document.querySelector('[aria-label="파일·폴더 빠른 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));
+    await until(()=>document.querySelector('.clipboard-list [role="option"]'),"Enter로 클립보드 이력 열기");
+    verify("빠른 검색 Enter는 최신 클립보드 목록을 표시",document.querySelector('.clipboard-list [role="option"]').textContent.includes("quick clipboard history entry"));
+    await until(()=>document.querySelector('.clipboard-preview pre')?.textContent.includes("quick clipboard history entry"),"내용 미리보기");
+    verify("빠른 검색에서 클립보드 내용 미리보기와 복사·저장 작업 제공",[...document.querySelectorAll('.clipboard-actions button')].some(b=>b.textContent==="사본 저장"));
+    verify("빠른 검색 클립보드 작업 버튼과 상태가 창 안에 표시",document.querySelector('.clipboard-actions').getBoundingClientRect().bottom<=innerHeight&&document.querySelector('.clipboard-history>p[role="status"]').getBoundingClientRect().bottom<=innerHeight);
+    document.querySelector('[aria-label="클립보드 이력 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
+    await until(()=>document.querySelector("#quick-clipboard-trigger"),"Esc로 파일 검색 복귀");
+    verify("클립보드 화면 Esc는 파일 검색으로 복귀",true);
     await invoke("ed_request", {
       kind: "smokeReport",
       payload: {

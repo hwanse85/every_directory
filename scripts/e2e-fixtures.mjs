@@ -1,3 +1,4 @@
+import {execFileSync} from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -35,6 +36,12 @@ function pdf() {
 }
 export async function prepare(root, suite) {
   await mkdir(root, { recursive: true });
+  if(suite==="history"){
+    for(const folder of ["대상","$Recycle.Bin/a",".hidden","문서/경로 보고서"])await mkdir(path.join(root,folder),{recursive:true});
+    for(const name of ["업무 보고서.txt","$budget.txt","~$lock.docx","cache.tmp","native-hidden.txt","$Recycle.Bin/a/deleted.txt",".hidden/secret.txt","문서/경로 보고서/보관.txt"])await writeFile(path.join(root,name),"history fixture");
+    execFileSync("attrib.exe",["+H",path.join(root,"native-hidden.txt")],{windowsHide:true});
+    return;
+  }
   if(suite==="explorer"){
     for(const folder of ["문서/하위","비공개/하위","대상"])await mkdir(path.join(root,folder),{recursive:true});
     await writeFile(path.join(root,"업무 보고서.txt"),"미리보기 검증\n".repeat(60));

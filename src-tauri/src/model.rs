@@ -70,6 +70,9 @@ pub struct SearchOptions {
     pub root_id: String,
     #[serde(default)]
     pub full_path: bool,
+    #[serde(default)] pub show_hidden: bool,
+    #[serde(default)] pub show_temporary: bool,
+    #[serde(default)] pub show_recycle_bin: bool,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     pub sort_by: Option<String>,

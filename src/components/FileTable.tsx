@@ -1,3 +1,5 @@
+import {Highlight} from "./Highlight";
+import {usePreferences} from "../preferences";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpRight, Columns3, SearchX } from "lucide-react";
@@ -42,6 +44,8 @@ interface Props {
   onMultiSelect?: (entries: FileEntry[]) => void;
   onQuickPreview?: (entry: FileEntry) => void;
   query?: string;
+  searchMode?:import("../types").SearchMode;
+  caseSensitive?:boolean;
   onSelect: (entry: FileEntry, multi?:boolean) => void;
   onOpen: (entry: FileEntry) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
@@ -50,24 +54,6 @@ interface Props {
   sortState?: TableSort | null;
   onSortChange?: (sort:TableSort|undefined)=>void;
   onColumnsChange?:(columns:SearchColumn[])=>void;
-}
-
-// 검색어와 일치하는 파일명 부분을 강조한다.
-function Highlight({ text, query = "" }: { text: string; query?: string }) {
-  const word = query
-    .split(/\s+/)
-    .find((t) => t && !t.startsWith("ext:"))
-    ?.replaceAll('"', "");
-  if (!word) return <>{text}</>;
-  const index = text.toLocaleLowerCase().indexOf(word.toLocaleLowerCase());
-  if (index < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, index)}
-      <mark>{text.slice(index, index + word.length)}</mark>
-      {text.slice(index + word.length)}
-    </>
-  );
 }
 
 // 화면에 보이는 행만 렌더링하는 파일 목록과 격자 보기를 제공한다.
@@ -85,6 +71,8 @@ export function FileTable({
   onMultiSelect,
   onQuickPreview,
   query,
+  searchMode="initials",
+  caseSensitive=false,
   onSelect,
   onOpen,
   onContextMenu,
@@ -94,6 +82,8 @@ export function FileTable({
   onSortChange,
   onColumnsChange,
 }: Props) {
+  const {preferences}=usePreferences();
+  const highlightQuery=preferences.highlightMatches?query:"";
   const anchor = useRef<string | undefined>(undefined);
   const rowHeight = !search&&view==="content"?72:compact ? 34 : 43;
   const container = useRef<HTMLDivElement>(null);
@@ -517,7 +507,7 @@ export function FileTable({
                   )}
                   <FileIcon entry={entry} large={grid} />
                   <span>
-                    <Highlight text={entry.name} query={query} />
+                    <Highlight text={entry.name} query={highlightQuery} mode={searchMode} caseSensitive={caseSensitive} />
                   </span>
                   {grid && (
                     <small>
@@ -539,7 +529,7 @@ export function FileTable({
                           role="gridcell"
                           title={columnText(entry, column.id)}
                         >
-                          {columnText(entry, column.id)}
+                          <Highlight text={columnText(entry,column.id)} query={highlightQuery} mode={searchMode} field={column.id} caseSensitive={caseSensitive}/>
                         </span>
                       ))
                   )}

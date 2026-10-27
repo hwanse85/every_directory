@@ -52,7 +52,6 @@
     );
     const root = (await invoke("ed_request", { kind: "init", payload: {} }))[0];
     pane.querySelector('[role="tab"]').focus();
-    key(".", { ctrlKey: true, shiftKey: true, code: "Period" });
     await until(() => pane.querySelector(".hidden-status"), "숨김 파일 감추기");
     verify(
       "숨김 파일 필터가 목록에 반영",

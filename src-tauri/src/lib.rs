@@ -1,6 +1,9 @@
 pub mod analysis;
 pub mod desktop;
 pub mod file_clipboard;
+pub mod preferences;
+pub mod visibility;
+pub mod clipboard_history;
 mod journal;
 pub mod model;
 pub mod operations;
@@ -179,6 +182,19 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
     Ok(result)
 }
 
+#[tauri::command]
+async fn preferences_control(app:tauri::AppHandle,window:tauri::WebviewWindow,next:Option<preferences::Preferences>)->Result<Value,String>{
+    let store=app.state::<preferences::PreferenceStore>();
+    if let Some(next)=next {
+        if window.label()!="main" {return Err("사용자 설정은 메인 창에서 변경해 주세요.".into());}
+        let saved=store.save(next)?;
+        if let Some(history)=app.try_state::<Arc<clipboard_history::ClipboardHistory>>(){history.snapshot(&saved)?;}
+        use tauri::Emitter;
+        let _=app.emit("ed-preferences",&saved);
+        serde_json::to_value(saved).map_err(|e|e.to_string())
+    }else{let mut value=serde_json::to_value(store.value.lock().unwrap().clone()).map_err(|e|e.to_string())?;value["preferencesWarning"]=json!(*store.warning.lock().unwrap());Ok(value)}
+}
+
 // 긴 파일 작업을 화면 스레드 밖에서 실행한다.
 #[tauri::command]
 async fn shell_new_menu(window:tauri::WebviewWindow,engine:State<'_,Arc<Engine>>,location:Location,point:Option<Value>)->Result<Value,String>{
@@ -194,7 +210,7 @@ async fn shell_new_menu(window:tauri::WebviewWindow,engine:State<'_,Arc<Engine>>
 async fn ed_request(
     window: tauri::WebviewWindow,
     kind: String,
-    payload: Value,
+    mut payload: Value,
     engine: State<'_, Arc<Engine>>,
 ) -> Result<Value, String> {
     let smoke_report = cfg!(feature = "smoke-test") && kind == "smokeReport";
@@ -235,6 +251,10 @@ async fn ed_request(
             _=>return Err("지원하지 않는 검증 요청입니다.".into()),
         }
     }
+    if kind=="search" {
+        let p=window.app_handle().state::<preferences::PreferenceStore>().value.lock().unwrap().clone();
+        payload["showHidden"]=json!(p.show_hidden);payload["showTemporary"]=json!(p.show_temporary);payload["showRecycleBin"]=json!(p.show_recycle_bin);
+    }
     let changed =
         kind == "quickAccess" && payload["action"].as_str().is_some_and(|a| a != "snapshot");
     let engine = engine.inner().clone();
@@ -251,9 +271,12 @@ async fn ed_request(
 // 최신 검색만 실행하고 즐겨찾기와 최근 사용 순위를 검색 엔진에 전달한다.
 #[tauri::command]
 async fn quick_search(
+    app:tauri::AppHandle,
     engine: State<'_, Arc<Engine>>,
-    options: SearchOptions,
+    mut options: SearchOptions,
 ) -> Result<Value, String> {
+    let p=app.state::<preferences::PreferenceStore>().value.lock().unwrap().clone();
+    options.show_hidden=p.show_hidden;options.show_temporary=p.show_temporary;options.show_recycle_bin=p.show_recycle_bin;
     use std::sync::atomic::Ordering;
     let engine = engine.inner().clone();
     let epoch = engine.quick_search_epoch.fetch_add(1, Ordering::SeqCst) + 1;
@@ -494,7 +517,13 @@ fn import_legacy(data: &Path) {
 
 // 외부 서버 없이 앱 창과 검증된 Rust 명령만 시작한다.
 pub fn run() {
-    let context = tauri::generate_context!();
+    let context = {
+        let mut context=tauri::generate_context!();
+        if let Some(data)=preferences::portable_directory(){
+            for window in &mut context.config_mut().app.windows {window.data_directory=Some(data.join("webview"));}
+        }
+        context
+    };
     #[cfg(feature = "smoke-test")]
     let context = {
         let mut context = context;
@@ -525,8 +554,9 @@ pub fn run() {
         .setup(|app| {
             let data = std::env::var_os("EVERY_DIRECTORY_DATA")
                 .map(std::path::PathBuf::from)
+                .or_else(preferences::portable_directory)
                 .unwrap_or(app.path().app_data_dir()?);
-            let engine = Engine::start(data, std::env::var_os("EVERY_DIRECTORY_DATA").is_none()).map_err(std::io::Error::other)?;
+            let engine = Engine::start(data, std::env::var_os("EVERY_DIRECTORY_DATA").is_none()&&preferences::portable_directory().is_none()).map_err(std::io::Error::other)?;
             #[cfg(feature = "smoke-test")]
             if let Some(root) = std::env::var_os("EVERY_DIRECTORY_SMOKE_ROOT") {
                 engine.wait_ready().map_err(std::io::Error::other)?;
@@ -534,7 +564,9 @@ pub fn run() {
                     .scan(&json!({"absolutePath":root.to_string_lossy()}))
                     .map_err(std::io::Error::other)?;
             }
+            app.manage(preferences::PreferenceStore::load(&engine.data).map_err(std::io::Error::other)?);
             app.manage(engine);
+            clipboard_history::start(app.handle()).map_err(std::io::Error::other)?;
             desktop::setup(app)?;
             Ok(())
         })
@@ -542,7 +574,7 @@ pub fn run() {
             if window.label() == "quick-search" {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => { api.prevent_close(); let _ = window.hide(); },
-                    tauri::WindowEvent::Focused(false) => { let _ = window.hide(); },
+                    tauri::WindowEvent::Focused(false) => { if !window.app_handle().state::<desktop::DesktopState>().quick_dialog.load(std::sync::atomic::Ordering::SeqCst){let _ = window.hide();} },
                     _ => {},
                 }
                 return;
@@ -585,6 +617,22 @@ pub fn run() {
                     let _ = webview.eval(format!("window.__edReliabilityRoot={root};").as_str());
                     let _ = webview.eval(include_str!("../../scripts/reliability-smoke.js"));
                 }
+            }
+            #[cfg(all(windows, feature="smoke-test"))]
+            if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("history"){
+                let restart=std::env::var_os("EVERY_DIRECTORY_HISTORY_RESTART").is_some();
+                let _=webview.eval(&format!("window.__historyRestart={restart};"));
+                let _=webview.eval(include_str!("../../scripts/history-e2e.js"));
+            }
+            #[cfg(all(windows,feature="smoke-test"))]
+            if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("history-monitor"){
+                let _=webview.eval(include_str!("../../scripts/history-monitor-e2e.js"));
+            }
+            #[cfg(all(windows,feature="smoke-test"))]
+            if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("portable"){
+                let restart=std::env::var_os("EVERY_DIRECTORY_HISTORY_RESTART").is_some();
+                let _=webview.eval(&format!("window.__portableRestart={restart};"));
+                let _=webview.eval(include_str!("../../scripts/portable-e2e.js"));
             }
             #[cfg(not(feature = "smoke-test"))]
             let _ = (webview, payload);
@@ -646,7 +694,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control])
+        .invoke_handler(tauri::generate_handler![ed_request, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

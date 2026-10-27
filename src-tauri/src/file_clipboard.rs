@@ -150,7 +150,7 @@ pub fn hdrop_data(paths: &[PathBuf]) -> Vec<u8> {
 
 // Windows 탐색기가 읽는 파일 목록을 이동식 전역 메모리로 전달한다.
 #[cfg(windows)]
-fn write_files(paths: &[PathBuf], owner: isize, cut: bool) -> Result<(), String> {
+pub(crate) fn write_files(paths: &[PathBuf], owner: isize, cut: bool) -> Result<(), String> {
     use windows_sys::Win32::{
         Foundation::{GlobalFree, HWND},
         System::{
@@ -212,7 +212,7 @@ fn write_files(_paths: &[PathBuf], _owner: isize, _cut: bool) -> Result<(), Stri
 
 // 다른 프로그램의 짧은 클립보드 잠금은 제한된 횟수만 재시도한다.
 #[cfg(windows)]
-fn open_windows_clipboard(owner: windows_sys::Win32::Foundation::HWND) -> bool {
+pub(crate) fn open_windows_clipboard(owner: windows_sys::Win32::Foundation::HWND) -> bool {
     for _ in 0..10 {
         if unsafe { windows_sys::Win32::System::DataExchange::OpenClipboard(owner) } != 0 {
             return true;

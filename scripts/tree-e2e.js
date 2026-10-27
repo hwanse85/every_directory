@@ -36,7 +36,11 @@
       verify("주소로 깊은 폴더 이동 시 전체 상위 가지 자동 펼침",["","문서","문서/2026"].every(path=>node(first,path)?.getAttribute("aria-expanded")==="true"));
       verify("현재 폴더 하나만 선택 표시",first.querySelectorAll('.folder-tree [aria-selected="true"]').length===1);
       verify("다른 탐색창 트리는 독립 유지",currentPath(second)==="");
-      first.click();key(document.body,".",{ctrlKey:true,shiftKey:true,code:"Period"});
+      first.click();
+      verify("숨김 폴더는 기본 트리에서 제외",!node(first,".숨김"));
+      key(document.body,".",{ctrlKey:true,shiftKey:true,code:"Period"});
+      await until(()=>node(first,".숨김"),"숨김 폴더 표시");
+      key(document.body,".",{ctrlKey:true,shiftKey:true,code:"Period"});
       await until(()=>!node(first,".숨김"),"숨김 폴더 감추기");
       verify("숨김 파일 설정은 트리에도 동일 적용",true);
       key(document.body,".",{ctrlKey:true,shiftKey:true,code:"Period"});await until(()=>node(first,".숨김"),"숨김 폴더 표시 복원");
