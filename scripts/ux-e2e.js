@@ -13,6 +13,8 @@
   const nameOf=row=>row?.querySelector('.file-name > span:not(.file-icon)')?.textContent;
   const row=(text,n=1)=>rows(n).find(item=>nameOf(item)===text);
   const crumbs=(n=1)=>pane(n)?.querySelector('.breadcrumbs')?.textContent??'';
+  // 목록을 다시 불러오는 동안은 파일 작업 단축키가 잠기므로 준비될 때까지 기다린다.
+  const ready=()=>until(()=>!pane(1).querySelector('.explorer-footer .spin')&&!pane(1).querySelector('.file-action-bar [title="붙여넣기 · Ctrl/⌘ V"]')?.disabled,'파일 작업 준비');
   const focused=()=>document.activeElement?.classList?.contains('file-row')?nameOf(document.activeElement):undefined;
   try{
     await until(()=>row('가 폴더'),'앱 초기화');
@@ -43,17 +45,17 @@
     verify('현재 폴더 검색 상자에서 ↓로 목록 진입',pane(1).querySelector('.file-scroll').contains(document.activeElement));
 
     // 2. 삭제·이름 바꾸기 뒤 선택이 사라지지 않는다.
-    const victim=row('사 삭제용.txt');victim.click();victim.focus();key(victim,'Delete');
+    await ready();const victim=row('사 삭제용.txt');victim.click();victim.focus();key(victim,'Delete');
     const trash=await until(()=>document.querySelector('dialog[open] .button.danger'),'삭제 확인');trash.click();
     await until(()=>!row('사 삭제용.txt')&&focused()==='아 이름변경.txt','삭제 후 다음 항목 초점',20000);
     verify('삭제하면 같은 자리의 다음 항목을 선택하고 초점 유지',row('아 이름변경.txt').classList.contains('selected'));
-    key(document.activeElement,'F2');
+    await ready();const renameTarget=row('아 이름변경.txt');renameTarget.focus();key(renameTarget,'F2');
     const name=await until(()=>document.querySelector('dialog[open] [aria-label="작업 이름"]'),'이름 바꾸기 대화상자');
     set(name,'아 바뀐 이름.txt');document.querySelector('dialog[open] .button.primary').click();
     await until(()=>focused()==='아 바뀐 이름.txt','이름 변경 후 초점',20000);
     verify('이름을 바꾸면 새 이름 항목을 선택하고 초점 유지',row('아 바뀐 이름.txt').classList.contains('selected'));
 
-    key(document.activeElement,'n',{ctrlKey:true,metaKey:true,shiftKey:true});
+    await ready();key(row('아 바뀐 이름.txt'),'n',{ctrlKey:true,metaKey:true,shiftKey:true});
     const folderName=await until(()=>document.querySelector('dialog[open] [aria-label="작업 이름"]'),'새 폴더 대화상자');
     set(folderName,'차 새 폴더');document.querySelector('dialog[open] .button.primary').click();
     await until(()=>focused()==='차 새 폴더','새 폴더 선택',20000);
