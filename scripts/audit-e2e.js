@@ -9,6 +9,8 @@
   const search=()=>document.querySelector('.search-panel'),first=()=>document.querySelector('.explorer-pane'),tabs=()=>[...(first()?.querySelectorAll('[role="tab"]')??[])];
   const rows=()=>[...(search()?.querySelectorAll('.file-row')??[])];
   const name=row=>row.querySelector('.file-name')?.textContent;
+  // Windows는 역슬래시, macOS는 슬래시 경로를 쓴다.
+  const windows=/Win/.test(navigator.platform),separator=windows?'\\':'/',nativePath=value=>windows?value.replaceAll('/','\\'):value;
   const settled=()=>!search().querySelector('.result-summary .spin');
   const menu=async(tab,label)=>{tab.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:300,clientY:160}));await until(()=>document.querySelector('.tab-context-menu'),"탭 메뉴");const button=[...document.querySelectorAll('.tab-context-menu button')].find(item=>item.textContent===label);if(!button||button.disabled)throw new Error(`사용 불가능한 탭 메뉴: ${label}`);button.click();await pause();};
   try{
@@ -26,8 +28,10 @@
       value(input,"audit_");
       await until(()=>search().querySelector('.result-summary strong')?.textContent==="1,205"&&settled(),"1205개 검색");
       verify("1천 개 초과 결과 수와 추가 불러오기 제공",Boolean(search().querySelector('.load-more-results')));
-      search().querySelector('.load-more-results').click();
-      await until(()=>!search().querySelector('.load-more-results')&&settled(),"나머지 205개 불러오기");
+      // 백그라운드 색인 갱신은 의도적으로 첫 페이지부터 다시 불러오므로, 초기화되면 더 보기를 다시 누르고 버전 변화를 기록한다.
+      report.loadMore={clicks:0,versionBefore:(await invoke("ed_request",{kind:"status",payload:{}})).version};
+      await until(()=>{if(!search().querySelector('.load-more-results'))return settled();const more=search().querySelector('.load-more-results');if(settled()&&!more.disabled&&report.loadMore.clicks<6&&Date.now()-(report.loadMore.at??0)>2500){report.loadMore.clicks++;report.loadMore.at=Date.now();more.click();}return false;},"나머지 205개 불러오기",30000);
+      report.loadMore.versionAfter=(await invoke("ed_request",{kind:"status",payload:{}})).version;delete report.loadMore.at;
       rows()[0].focus();key(document.activeElement,"a",{ctrlKey:true});await pause();
       verify("Ctrl+A는 불러온 1205개 전체를 선택",search().querySelector('.search-selection')?.textContent.includes("1,205개 선택"));
       value(input,"audit_1204");await until(()=>rows().length===1&&name(rows()[0])==="audit_1204.txt"&&settled(),"다른 검색어");
@@ -44,7 +48,7 @@
       verify("검색 Delete는 선택한 4개를 대상으로 확인",document.querySelector('dialog[open]').textContent.includes("4개"));
       document.querySelector('dialog[open] [aria-label="닫기"]').click();await pause();
       const second=document.querySelectorAll('.explorer-pane')[1];
-      const target=[...second.querySelectorAll('.file-row')].find(row=>row.title.endsWith('\\대상'));target.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+      const target=[...second.querySelectorAll('.file-row')].find(row=>row.title.replaceAll('\\','/').endsWith('/대상'));target.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
       await until(()=>second.querySelector('.breadcrumbs').textContent.includes("대상"),"전송 대상 탐색창");
       rows()[4].focus();key(document.activeElement,"F5",{shiftKey:true});await until(()=>document.querySelector('[aria-label="검색 결과 전송 대상"]'),"검색 그룹 전송");
       verify("검색 선택 그룹을 다른 탐색창으로 전송하는 확인 제공",document.querySelector('dialog[open]').textContent.includes("4개"));
@@ -69,7 +73,7 @@
       verify("포인터 드래그로 탭 순서 변경",tabs()[0].textContent.includes("고정 업무"));
       // Changing location from a pinned tab opens a separate, uncolored tab.
       tabs()[0].click();await pause();first().querySelector('.breadcrumbs').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
-      const address=await until(()=>first().querySelector('.address-form input'),"고정 탭 주소 입력");value(address,root.absolutePath.replaceAll('/','\\')+'\\대상');await pause();first().querySelector('.address-form').requestSubmit();
+      const address=await until(()=>first().querySelector('.address-form input'),"고정 탭 주소 입력");value(address,nativePath(root.absolutePath)+separator+'대상');await pause();first().querySelector('.address-form').requestSubmit();
       await until(()=>tabs().length===3&&first().querySelector('.breadcrumbs').textContent.includes("대상"),"고정 폴더 보존");
       verify("고정 폴더에서 다른 위치 이동은 새 탭 사용",tabs()[0].title.endsWith("고정됨")&&!first().querySelectorAll('.explorer-tab')[2].style.backgroundColor);
       tabs()[2].focus();key(document.activeElement,"w",{ctrlKey:true});await until(()=>tabs().length===2,"탭 닫기");
@@ -77,7 +81,7 @@
       verify("Ctrl+Shift+T로 닫은 탭의 위치 복원",tabs()[2].textContent.includes("대상"));
       tabs()[0].click();await pause();const sort=first().querySelector('[data-column="size"] button');sort.click();await pause();sort.click();await pause();
       for(const extension of ["csv","txt","tsv","html"]){
-        const destination=root.absolutePath.replaceAll('/','\\')+`\\audit-export.${extension}`;
+        const destination=nativePath(root.absolutePath)+separator+`audit-export.${extension}`;
         await invoke("ed_request",{kind:"saveExport",payload:{destination,content:extension==="html"?"<!doctype html><p>검증</p>":"검증\r\n"}});
         let protectedFile=false;try{await invoke("ed_request",{kind:"saveExport",payload:{destination,content:"overwrite"}});}catch{protectedFile=true;}
         verify(`${extension.toUpperCase()} 목록 저장과 기존 파일 보호`,protectedFile);

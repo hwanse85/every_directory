@@ -119,8 +119,10 @@
       "Alt+앞으로",
     );
     verify("Windows 주소 대소문자·상위·뒤로·앞으로 이동", true);
+    // 이동 직후에는 이전 폴더 목록이 잠시 남아 있으므로 새 목록을 다 불러온 뒤 행을 고른다.
     const row = await until(
       () =>
+        !pane.querySelector(".explorer-footer .spin") &&
         [...pane.querySelectorAll(".file-row")].find((row) =>
           row.title.endsWith("\\원본.txt"),
         ),

@@ -108,6 +108,7 @@
     document.querySelector('dialog[open] [aria-label="닫기"]').click();
     await until(() => !document.querySelector("dialog[open]"), "속성 닫기");
     clickRow(pane(1), "업무 보고서.txt");
+    await ready(pane(1));
     key(document.activeElement, "F2", { ctrlKey: false });
     const nameInput = await until(() => document.querySelector('[aria-label="작업 이름"]'), "F2 이름 변경");
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(nameInput, "단축키 변경.txt");

@@ -43,7 +43,7 @@
 ## 기타
 
 - Node.js는 `22.23.4 · 24.22.1 · 26.12.1`로 고정했다(`.nvmrc` 24.22.1, CI는 `.nvmrc`를 따른다).
-- E2E 실행기(`npm run test:e2e`)가 macOS에서도 동작한다. macOS는 플랫폼 공용 스위트 `ux`·`quick`·`empty`·`desktop`을 실행하고, 클립보드를 쓰는 스위트는 `scripts/clipboard-guard-mac.swift`로 모든 형식을 메모리에 백업·복원한다. Windows는 기존 19개 스위트에 `ux`를 더해 실행한다.
+- E2E 실행기(`npm run test:e2e`)가 macOS에서도 동작한다. macOS는 플랫폼 공용 스위트 `ux`·`quick`·`empty`·`desktop`·`audit`을 실행하고, 클립보드를 쓰는 스위트는 `scripts/clipboard-guard-mac.swift`로 모든 형식을 메모리에 백업·복원한다. Windows는 기존 19개 스위트에 `ux`를 더해 실행한다.
 
 ## 검증
 

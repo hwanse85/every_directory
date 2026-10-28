@@ -136,7 +136,7 @@ export function Explorer({
   const addressRef = useRef<HTMLInputElement>(null);
   const revealed = useRef<FileEntry | undefined>(undefined);
   const [cursor, setCursor] = useState<FileCursor>();
-  const cursorIntent = useRef<{ focus: boolean; from: Location } | undefined>(undefined);
+  const cursorIntent = useRef<{ focus: boolean; from: Location; at: number } | undefined>(undefined);
   const previousLocation = useRef(location);
   const selectedRef = useRef<FileEntry | undefined>(undefined);
   const entriesRef = useRef<FileEntry[]>([]);
@@ -499,7 +499,8 @@ export function Explorer({
       .request<FileEntry[]>("list", location)
       .then((result) => {
         if (alive) {
-          const intent = cursorIntent.current;
+          // 이동 직후 목록에만 적용한다. 늦게 도착한 갱신이 사용자가 고른 선택을 바꾸지 않게 한다.
+          const intent = cursorIntent.current && performance.now() - cursorIntent.current.at < 2000 ? cursorIntent.current : undefined;
           cursorIntent.current = undefined;
           const before = selectedRef.current;
           const previousEntries = entriesRef.current;
@@ -575,7 +576,7 @@ export function Explorer({
     const from = previousLocation.current;
     previousLocation.current = location;
     if (from.rootId === location.rootId && from.path === location.path) return;
-    cursorIntent.current = { focus: active && listFocused(), from };
+    cursorIntent.current = { focus: active && listFocused(), from, at: performance.now() };
   }, [location.rootId, location.path]);
   useEffect(() => {
     setSelected(undefined);

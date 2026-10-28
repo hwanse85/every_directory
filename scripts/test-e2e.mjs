@@ -11,7 +11,7 @@ import os from "node:os";
 import { prepare } from "./e2e-fixtures.mjs";
 const suite = process.argv[2] ?? "search";
 // macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. 나머지는 Windows 경로·셸 동작을 검증한다.
-const macSuites = ["ux", "quick", "empty", "desktop"];
+const macSuites = ["ux", "quick", "empty", "desktop", "audit"];
 if (process.platform !== "win32" && !(process.platform === "darwin" && macSuites.includes(suite)))
   throw new Error(`Windows WebView2에서 실행하세요. macOS에서는 ${macSuites.join(", ")} 스위트를 지원합니다.`);
 const mac = process.platform === "darwin";

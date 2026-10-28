@@ -650,7 +650,7 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("explorer") {
                 let _ = webview.eval(include_str!("../../scripts/explorer-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("audit") {
                 let _ = webview.eval(include_str!("../../scripts/audit-e2e.js"));
             }
