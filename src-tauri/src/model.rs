@@ -32,7 +32,7 @@ impl Entry {
 }
 
 // 사용자가 연결한 폴더와 마지막 인덱싱 상태다.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
     pub id: String,
@@ -45,6 +45,12 @@ pub struct Root {
     pub watch_error: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_paths: Vec<String>,
+    /// local·network·webdav·cloud·removable. 네트워크 계열은 주기적으로 다시 확인한다.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub volume: String,
+    /// 실시간 감시 대신(또는 함께) 다시 확인하는 간격(분).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_minutes: Option<u32>,
 }
 
 // 등록된 폴더 안의 상대 경로만 파일 작업에 사용한다.

@@ -54,6 +54,10 @@ import {
   PanelBottomClose,
   Monitor,
   Hash,
+  Cloud,
+  Globe,
+  Network,
+  Usb,
   FileText,
   Code2,
   Play,
@@ -63,8 +67,10 @@ import {
   desktopControl,
   quickAccess,
   isDesktop,
+  isMac,
   supportsOCR,
   writeClipboard,
+  connectLocation,
   type DesktopStatus,
 } from "./client";
 import { demoRoots, createDemoEntries } from "./demo";
@@ -227,6 +233,11 @@ interface SavedWorkspace {
 }
 
 // 저장된 탐색창 구조가 현재 버전에서 읽을 수 있는지 확인한다.
+// 연결 폴더가 놓인 드라이브 종류를 사용자에게 보이는 이름으로 바꾼다.
+function volumeLabel(volume?: string): string {
+  return volume === "network" ? "네트워크" : volume === "webdav" ? "WebDAV" : volume === "cloud" ? "클라우드" : volume === "removable" ? "이동식" : "로컬";
+}
+
 function restorePanes(): ExplorerPane[] {
   return restorePaneState(readPreference<unknown>("panes",null),defaultPanes);
 }
@@ -257,6 +268,8 @@ export default function App() {
   const [searchError, setSearchError] = useState("");
   const [folderPicker, setFolderPicker] = useState(false);
   const [exclusionRoot,setExclusionRoot]=useState<ConnectedRoot>();
+  const [networkTarget,setNetworkTarget]=useState("");
+  const [networkBusy,setNetworkBusy]=useState(false);
   const serverVersion = useRef("");
   const [category, setCategory] = useState<FileCategory>("all");
   const [scope, setScope] = useState("");
@@ -356,6 +369,8 @@ export default function App() {
   }>();
   const closeSearchContext = useCallback(() => setSearchContext(undefined), []);
   const searchInput = useRef<HTMLInputElement>(null);
+  const panesRef = useRef(panes);
+  panesRef.current = panes;
   const measurementStart = useRef(0);
   const layoutRef = useRef<HTMLDivElement>(null);
   const scanLock = useRef(false);
@@ -675,6 +690,33 @@ export default function App() {
   }
 
   useEffect(() => {
+    // 검색창·검색 결과에서 Tab은 탐색창 1 → 2 → … 목록으로, 마지막 탐색창에서는 검색창으로 돌아간다(Shift+Tab은 반대).
+    function cycleRegions(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229) return;
+      if (document.querySelector('dialog[open],[role="menu"]')) return;
+      const target = event.target instanceof HTMLElement ? event.target : undefined;
+      const lists = [...document.querySelectorAll<HTMLElement>(".explorer-pane .file-scroll")];
+      const inSearch = !!target && (target === searchInput.current || !!target.closest(".search-table .file-scroll"));
+      const paneIndex = lists.findIndex((list) => !!target && list.contains(target));
+      if (!inSearch && paneIndex < 0) return;
+      event.preventDefault();
+      const current = inSearch ? 0 : paneIndex + 1;
+      const next = (current + (event.shiftKey ? -1 : 1) + lists.length + 1) % (lists.length + 1);
+      if (next === 0) {
+        searchInput.current?.focus();
+        searchInput.current?.select();
+        return;
+      }
+      const list = lists[next - 1];
+      const paneId = panesRef.current[next - 1]?.id;
+      if (paneId) setActivePane(paneId);
+      (list.querySelector<HTMLElement>('.file-row[tabindex="0"]') ?? list.querySelector<HTMLElement>(".file-row") ?? list).focus();
+    }
+    window.addEventListener("keydown", cycleRegions, true);
+    return () => window.removeEventListener("keydown", cycleRegions, true);
+  }, []);
+
+  useEffect(() => {
     // 검색창 초점, 새 탭과 탐색창 전환 단축키를 처리한다.
     function shortcuts(event: globalThis.KeyboardEvent) {
       if (
@@ -733,6 +775,22 @@ export default function App() {
   }, [panes, activePane, navigate]);
 
   // 선택한 폴더를 인덱싱하고 완료된 스냅샷만 화면에 반영한다.
+  // 네트워크·웹 드라이브 주소를 운영체제에 연결한 뒤 그 폴더를 색인한다.
+  async function connectNetwork() {
+    const target = networkTarget.trim();
+    if (!target || networkBusy) return;
+    setNetworkBusy(true);
+    try {
+      const absolutePath = await connectLocation(target);
+      const done = await indexRoot({ id: "", name: absolutePath.split(/[\\/]/).filter(Boolean).pop() || absolutePath, absolutePath, count: 0, skipped: 0, lastIndexed: 0 });
+      if (done) setNetworkTarget("");
+    } catch (cause) {
+      notify(String(cause), true);
+    } finally {
+      setNetworkBusy(false);
+    }
+  }
+
   async function indexRoot(root: ConnectedRoot) {
     if (scanLock.current) {
       notify("현재 인덱싱이 끝난 뒤 다시 시도해 주세요.");
@@ -2116,11 +2174,11 @@ export default function App() {
               <div className="managed-roots">
                 {roots.map((root) => (
                   <div className="managed-root" key={root.id}>
-                    <span className="managed-folder-icon">
-                      <Folder size={22} />
+                    <span className={`managed-folder-icon volume-${root.volume || "local"}`}>
+                      {root.volume === "network" ? <Network size={22} /> : root.volume === "webdav" ? <Globe size={22} /> : root.volume === "cloud" ? <Cloud size={22} /> : root.volume === "removable" ? <Usb size={22} /> : <Folder size={22} />}
                     </span>
                     <div>
-                      <strong title={root.absolutePath}>{root.name}</strong>
+                      <strong title={root.absolutePath}>{root.name} <span className="volume-badge">{volumeLabel(root.volume)}</span> <span className="refresh-badge">{root.refreshMinutes ? `${root.refreshMinutes}분마다 확인` : "실시간 감시"}</span></strong>
                       <p className="root-path">{root.absolutePath}</p>
                       {root.watchError && (
                         <p className="error-text">{root.watchError}</p>
@@ -2171,9 +2229,12 @@ export default function App() {
               )}
               {scanning ? "폴더를 인덱싱하고 있습니다" : "검색할 폴더 연결"}
             </button>
+            <form className="network-connect" onSubmit={event=>{event.preventDefault();void connectNetwork();}}>
+              <label htmlFor="network-target"><strong>네트워크·웹 드라이브 연결</strong><span>{isMac?"smb://서버/공유, https://서버/WebDAV, afp://, nfs:// 주소나 /Volumes 경로":"\\\\서버\\공유\\폴더, Z:\\폴더, smb://서버/공유, https://서버/WebDAV 주소"}를 입력하면 운영체제 로그인 창으로 연결한 뒤 색인합니다. OneDrive·Google Drive·iCloud 같은 클라우드 폴더는 위 버튼으로 선택하세요.</span></label>
+              <div><input id="network-target" aria-label="네트워크 위치 주소" placeholder={isMac?"smb://nas.local/공유":"\\\\nas\\공유\\업무"} value={networkTarget} disabled={networkBusy||scanning||!ready} onChange={event=>setNetworkTarget(event.target.value)}/><button className="button secondary" type="submit" disabled={networkBusy||scanning||!ready||!networkTarget.trim()}>{networkBusy?<LoaderCircle className="spin" size={15}/>:<Network size={15}/>}{networkBusy?"연결 중":"연결 후 색인"}</button></div>
+            </form>
             <p className="modal-footnote">
-              인덱스는 이 PC에 저장됩니다. 폴더 변경을 자동 감지하며 연결 해제는
-              원본 파일에 영향을 주지 않습니다.
+              인덱스는 이 PC에 저장됩니다. 로컬·클라우드 폴더는 변경을 실시간으로 반영하고, 네트워크·WebDAV 드라이브는 다른 PC의 변경까지 반영하도록 주기적으로 다시 확인합니다. 연결 해제는 원본 파일에 영향을 주지 않습니다.
             </p>
           </div>
         </Modal>

@@ -86,6 +86,12 @@ export async function pasteFiles(
   return invoke("paste_files", { destination, clipboard });
 }
 
+// 네트워크·웹 드라이브 주소(smb://, https:// WebDAV, \\서버\공유)를 운영체제에 연결하고 색인할 경로를 받는다.
+export async function connectLocation(target: string): Promise<string> {
+  if (!isDesktop) return target.trim();
+  return invoke<string>("connect_location", { target });
+}
+
 export async function importDroppedFiles(paths: string[], destination: Location): Promise<void> {
   await invoke("import_files", { paths, destination });
 }

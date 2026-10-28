@@ -90,7 +90,7 @@ mod startup_tests {
             kind: "file".into(), extension: "txt".into(), size: Some(128), modified: 1, hidden:false,created:None,accessed:None,readonly:false,
         }).collect();
         write_json(&data.join("index.json"), &DiskIndex {format:1,generation:String::new(),sequence:0,snapshots:vec![Snapshot {
-            root:Root{id:"root".into(),name:"Fixture".into(),absolute_path:root.to_string_lossy().into_owned(),count,last_indexed:1,skipped:0,watch_error:None,excluded_paths:vec![],}, entries,
+            root:Root{id:"root".into(),name:"Fixture".into(),absolute_path:root.to_string_lossy().into_owned(),count,last_indexed:1,skipped:0,watch_error:None,excluded_paths:vec![],..Default::default()}, entries,
         }]}).unwrap();
     }
 
@@ -296,8 +296,12 @@ impl Engine {
         store.snapshots = saved.snapshots;
         // 웹 버전/이전 버전의 일반 Windows 경로도 내부 canonical 경로와 맞춘다.
         for snapshot in &mut store.snapshots {
-            if let Ok(path) = Path::new(&snapshot.root.absolute_path).canonicalize() {
-                snapshot.root.absolute_path = path.to_string_lossy().into_owned();
+            // 끊긴 네트워크 경로를 확인하느라 시작이 멈추지 않도록 원격 경로는 저장된 값을 그대로 쓴다.
+            let remote = crate::volumes::is_remote(&snapshot.root.volume) || crate::volumes::looks_remote(&snapshot.root.absolute_path);
+            if !remote {
+                if let Ok(path) = Path::new(&snapshot.root.absolute_path).canonicalize() {
+                    snapshot.root.absolute_path = path.to_string_lossy().into_owned();
+                }
             }
             snapshot.root.name = crate::file_clipboard::path_text(Path::new(&snapshot.root.name));
         }
@@ -548,9 +552,8 @@ impl Engine {
         if !Path::new(requested).is_absolute() {
             return Err("폴더의 절대 경로가 필요합니다.".into());
         }
-        let absolute = Path::new(requested)
-            .canonicalize()
-            .map_err(|e| format!("폴더를 열 수 없습니다: {e}"))?;
+        let absolute = crate::volumes::real_path(Path::new(requested))
+            .map_err(|e| format!("폴더를 열 수 없습니다: {e}. 네트워크 드라이브는 운영체제에서 연결(로그인)된 상태인지 확인해 주세요."))?;
         if !absolute.is_dir() || excluded(&absolute, &self.data) {
             return Err("연결할 수 없는 폴더입니다.".into());
         }
@@ -581,7 +584,12 @@ impl Engine {
             skipped: 0,
             watch_error: None,
             excluded_paths,
+            volume: crate::volumes::kind(&absolute).into(),
+            refresh_minutes: None,
         };
+        if crate::volumes::is_remote(&root.volume) {
+            root.refresh_minutes = Some(crate::volumes::NETWORK_REFRESH_MINUTES);
+        }
         *self.progress.lock().unwrap() =
             Some(json!({"rootId":root.id,"count":0,"directory":root.name}));
         self.watch(&root);
@@ -649,7 +657,7 @@ impl Engine {
                 return Err("심볼릭 링크는 제외합니다.".into());
             }
         }
-        let absolute = current.canonicalize().map_err(|e| e.to_string())?;
+        let absolute = crate::volumes::real_path(&current).map_err(|e| e.to_string())?;
         if !absolute.starts_with(&base) {
             return Err("연결 폴더 밖에 접근할 수 없습니다.".into());
         }
@@ -664,7 +672,7 @@ impl Engine {
                 let mut ancestor = path.parent().unwrap_or(path);
                 let mut tail = vec![path.file_name().unwrap_or_default().to_os_string()];
                 loop {
-                    if let Ok(mut absolute) = ancestor.canonicalize() {
+                    if let Ok(mut absolute) = crate::volumes::real_path(ancestor) {
                         for part in tail.iter().rev() {
                             absolute.push(part);
                         }
@@ -772,6 +780,44 @@ impl Engine {
 
     // 운영체제 변경 이벤트를 묶어 증분 갱신한다.
     fn watch(self: &Arc<Self>, root: &Root) {
+        if crate::volumes::is_remote(&root.volume) || crate::volumes::looks_remote(&root.absolute_path) {
+            // 네트워크 드라이브는 감시 등록이 오래 걸리거나 다른 PC의 변경을 놓칠 수 있어 별도 스레드에서 주기 확인과 함께 시작한다.
+            self.set_refresh_minutes(&root.id, Some(crate::volumes::NETWORK_REFRESH_MINUTES));
+            let engine = Arc::downgrade(self);
+            let root = root.clone();
+            std::thread::spawn(move || {
+                if let Some(engine) = engine.upgrade() {
+                    engine.start_watcher(&root);
+                }
+                Self::poll_remote(engine, root);
+            });
+            return;
+        }
+        self.start_watcher(root);
+        if root.volume.is_empty() {
+            // 이전 버전에서 연결한 폴더는 종류를 백그라운드에서 판별하고, 네트워크면 주기 확인을 켠다.
+            let engine = Arc::downgrade(self);
+            let mut root = root.clone();
+            std::thread::spawn(move || {
+                root.volume = crate::volumes::kind(Path::new(&root.absolute_path)).into();
+                let Some(strong) = engine.upgrade() else { return };
+                {
+                    let mut store = strong.store.lock().unwrap();
+                    if let Some(snapshot) = store.snapshots.iter_mut().find(|s| s.root.id == root.id) {
+                        snapshot.root.volume = root.volume.clone();
+                    }
+                }
+                if crate::volumes::is_remote(&root.volume) {
+                    strong.set_refresh_minutes(&root.id, Some(crate::volumes::NETWORK_REFRESH_MINUTES));
+                    drop(strong);
+                    Self::poll_remote(engine, root);
+                }
+            });
+        }
+    }
+
+    // 운영체제 변경 알림을 등록하고, 실패하면 연결 폴더에 이유를 남긴다.
+    fn start_watcher(self: &Arc<Self>, root: &Root) {
         let mut watchers = self.watchers.lock().unwrap();
         if watchers.contains_key(&root.id) {
             return;
@@ -787,7 +833,11 @@ impl Engine {
         {
             let mut store = self.store.lock().unwrap();
             if let Some(s) = store.snapshots.iter_mut().find(|s| s.root.id == root.id) {
-                s.root.watch_error = Some(error.to_string());
+                s.root.watch_error = Some(if crate::volumes::is_remote(&root.volume) {
+                    format!("실시간 감시를 지원하지 않는 드라이브라 {}분마다 변경을 확인합니다. ({error})", crate::volumes::NETWORK_REFRESH_MINUTES)
+                } else {
+                    error.to_string()
+                });
             }
             return;
         }
@@ -828,6 +878,51 @@ impl Engine {
                 *engine.progress.lock().unwrap() = None;
             }
         });
+    }
+
+    // 연결 폴더의 주기 확인 간격을 기록해 화면에 표시한다.
+    fn set_refresh_minutes(&self, id: &str, minutes: Option<u32>) {
+        let mut store = self.store.lock().unwrap();
+        if let Some(snapshot) = store.snapshots.iter_mut().find(|s| s.root.id == id) {
+            snapshot.root.refresh_minutes = minutes;
+        }
+    }
+
+    // 네트워크 드라이브는 실시간 알림과 별개로 주기적으로 다시 읽어 다른 PC의 변경을 반영한다.
+    // 한 번 읽는 데 오래 걸리면 간격을 늘리고, 연결이 끊겼을 때는 마지막 색인을 유지한다.
+    fn poll_remote(engine: std::sync::Weak<Self>, root: Root) {
+        let minimum = Duration::from_secs(crate::volumes::NETWORK_REFRESH_MINUTES as u64 * 60);
+        let mut interval = minimum;
+        loop {
+            std::thread::sleep(interval);
+            let Some(engine) = engine.upgrade() else { break };
+            if !engine.roots().iter().any(|item| item.id == root.id) {
+                break;
+            }
+            let path = PathBuf::from(&root.absolute_path);
+            let offline = !path.is_dir();
+            {
+                let mut store = engine.store.lock().unwrap();
+                if let Some(snapshot) = store.snapshots.iter_mut().find(|s| s.root.id == root.id) {
+                    if offline {
+                        snapshot.root.watch_error = Some("네트워크 위치에 연결할 수 없어 마지막 색인을 표시합니다. 다시 연결되면 자동으로 갱신합니다.".into());
+                    } else if snapshot.root.watch_error.as_deref().is_some_and(|message| message.starts_with("네트워크 위치에 연결할 수 없어")) {
+                        snapshot.root.watch_error = None;
+                    }
+                }
+            }
+            if offline {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            {
+                let _operation = engine.operations.lock().unwrap();
+                let _ = engine.refresh(&[path]);
+                *engine.progress.lock().unwrap() = None;
+            }
+            interval = (started.elapsed() * 10).clamp(minimum, Duration::from_secs(60 * 60));
+            engine.set_refresh_minutes(&root.id, Some((interval.as_secs() / 60) as u32));
+        }
     }
 
     // Windows 주소 입력은 대소문자가 달라도 인덱스에 저장된 실제 표기로 복원한다.

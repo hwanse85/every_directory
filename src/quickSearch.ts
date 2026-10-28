@@ -1,4 +1,5 @@
-import type { SearchMode } from "./types";
+import type { ConnectedRoot, Location, SearchMode } from "./types";
+import { addressLocation, displayPath, isWindowsPath } from "./paths";
 
 // 한글 초성 및 와일드카드 입력을 기존 검색 방식으로 연결한다.
 export function quickSearchMode(
@@ -62,4 +63,51 @@ export function shortcutLabel(shortcut: string, mac: boolean): string {
     .replace(/Control/gi, "Ctrl")
     .replace(/Shift/gi, mac ? "⇧" : "Shift")
     .replace(/Alt/gi, mac ? "⌥" : "Alt");
+}
+
+// 경로 구분자·드라이브 문자·UNC로 시작하는 입력은 위치 이동용 경로로 본다.
+export function isPathQuery(query: string): boolean {
+  const value = query.trim().replace(/^"(.*)"$/, "$1");
+  return /[\\/]/.test(value) || /^[a-z]:$/i.test(value);
+}
+
+// 경로 입력을 연결 폴더 안의 후보 위치로 바꾼다. 절대 경로·연결 폴더 이름으로 시작하는 경로·상대 경로 순으로 시도한다.
+export function pathCandidates(query: string, roots: ConnectedRoot[], scope = ""): Location[] {
+  let value = query.trim().replace(/^"(.*)"$/, "$1");
+  // 드라이브 루트(C:\)를 제외하고 끝의 구분자는 떼어 폴더 이름과 맞춘다.
+  if (!/^[a-z]:[\\/]?$/i.test(value)) value = value.replace(/[\\/]+$/, "");
+  if (/^[a-z]:$/i.test(value)) value += "\\";
+  if (!value || !roots.length) return [];
+  const normalized = displayPath(value).replaceAll("\\", "/");
+  const absolute = isWindowsPath(normalized) || normalized.startsWith("/") || /^[a-z]:/i.test(normalized);
+  const candidates: Location[] = [];
+  const add = (location?: Location) => {
+    if (location && !candidates.some((item) => item.rootId === location.rootId && item.path === location.path)) candidates.push(location);
+  };
+  if (absolute) {
+    try {
+      add(addressLocation(value, roots, scope || roots[0].id));
+    } catch {
+      // 연결 폴더 밖의 절대 경로는 이동할 수 없다.
+    }
+    return candidates;
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  const same = (a: string, b: string, root: ConnectedRoot) => (isWindowsPath(root.absolutePath ?? "") ? a.toLowerCase() === b.toLowerCase() : a === b);
+  for (const root of roots) {
+    if (scope && root.id !== scope) continue;
+    if (parts.length && same(parts[0], root.name, root)) add({ rootId: root.id, path: parts.slice(1).join("/") });
+  }
+  for (const root of roots) {
+    if (scope && root.id !== scope) continue;
+    add({ rootId: root.id, path: parts.join("/") });
+  }
+  return candidates;
+}
+
+// 경로 입력에서 연결 폴더 이름·절대 경로 앞부분을 떼고 색인 경로 검색어로 만든다.
+export function pathSearchText(query: string, roots: ConnectedRoot[], scope = ""): string {
+  const [first] = pathCandidates(query, roots, scope);
+  const text = first ? first.path : query.trim().replace(/^"(.*)"$/, "$1").replaceAll("\\", "/");
+  return text.replace(/^[a-z]:/i, "").replace(/^\/+|\/+$/g, "");
 }

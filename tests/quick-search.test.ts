@@ -52,3 +52,22 @@ test("IME consonant clusters display as separate initials", () => {
   );
   assert.equal(normalizeSearchInput("ㅂㄳ", "regex"), "ㅂㄳ");
 });
+
+test("quick search resolves absolute, root-name and relative paths inside connected folders", async () => {
+  const { isPathQuery, pathCandidates, pathSearchText } = await import("../src/quickSearch");
+  const roots = [
+    { id: "w", name: "업무 자료", absolutePath: "C:\\Data\\업무 자료", count: 1, lastIndexed: 0, skipped: 0 },
+    { id: "m", name: "Projects", absolutePath: "/Users/me/Projects", count: 1, lastIndexed: 0, skipped: 0 },
+  ];
+  assert.equal(isPathQuery("보고서"), false);
+  assert.equal(isPathQuery("프로젝트\\보고서"), true);
+  assert.equal(isPathQuery("/Users/me"), true);
+  assert.deepEqual(pathCandidates("C:\\Data\\업무 자료\\프로젝트\\", roots), [{ rootId: "w", path: "프로젝트" }]);
+  assert.deepEqual(pathCandidates('"c:/data/업무 자료/프로젝트"', roots), [{ rootId: "w", path: "프로젝트" }]);
+  assert.deepEqual(pathCandidates("/Users/me/Projects/app/src", roots), [{ rootId: "m", path: "app/src" }]);
+  assert.deepEqual(pathCandidates("D:\\Other\\folder", roots), []);
+  assert.deepEqual(pathCandidates("업무 자료\\프로젝트", roots)[0], { rootId: "w", path: "프로젝트" });
+  assert.deepEqual(pathCandidates("프로젝트/보고서", roots, "w"), [{ rootId: "w", path: "프로젝트/보고서" }]);
+  assert.equal(pathSearchText("C:\\Data\\업무 자료\\프로젝트\\보고서", roots), "프로젝트/보고서");
+  assert.equal(pathSearchText("업무 자료/프로젝트", roots), "프로젝트");
+});

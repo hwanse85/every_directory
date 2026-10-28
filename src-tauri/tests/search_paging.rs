@@ -25,7 +25,7 @@ fn sorting_happens_before_pagination_and_has_stable_ties(){
 #[test]
 fn root_sort_uses_visible_root_names_and_bad_sort_is_rejected(){
     let mut index=index();let mut entries=index.entries[..2].to_vec();entries[0].root_id="a".into();entries[1].root_id="b".into();index.replace(entries);
-    index.set_roots([("a","Zulu"),("b","Alpha")].map(|(id,name)|Root{id:id.into(),name:name.into(),absolute_path:format!("C:/{name}"),count:1,last_indexed:0,skipped:0,watch_error:None,excluded_paths:vec![],}));
+    index.set_roots([("a","Zulu"),("b","Alpha")].map(|(id,name)|Root{id:id.into(),name:name.into(),absolute_path:format!("C:/{name}"),count:1,last_indexed:0,skipped:0,watch_error:None,excluded_paths:vec![],..Default::default()}));
     let result=index.search(&options(json!({"query":"","sortBy":"root"}))).unwrap();assert_eq!(result.entries[0].root_id,"b");
     assert!(index.search(&options(json!({"query":"","sortBy":"unsupported"}))).is_err());
 }

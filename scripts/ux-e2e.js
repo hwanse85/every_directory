@@ -23,8 +23,10 @@
     // 1. 폴더 진입·상위 이동·뒤로 가기 후에도 키보드 커서가 목록에 남는다.
     const folder=row('가 폴더');folder.click();folder.focus();key(folder,'Enter');
     await until(()=>crumbs().endsWith('가 폴더')&&focused()==='하위','폴더 진입 후 첫 항목 초점');
-    verify('Enter로 폴더에 들어가면 첫 항목에 선택과 키보드 초점',document.activeElement.classList.contains('selected'));
+    verify('Enter로 폴더에 들어가면 첫 항목에 키보드 초점만 두고 선택·체크하지 않음',!document.activeElement.classList.contains('selected')&&!pane(1).querySelector('.file-row.selected')&&![...pane(1).querySelectorAll('.file-checkbox')].some(box=>box.checked));
     verify('파일 목록의 Tab 정지점은 하나',pane(1).querySelectorAll('.file-row[tabindex="0"]').length===1);
+    key(document.activeElement,'ArrowDown');await until(()=>row('하위')?.classList.contains('selected'),'첫 방향키 선택');
+    verify('초점만 있는 상태에서 첫 ↓는 초점 항목을 선택',focused()==='하위');
     key(document.activeElement,'Backspace');
     await until(()=>!crumbs().endsWith('가 폴더')&&focused()==='가 폴더','상위 이동 후 원래 폴더 초점');
     verify('Backspace로 상위로 오면 방금 나온 폴더를 선택하고 초점 유지',row('가 폴더').classList.contains('selected'));
@@ -61,7 +63,18 @@
     await until(()=>focused()==='차 새 폴더','새 폴더 선택',20000);
     verify('새 폴더를 만들면 목록에서 새 폴더를 선택하고 초점',row('차 새 폴더').classList.contains('selected'));
 
-    // 3. 검색창 ↓로 결과 목록에 들어간다.
+    // 3. 검색창 Tab은 탐색창 1 → 2 → 검색창 순서로 이동한다.
+    const pressTab=(shift=false)=>{const event=new KeyboardEvent('keydown',{key:'Tab',shiftKey:shift,bubbles:true,cancelable:true});document.activeElement.dispatchEvent(event);return event.defaultPrevented;};
+    const region=()=>document.activeElement===document.querySelector('[aria-label="파일 검색"]')?'search':document.activeElement?.closest?.('.explorer-pane')?.getAttribute('aria-label');
+    document.querySelector('[aria-label="파일 검색"]').focus();const order=[region()];
+    for(let n=0;n<3;n++){pressTab();await pause(80);order.push(region());}
+    pressTab(true);await pause(80);order.push(region());
+    report.tabOrder=order;
+    verify('검색창 Tab은 탐색창 1 → 탐색창 2 → 검색창 순서로 이동',order.slice(0,4).join('>')==='search>탐색창 1>탐색창 2>search');
+    verify('Shift+Tab은 반대 방향으로 이동',order[4]==='탐색창 2');
+    verify('Tab으로 옮긴 탐색창이 활성 탐색창',pane(2).classList.contains('active'));
+
+    // 3-1. 검색창 ↓로 결과 목록에 들어간다.
     const search=document.querySelector('[aria-label="파일 검색"]');search.focus();set(search,'마 보고서');
     await until(()=>{const found=[...document.querySelectorAll('.search-table .file-row')];return found.length===1&&nameOf(found[0])?.includes('마 보고서');},'검색 결과');
     key(search,'ArrowDown');await until(()=>document.activeElement?.closest?.('.search-table'),'검색 결과 초점');
@@ -101,6 +114,21 @@
     verify('정렬 메뉴에서 크기순 정렬 적용',pane(1).querySelector('[role="columnheader"][data-column="size"]').getAttribute('aria-sort')!=='none');
     set(sort,'name');document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
     verify('메뉴 바깥을 누르면 정렬 메뉴 닫기',sortButton.nextElementSibling.hidden);
+
+    // 5-1. 탐색창이 3개 이상이어도 보기 메뉴가 잘리지 않고 트리를 켤 수 있다.
+    const paneCount=document.querySelector('[aria-label="탐색창 개수"]');set(paneCount,'3');await until(()=>document.querySelectorAll('.explorer-pane').length===3,'탐색창 세 개');
+    for(const n of [1,2,3]){
+      const trigger=pane(n).querySelectorAll('.flyout-trigger')[1];trigger.click();await pause();
+      const panel=trigger.nextElementSibling.getBoundingClientRect();
+      verify(`탐색창 ${n}의 보기 메뉴가 화면 안에 모두 표시`,panel.top>=0&&panel.bottom<=innerHeight&&panel.height>0);
+      document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
+    }
+    const thirdTree=pane(3).querySelector('[aria-label="폴더 트리 표시"]');
+    verify('세 번째 탐색창에도 트리 단추가 보임',thirdTree.getBoundingClientRect().width>0);
+    if(thirdTree.getAttribute('aria-pressed')!=='true')thirdTree.click();
+    await until(()=>pane(3).querySelector('.folder-tree [role="treeitem"]'),'세 번째 탐색창 트리');
+    verify('탐색창이 3개일 때 세 번째 탐색창의 폴더 트리 표시',pane(3).querySelector('.folder-tree').getBoundingClientRect().width>40);
+    set(paneCount,'2');await until(()=>document.querySelectorAll('.explorer-pane').length===2,'탐색창 두 개 복원');
 
     // 6. 클립보드 이력의 종류 탭(전체·텍스트·이미지·파일·즐겨찾기)
     await clip('clear');

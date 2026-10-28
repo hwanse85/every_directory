@@ -4,6 +4,7 @@ pub mod file_clipboard;
 pub mod file_icons;
 pub mod preferences;
 pub mod visibility;
+pub mod volumes;
 pub mod clipboard_history;
 mod journal;
 pub mod model;
@@ -194,6 +195,21 @@ async fn preferences_control(app:tauri::AppHandle,window:tauri::WebviewWindow,ne
         let _=app.emit("ed-preferences",&saved);
         serde_json::to_value(saved).map_err(|e|e.to_string())
     }else{let mut value=serde_json::to_value(store.value.lock().unwrap().clone()).map_err(|e|e.to_string())?;value["preferencesWarning"]=json!(*store.warning.lock().unwrap());Ok(value)}
+}
+
+// 네트워크·웹 드라이브 주소나 경로를 운영체제에 연결(로그인)하고 색인할 폴더 경로를 돌려준다.
+#[tauri::command]
+async fn connect_location(window: tauri::WebviewWindow, target: String) -> Result<String, String> {
+    if window.label() != "main" {
+        return Err("폴더 연결은 메인 창에서 실행해 주세요.".into());
+    }
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = 0;
+    tauri::async_runtime::spawn_blocking(move || volumes::connect(&target, owner))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // 긴 파일 작업을 화면 스레드 밖에서 실행한다.
@@ -700,7 +716,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
+        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

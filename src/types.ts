@@ -30,6 +30,10 @@ export interface ConnectedRoot {
   skipped: number;
   demo?: boolean;
   excludedPaths?:string[];
+  /** local·network·webdav·cloud·removable */
+  volume?: string;
+  /** 네트워크 드라이브를 다시 확인하는 간격(분) */
+  refreshMinutes?: number;
 }
 
 export interface Location {

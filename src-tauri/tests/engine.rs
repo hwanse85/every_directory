@@ -644,3 +644,17 @@ fn export_csv_is_bounded_and_exclusive() {
     )
     .is_err());
 }
+
+// 연결 폴더에 드라이브 종류를 기록하고, 로컬 폴더는 주기 확인 없이 실시간 감시를 쓴다.
+#[test]
+fn connected_roots_record_volume_kind_and_refresh_mode() {
+    let (_temp, engine, id, root) = fixture();
+    let connected = engine.roots().into_iter().find(|item| item.id == id).unwrap();
+    assert_eq!(connected.volume, "local");
+    assert_eq!(connected.refresh_minutes, None);
+    let status = dispatch(&engine, "init", json!({})).unwrap();
+    assert_eq!(status[0]["volume"], "local");
+    assert!(status[0].get("refreshMinutes").is_none());
+    // 경로 정규화가 실패하는 네트워크 리디렉터 대신 일반 폴더도 같은 함수로 확인한다.
+    assert_eq!(every_directory_lib::volumes::real_path(&root).unwrap(), root.canonicalize().unwrap());
+}

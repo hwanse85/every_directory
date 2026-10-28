@@ -183,6 +183,15 @@
     document.querySelector('[aria-label="클립보드 이력 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
     await until(()=>document.querySelector("#quick-clipboard-trigger"),"Esc로 파일 검색 복귀");
     verify("클립보드 화면 Esc는 파일 검색으로 복귀",true);
+    // 절대 경로·연결 폴더 이름으로 시작하는 경로를 입력하면 그 위치를 경로 일치 항목으로 맨 위에 보여 준다.
+    const base=roots[0].absolutePath.replace(/^\\\\\?\\(UNC\\)?/,(_,unc)=>unc?"\\\\":""),separator=/^[a-z]:\\|^\\\\/i.test(base)?"\\":"/";
+    search(base+separator+"대상"+separator);
+    await until(()=>document.querySelector("#quick-result-0 .path-match"),"절대 경로 위치 일치");
+    verify("빠른 검색에 연결 폴더 안의 절대 경로를 입력하면 그 폴더를 맨 위에 경로 일치로 표시",document.querySelector("#quick-result-0 strong").textContent==="대상");
+    verify("경로 일치 항목은 Enter가 위치로 이동",document.querySelector(".quick-footer").textContent.includes("위치로 이동"));
+    search(roots[0].name+"/대상");
+    await until(()=>document.querySelector("#quick-result-0 .path-match")&&document.querySelector("#quick-result-0 strong").textContent==="대상","연결 폴더 이름 경로 일치");
+    verify("연결 폴더 이름으로 시작하는 일부 경로도 위치로 해석",true);
     await invoke("ed_request", {
       kind: "smokeReport",
       payload: {

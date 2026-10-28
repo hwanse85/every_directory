@@ -58,7 +58,8 @@ interface Props {
 }
 
 // 목록이 바뀐 뒤 선택·초점을 둘 항목을 요청한다. id가 없으면 사라진 항목 자리나 첫 항목을 고른다.
-export interface FileCursor { token: number; id?: string; replaced?: string; focus: boolean }
+// select가 false면 탐색기처럼 초점만 두고 선택(체크)하지 않는다.
+export interface FileCursor { token: number; id?: string; replaced?: string; focus: boolean; select?: boolean }
 
 // 화면에 보이는 행만 렌더링하는 파일 목록과 격자 보기를 제공한다.
 export function FileTable({
@@ -236,7 +237,7 @@ export function FileTable({
       }
     }
     if (!target && cursor.focus) target = sorted[0];
-    if (target) selectEntry(target);
+    if (target && cursor.select !== false) selectEntry(target);
     if (cursor.focus) focusEntry(target);
   }, [cursor, sorted]);
   useEffect(() => {
@@ -436,10 +437,6 @@ export function FileTable({
                 }
                 role="row"
                 tabIndex={entry.id === tabStopId ? 0 : -1}
-                onFocus={(event) => {
-                  // 탭 키로 목록에 들어오면 선택이 없을 때 초점 항목을 선택한다.
-                  if (event.target === event.currentTarget && !selected && !selectedIds?.length && event.currentTarget.matches(":focus-visible")) selectEntry(entry);
-                }}
                 aria-selected={
                   selectedIds
                     ? selectedIds.includes(entry.id)
@@ -488,6 +485,12 @@ export function FileTable({
                     else if (onQuickPreview && entry.kind === "file")
                       onQuickPreview(entry);
                     else selectEntry(entry, true);
+                  }
+                  // 폴더에 들어와 초점만 있고 선택이 없으면 첫 ↑↓는 초점 항목을 선택한다(Windows 탐색기와 같음).
+                  if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && ["ArrowDown", "ArrowUp"].includes(e.key) && !selected && !selectedIds?.length) {
+                    e.preventDefault();
+                    selectEntry(entry);
+                    return;
                   }
                   // Alt+방향키는 탐색창의 뒤로·앞으로·상위 폴더 단축키로 넘긴다.
                   if (!e.altKey && (["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(e.key) || (grid && ["ArrowLeft", "ArrowRight"].includes(e.key)))) {

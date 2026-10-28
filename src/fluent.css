@@ -485,6 +485,7 @@
   color: var(--fl-text);
 }
 :root .flyout-panel[hidden] { display: none; }
+:root .flyout-panel { overflow: auto; overscroll-behavior: contain; }
 :root[data-theme="dark"] .flyout-panel { background: #2c2c2c; border-color: #3c3c3c; }
 :root .flyout-panel label { display: flex; flex-direction: column; align-items: stretch; gap: 3px; color: var(--fl-text-2); font-size: 11px; padding: 0 2px; }
 :root .flyout-panel label > span { padding: 2px 6px 0; }
@@ -738,3 +739,43 @@
 :root .footer-views .icon-button.chosen { background: var(--fl-hover-strong); color: var(--fl-text); }
 :root .explorer-footer button { font-size: 12px; }
 :root .footer-views .icon-button { color: var(--fl-text-2); }
+
+/* 선택하지 않은 초점 항목(키보드 커서)은 탐색기처럼 얇은 테두리로 보여 준다. */
+:root .file-table .file-row:focus:not(.selected) { outline: 1px solid var(--fl-stroke-strong); outline-offset: -1px; box-shadow: none; }
+:root .file-table .file-row:focus-visible:not(.selected) { outline: 2px solid var(--fl-focus); outline-offset: -2px; }
+
+/* 빠른 검색: 입력한 경로와 일치한 위치 표시 */
+:root .quick-result .path-match {
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--fl-accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 인덱스 관리: 드라이브 종류·갱신 방식 표시와 네트워크 위치 연결 */
+:root .volume-badge,
+:root .refresh-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: 1px;
+  background: var(--fl-hover-strong);
+  color: var(--fl-text-2);
+}
+:root .refresh-badge { background: transparent; border: 1px solid var(--fl-stroke-control); }
+:root .managed-folder-icon.volume-network,
+:root .managed-folder-icon.volume-webdav { color: #0f6cbd; }
+:root .managed-folder-icon.volume-cloud { color: #2f7ed8; }
+:root .network-connect { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding: 12px; border: 1px solid var(--fl-stroke); border-radius: var(--fl-radius-lg); background: var(--fl-surface-2); }
+:root .network-connect label { display: flex; flex-direction: column; gap: 4px; }
+:root .network-connect label span { font-size: 12px; color: var(--fl-text-2); line-height: 1.5; }
+:root .network-connect > div { display: flex; gap: 8px; }
+:root .network-connect input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--fl-stroke-control); border-bottom-color: var(--fl-stroke-strong); background: var(--fl-input); color: var(--fl-text); }
+:root .network-connect input:focus { outline: none; border-bottom: 2px solid var(--fl-accent); }
+:root .network-connect .button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

@@ -1,7 +1,7 @@
 import {usePreferences,visibleFile,updatePreferences} from "../preferences";
 import { writeClipboard, isDesktop, importDroppedFiles, supportsWindowsNew, windowsNewMenu } from "../client";
 import type { FileDrag } from "../fileDrag";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -158,7 +158,25 @@ export function Explorer({
   useEffect(()=>{savePreference(`closedTabs:${pane.id}`,closedTabs);},[closedTabs,pane.id]);
   useEffect(()=>{savePreference(`folderTreeVisible:${pane.id}`,tree);},[tree,pane.id]);
   const [flyout, setFlyout] = useState<"sort" | "view">();
+  const [flyoutStyle, setFlyoutStyle] = useState<CSSProperties>();
   const flyoutRef = useRef<HTMLDivElement>(null);
+  // 탐색창이 여러 개라 창이 낮아도 메뉴가 잘리지 않도록 화면 기준 위치에 띄우고, 아래 공간이 모자라면 위로 연다.
+  function toggleFlyout(kind: "sort" | "view", trigger: HTMLElement) {
+    if (flyout === kind) {
+      setFlyout(undefined);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const below = innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const up = below < 280 && above > below;
+    setFlyoutStyle({
+      position: "fixed",
+      right: Math.max(8, innerWidth - rect.right),
+      ...(up ? { top: "auto", bottom: innerHeight - rect.top + 4, maxHeight: above } : { top: rect.bottom + 4, bottom: "auto", maxHeight: below }),
+    });
+    setFlyout(kind);
+  }
   useEffect(() => {
     if (!flyout) return;
     // 바깥을 누르거나 Esc를 누르면 정렬·보기 메뉴를 닫고 단추로 초점을 돌린다.
@@ -176,11 +194,14 @@ export function Explorer({
       flyoutRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus();
       setFlyout(undefined);
     };
+    const close = () => setFlyout(undefined);
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", key, true);
+    window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", close);
     };
   }, [flyout]);
   const [context, setContext] = useState<{ x: number; y: number }>();
@@ -514,7 +535,8 @@ export function Explorer({
                 : undefined;
               // 응답을 기다리는 동안 사용자가 다른 입력칸으로 옮겼다면 초점을 빼앗지 않는다.
               const focus = intent.focus && keyboardInList();
-              if (child || focus) setCursor({ token: performance.now(), id: child?.id, focus });
+              // 상위로 돌아오면 나온 폴더를 선택하고, 새 폴더에 들어가면 첫 항목에 초점만 둔다.
+              if (child || focus) setCursor({ token: performance.now(), id: child?.id, focus, select: !!child });
             } else if (createdName.current && performance.now() - createdName.current.at < 5000 && result.some((entry) => entry.parent === location.path && entry.name === createdName.current?.name)) {
               const created = result.find((entry) => entry.parent === location.path && entry.name === createdName.current?.name);
               createdName.current = undefined;
@@ -1068,23 +1090,23 @@ export function Explorer({
         }}
         onCreated={(name) => { createdName.current = { name, at: performance.now() }; }}
         extra={<div className="explorer-view-controls" ref={flyoutRef} aria-label={`탐색창 ${number} 보기 설정`}>
+          <button className={`tree-toggle ${tree ? "chosen" : ""}`} aria-label="폴더 트리 표시" aria-pressed={tree} title="폴더 트리(탐색 창) 표시" onClick={() => setTree(!tree)}><FolderTreeIcon size={14} /><span>트리</span></button>
           <div className="command-flyout">
-            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "sort"} title="정렬 기준과 분류" onClick={() => setFlyout(flyout === "sort" ? undefined : "sort")}>
+            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "sort"} title="정렬 기준과 분류" onClick={(event) => toggleFlyout("sort", event.currentTarget)}>
               <ArrowUpDown size={14} /><span>정렬</span><ChevronDown size={12} className="flyout-chevron" />
             </button>
-            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 정렬`} hidden={flyout !== "sort"}>
+            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 정렬`} hidden={flyout !== "sort"} style={flyout === "sort" ? flyoutStyle : undefined}>
               <label><span>정렬 기준</span><select size={Math.min(searchColumnOptions.length, 8)} aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
               <button className="sort-direction" aria-label={`탐색창 ${number} ${explorerSort.descending?"오름차순":"내림차순"}으로 정렬`} title={explorerSort.descending?"내림차순 · 클릭하여 오름차순":"오름차순 · 클릭하여 내림차순"} onClick={()=>onChange({...pane,sort:{...explorerSort,descending:!explorerSort.descending}})}>{explorerSort.descending?<ArrowDown size={13}/>:<ArrowUp size={13}/>}<span>{explorerSort.descending ? "내림차순" : "오름차순"}</span></button>
               <label><span>분류(그룹)</span><select aria-label={`탐색창 ${number} 분류 기준`} value={pane.group??"none"} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
             </div>
           </div>
           <div className="command-flyout">
-            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "view"} title="보기 방식·탐색 창·표시 항목" onClick={() => setFlyout(flyout === "view" ? undefined : "view")}>
+            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "view"} title="보기 방식·표시 항목" onClick={(event) => toggleFlyout("view", event.currentTarget)}>
               <LayoutGrid size={14} /><span>보기</span><ChevronDown size={12} className="flyout-chevron" />
             </button>
-            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 보기`} hidden={flyout !== "view"}>
+            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 보기`} hidden={flyout !== "view"} style={flyout === "view" ? flyoutStyle : undefined}>
               <label><span>보기 방식</span><select size={explorerViews.length} aria-label={`탐색창 ${number} 보기 종류`} value={pane.view} onChange={event=>{onChange({...pane,view:event.target.value as ExplorerPane["view"]});}} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();setFlyout(undefined);}}} onClick={event=>{if((event.target as HTMLElement).tagName==="OPTION")setFlyout(undefined);}}>{explorerViews.map(view=><option key={view.id} value={view.id}>{view.label}</option>)}</select></label>
-              <button className={`tree-toggle ${tree ? "chosen" : ""}`} aria-label="폴더 트리 표시" aria-pressed={tree} title="폴더 트리(탐색 창)" onClick={() => setTree(!tree)}><FolderTreeIcon size={14} /><span>폴더 트리(탐색 창)</span>{tree && <Check size={13} className="flyout-check" />}</button>
               <SearchColumnPicker label={`탐색창 ${number} 표시 항목`} defaults={defaultExplorerColumns} columns={explorerColumns} onChange={columns=>onChange({...pane,columns,view:"list"})}/>
             </div>
           </div>

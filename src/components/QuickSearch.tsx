@@ -35,6 +35,9 @@ import {
 } from "../client";
 import {
   isComposingKey,
+  isPathQuery,
+  pathCandidates,
+  pathSearchText,
   quickSearchMode,
 } from "../quickSearch";
 import { useSearchInput } from "../useSearchInput";
@@ -87,6 +90,9 @@ export default function QuickSearch() {
   const [partial, setPartial] = useState(false);
   const [revision, setRevision] = useState(0);
   const [destination, setDestination] = useState<Location>();
+  // 경로 입력이 실제 위치와 일치한 항목. Enter로 Every Directory 탐색창에서 그 위치를 연다.
+  const [pathMatch, setPathMatch] = useState<string>();
+  const pathInput = isPathQuery(query);
   const [directories, setDirectories] = useState<FileEntry[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const searchEditing = useSearchInput(text => quickSearchMode(text,defaultMode), text=>{
@@ -235,16 +241,33 @@ export default function QuickSearch() {
               );
               return;
             }
-            const result = await quickSearch({
-              query,
-              mode: quickSearchMode(query, defaultMode),
-              rootId: scope,
-              category,
-              fullPath: preferences.quickFullPath,
-              limit: 12,
-            });
+            // 경로를 입력하면 연결 폴더 안의 실제 위치를 먼저 찾고, 그 아래 항목을 경로 검색으로 보여 준다.
+            let located: FileEntry | undefined;
+            if (isPathQuery(query)) {
+              for (const location of pathCandidates(query, suggestions.roots, scope)) {
+                try {
+                  located = await client.request<FileEntry>("quickEntry", location);
+                  break;
+                } catch {
+                  // 다음 후보를 확인한다.
+                }
+              }
+              if (version !== requestVersion.current) return;
+            }
+            const text = isPathQuery(query) ? pathSearchText(query, suggestions.roots, scope) : query;
+            const result = text
+              ? await quickSearch({
+                  query: text,
+                  mode: isPathQuery(query) ? "normal" : quickSearchMode(query, defaultMode),
+                  rootId: scope,
+                  category,
+                  fullPath: isPathQuery(query) || preferences.quickFullPath,
+                  limit: 12,
+                })
+              : { entries: [], total: 0, elapsed: 0 };
             if (version !== requestVersion.current) return;
-            applyEntries(result.entries);
+            setPathMatch(located?.id);
+            applyEntries(located ? [located, ...result.entries.filter((file) => file.id !== located.id)].slice(0, 12) : result.entries);
             setPartial(!!result.partial);
           } catch (cause) {
             if (version === requestVersion.current) {
@@ -424,7 +447,9 @@ export default function QuickSearch() {
           ? actions[actionIndex].id
           : event.metaKey || event.ctrlKey
             ? "reveal"
-            : "open",
+            : entry.id === pathMatch
+              ? "main"
+              : "open",
       );
     } else if (
       (event.metaKey || event.ctrlKey) &&
@@ -734,6 +759,7 @@ export default function QuickSearch() {
                       fill="currentColor"
                     />
                   )}
+                  {file.id === pathMatch && <small className="path-match">경로 일치 · Enter 이동</small>}
                   <small>
                     {file.kind === "directory"
                       ? "폴더"
@@ -760,7 +786,9 @@ export default function QuickSearch() {
                   <strong>
                     {!roots.length
                       ? "검색할 폴더를 먼저 연결하세요"
-                      : query && error
+                      : pathInput && !error
+                        ? "연결된 폴더에서 이 경로를 찾지 못했습니다"
+                        : query && error
                         ? "검색을 완료하지 못했습니다"
                         : query
                           ? "일치하는 항목이 없습니다"
@@ -769,7 +797,9 @@ export default function QuickSearch() {
                   <p>
                     {error
                       ? "아래 안내를 확인하고 다시 시도해 주세요."
-                      : query
+                      : pathInput
+                        ? "연결 폴더 안의 전체 경로나 일부 경로(예: 업무 자료\\프로젝트)를 입력하세요. 다른 위치는 먼저 폴더를 연결해야 합니다."
+                        : query
                         ? "파일 이름 일부나 한글 초성으로 검색해 보세요."
                         : "이름을 검색하거나 파일·폴더를 즐겨찾기에 추가하세요."}
                   </p>
@@ -802,7 +832,7 @@ export default function QuickSearch() {
           </span>
         ) : (
           <span>
-            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> 열기 <kbd>Tab</kbd> 작업
+            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> {entry && entry.id === pathMatch ? "위치로 이동" : "열기"} <kbd>Tab</kbd> 작업
           </span>
         )}
         <span>
