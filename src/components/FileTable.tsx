@@ -54,7 +54,11 @@ interface Props {
   sortState?: TableSort | null;
   onSortChange?: (sort:TableSort|undefined)=>void;
   onColumnsChange?:(columns:SearchColumn[])=>void;
+  cursor?: FileCursor;
 }
+
+// 목록이 바뀐 뒤 선택·초점을 둘 항목을 요청한다. id가 없으면 사라진 항목 자리나 첫 항목을 고른다.
+export interface FileCursor { token: number; id?: string; replaced?: string; focus: boolean }
 
 // 화면에 보이는 행만 렌더링하는 파일 목록과 격자 보기를 제공한다.
 export function FileTable({
@@ -81,11 +85,14 @@ export function FileTable({
   sortState,
   onSortChange,
   onColumnsChange,
+  cursor,
 }: Props) {
   const {preferences}=usePreferences();
   const highlightQuery=preferences.highlightMatches?query:"";
   const anchor = useRef<string | undefined>(undefined);
-  const rowHeight = !search&&view==="content"?72:compact ? 34 : 43;
+  const rowHeight = !search&&view==="content"?60:compact ? 26 : 32;
+  const handledCursor = useRef<number | undefined>(undefined);
+  const previousSorted = useRef<FileEntry[]>([]);
   const container = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
   const [horizontalScroll, setHorizontalScroll] = useState(0);
@@ -177,6 +184,8 @@ export function FileTable({
     }
   }, [columns, search, sort,onSortChange]);
   const grid = !search&&(view==="grid"||view.startsWith("icons-"));
+  // Windows 탐색기 보기별 아이콘 크기(작은 16·보통 48·큰 96·아주 큰 128)에 맞춘다.
+  const iconPixels = search ? 16 : ({ "icons-extra": 128, "icons-large": 96, "icons-medium": 48, "icons-small": 20, grid: 48, content: 32 } as Partial<Record<ExplorerView, number>>)[view] ?? 16;
   const details=search||view==="list";
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -212,10 +221,60 @@ export function FileTable({
     else if (top + rowHeight > current.scrollTop + current.clientHeight)
       current.scrollTop = top + rowHeight - current.clientHeight;
   }, [selected, sorted, grid, revealEntry, rowHeight,positions]);
+  useEffect(() => {
+    if (!cursor || handledCursor.current === cursor.token) return;
+    handledCursor.current = cursor.token;
+    let target = cursor.id ? sorted.find((entry) => entry.id === cursor.id) : undefined;
+    if (!target && cursor.replaced) {
+      // 여러 항목을 지워도 원래 자리 뒤에서 남아 있는 첫 항목, 없으면 앞쪽 항목을 고른다.
+      const old = previousSorted.current;
+      const index = old.findIndex((entry) => entry.id === cursor.replaced);
+      if (index >= 0) {
+        const remaining = new Map(sorted.map((entry) => [entry.id, entry]));
+        const survivor = old.slice(index).find((entry) => remaining.has(entry.id)) ?? old.slice(0, index).reverse().find((entry) => remaining.has(entry.id));
+        target = survivor ? remaining.get(survivor.id) : sorted[Math.min(index, sorted.length - 1)];
+      }
+    }
+    if (!target && cursor.focus) target = sorted[0];
+    if (target) selectEntry(target);
+    if (cursor.focus) focusEntry(target);
+  }, [cursor, sorted]);
+  useEffect(() => {
+    previousSorted.current = sorted;
+  }, [sorted]);
   const start = grid ? 0 : Math.max(0, Math.floor(scroll / rowHeight) - 5);
   const end = grid
     ? Math.min(displayRows.length, gridLimit)
     : Math.min(displayRows.length, start + Math.ceil(height / rowHeight) + 10);
+  const rendered = displayRows.slice(start, end);
+  const currentId = selected && positions.has(selected) ? selected : sorted[0]?.id;
+  const tabStopId = rendered.some((row) => row.kind === "entry" && row.entry.id === currentId)
+    ? currentId
+    : rendered.find((row) => row.kind === "entry")?.entry.id;
+
+  // 가상 목록에서 대상 행을 화면에 꺼낸 뒤 키보드 초점을 옮긴다.
+  function focusEntry(entry?: FileEntry) {
+    const scroller = container.current;
+    if (!scroller) return;
+    if (!entry) {
+      scroller.focus({ preventScroll: true });
+      return;
+    }
+    const index = sorted.findIndex((item) => item.id === entry.id);
+    const position = positions.get(entry.id) ?? index;
+    if (grid) setGridLimit((previous) => Math.max(previous, Math.ceil((position + 1) / 300) * 300));
+    else if (position * rowHeight < scroller.scrollTop || (position + 1) * rowHeight > scroller.scrollTop + scroller.clientHeight)
+      scroller.scrollTop = Math.max(0, position * rowHeight - scroller.clientHeight / 3);
+    const attempt = (tries: number) => {
+      const row = container.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
+      if (row) {
+        row.focus({ preventScroll: true });
+        if (grid) row.scrollIntoView({ block: "nearest" });
+      } else if (tries < 8) setTimeout(() => attempt(tries + 1), 16);
+    };
+    // 숨겨진 창에서도 동작하도록 화면 갱신 대신 짧은 타이머로 다시 시도한다.
+    attempt(0);
+  }
 
   // 표시 열을 기준으로 정렬 방향을 변경한다.
   function changeSort(key: SearchColumn) {
@@ -331,6 +390,7 @@ export function FileTable({
           setHorizontalScroll(e.currentTarget.scrollLeft);
         }}
         role="grid"
+        tabIndex={-1}
         aria-label={search ? "검색 결과" : "폴더 내용"}
         aria-colcount={!grid ? visibleColumns.length + 1 : undefined}
       >
@@ -358,7 +418,7 @@ export function FileTable({
                   }
             }
           >
-            {displayRows.slice(start, end).map((record, i) => record.kind==="group"?<div key={`group:${record.label}`} className="file-group-heading" role="row" style={grid?undefined:{position:"absolute",top:(start+i)*rowHeight,height:rowHeight,left:0,right:0}}><strong>{record.label}</strong><span>{record.count.toLocaleString()}개</span></div>:(()=>{const entry=record.entry,index=record.index;return (
+            {rendered.map((record, i) => record.kind==="group"?<div key={`group:${record.label}`} className="file-group-heading" role="row" style={grid?undefined:{position:"absolute",top:(start+i)*rowHeight,height:rowHeight,left:0,right:0}}><strong>{record.label}</strong><span>{record.count.toLocaleString()}개</span></div>:(()=>{const entry=record.entry,index=record.index;return (
               <div
                 key={entry.id}
                 data-category={entry.kind==="directory"?"directory":categoryOf(entry)}
@@ -375,7 +435,11 @@ export function FileTable({
                       }
                 }
                 role="row"
-                tabIndex={0}
+                tabIndex={entry.id === tabStopId ? 0 : -1}
+                onFocus={(event) => {
+                  // 탭 키로 목록에 들어오면 선택이 없을 때 초점 항목을 선택한다.
+                  if (event.target === event.currentTarget && !selected && !selectedIds?.length && event.currentTarget.matches(":focus-visible")) selectEntry(entry);
+                }}
                 aria-selected={
                   selectedIds
                     ? selectedIds.includes(entry.id)
@@ -425,7 +489,8 @@ export function FileTable({
                       onQuickPreview(entry);
                     else selectEntry(entry, true);
                   }
-                  if (["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(e.key) || (grid && ["ArrowLeft", "ArrowRight"].includes(e.key))) {
+                  // Alt+방향키는 탐색창의 뒤로·앞으로·상위 폴더 단축키로 넘긴다.
+                  if (!e.altKey && (["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(e.key) || (grid && ["ArrowLeft", "ArrowRight"].includes(e.key)))) {
                     e.preventDefault();
                     const page = Math.max(1, Math.floor(height / rowHeight));
                     const gridElement = container.current?.querySelector(".file-grid");
@@ -505,7 +570,7 @@ export function FileTable({
                       onChange={() => selectEntry(entry, true)}
                     />
                   )}
-                  <FileIcon entry={entry} large={grid} />
+                  <FileIcon entry={entry} large={grid} pixels={iconPixels} />
                   <span>
                     <Highlight text={entry.name} query={highlightQuery} mode={searchMode} caseSensitive={caseSensitive} />
                   </span>

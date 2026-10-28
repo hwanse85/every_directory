@@ -11,8 +11,10 @@ import type {
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 
 export const isDesktop = isTauri();
+export const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+export const isWindows = /Win/i.test(navigator.platform);
 export const supportsOCR = !isDesktop;
-export const supportsWindowsNew = isDesktop && /Win/i.test(navigator.platform);
+export const supportsWindowsNew = isDesktop && isWindows;
 export interface NativeNewResult {invoked:boolean;created:Location[]}
 export async function windowsNewMenu(location:Location,point?:{x:number;y:number}):Promise<NativeNewResult>{
   const ratio=window.devicePixelRatio||1;

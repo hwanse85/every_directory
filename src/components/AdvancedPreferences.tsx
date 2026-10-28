@@ -21,14 +21,14 @@ export function AdvancedPreferences(){
  <label className="setting-row"><span><strong>활성 탐색창 강조 색</strong><p>굵은 테두리와 상단 강조선에 적용합니다.</p></span><select aria-label="활성 탐색창 강조 색" value={draft.activePaneAccent} onChange={e=>set("activePaneAccent",e.target.value as Preferences["activePaneAccent"])}><option value="blue">파랑</option><option value="violet">보라</option><option value="orange">주황</option><option value="green">초록</option></select></label>
  <label className="setting-row"><span><strong>새 탐색창 기본 보기</strong><p>기존 창의 개별 보기 설정은 유지합니다.</p></span><select aria-label="새 탐색창 기본 보기" value={draft.defaultExplorerView} onChange={e=>set("defaultExplorerView",e.target.value as Preferences["defaultExplorerView"])}>{explorerViews.map(v=><option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
  <h3>클립보드 이력</h3>
- {toggle("clipboardEnabled","클립보드 이력 기록","앱이 실행 중일 때 복사한 내용을 이 PC에 기록합니다. Windows에서는 사용자 계정 키로 암호화합니다.")}
+ {toggle("clipboardEnabled","클립보드 이력 기록","앱이 실행 중일 때 복사한 내용을 이 PC에 기록합니다. Windows는 사용자 계정 키로 암호화하고, macOS는 현재 사용자만 읽을 수 있는 파일로 보관합니다.")}
  {range("clipboardDays","클립보드 보관 기간",1,60,"일")}
  <label className="setting-row"><span><strong>빠른 검색 클립보드 키워드</strong><p>기본값 clip. 입력하면 파일 검색 결과 위에 ‘클립보드 보기’가 표시됩니다.</p></span><input aria-label="빠른 검색 클립보드 키워드" maxLength={32} value={draft.clipboardKeyword} onChange={e=>set("clipboardKeyword",e.target.value)}/></label>
  {toggle("clipboardText","텍스트 기록","일반 텍스트를 저장합니다. 앱 전용 서식이나 비밀번호 저장소는 복제하지 않습니다.")}
  {toggle("clipboardImages","이미지·화면 캡처 기록","이미지를 PNG로 저장합니다. 최대 1,677만 픽셀까지 지원합니다.")}
  {toggle("clipboardFiles","파일·폴더 기록","원본 위치를 기록합니다. 원본을 이동·삭제하면 파일 복원이 불가능할 수 있습니다.")}
  {range("clipboardMaxMb","항목당 최대 저장 크기",1,64," MB")}
- <label className="setting-row"><span><strong>클립보드 기록 제외 앱</strong><p>실행 파일 이름을 ;로 구분합니다. Windows의 기록 금지 표시도 존중합니다.</p></span><input aria-label="클립보드 기록 제외 앱" value={draft.clipboardExcludedApps} onChange={e=>set("clipboardExcludedApps",e.target.value)}/></label>
+ <label className="setting-row"><span><strong>클립보드 기록 제외 앱</strong><p>실행 파일·앱 이름을 ;로 구분합니다. Windows의 기록 금지 표시와 macOS 비밀번호 관리자의 숨김 표시도 존중합니다.</p></span><input aria-label="클립보드 기록 제외 앱" value={draft.clipboardExcludedApps} onChange={e=>set("clipboardExcludedApps",e.target.value)}/></label>
  <p className="muted">전체 이력은 최대 200 MB / 2,000개입니다. 보관 기간이나 한도를 넘으면 오래된 순으로 삭제합니다. 즐겨찾기에도 같은 보관 기간을 적용합니다.</p>
  <div className="preference-actions"><button className="button secondary" disabled={busy} onClick={()=>{setDraft({...defaultPreferences});setDirty(true);}}>사용자 설정 기본값 복원</button><button className="button primary" disabled={busy||!dirty} onClick={()=>{setBusy(true);void updatePreferences(draft).then(()=>{setDirty(false);setMessage("사용자 설정을 저장했습니다.");}).catch(e=>setMessage(String(e))).finally(()=>setBusy(false));}}>사용자 설정 저장</button></div>
  <p role="status">{message||preferencesError}</p></section>;

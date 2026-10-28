@@ -185,6 +185,12 @@ export default function QuickSearch() {
     if (current) selectedId.current = current.id;
   }, [entries, selected]);
 
+  // 클립보드 이력은 여러 항목과 미리보기를 함께 보도록 창을 넓히고, 돌아오면 원래 크기로 되돌린다.
+  const clipboardView = view === "clipboard";
+  useEffect(() => {
+    void quickControl(clipboardView ? "expand" : "restore").catch(() => undefined);
+  }, [clipboardView]);
+
   useEffect(() => {
     const version = ++requestVersion.current;
     const searchKey = JSON.stringify([query, scope, category,clipboardTrigger]);
@@ -436,7 +442,7 @@ export default function QuickSearch() {
   }
 
   return (
-    <main className="quick-shell" onKeyDown={handleKey}>
+    <main className={`quick-shell ${clipboardView ? "quick-clipboard" : ""}`} onKeyDown={handleKey}>
       <header className="quick-header" data-tauri-drag-region>
         <span data-tauri-drag-region>
           <Search size={15} /> Every Directory <small>빠른 검색</small>
@@ -497,7 +503,7 @@ export default function QuickSearch() {
           )
         )}
       </div>
-      <div className="quick-filters">
+      <div className="quick-filters" hidden={clipboardView}>
         <select
           aria-label="빠른 검색 범위"
           value={scope}
@@ -707,7 +713,7 @@ export default function QuickSearch() {
                   }}
                   onDoubleClick={() => void run("open")}
                 >
-                  <FileIcon entry={file} />
+                  <FileIcon entry={file} pixels={24} />
                   <div className="quick-result-text">
                     <strong title={file.name}><Highlight text={file.name} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)}/></strong>
                     <span
@@ -790,11 +796,17 @@ export default function QuickSearch() {
         </div>
       )}
       <footer className="quick-footer">
+        {clipboardView ? (
+          <span>
+            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> 복사 <kbd>{modifier}+1~5</kbd> 종류
+          </span>
+        ) : (
+          <span>
+            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> 열기 <kbd>Tab</kbd> 작업
+          </span>
+        )}
         <span>
-          <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> 열기 <kbd>Tab</kbd> 작업
-        </span>
-        <span>
-          <kbd>Esc</kbd> 닫기
+          <kbd>Esc</kbd> {clipboardView ? "파일 검색으로" : "닫기"}
         </span>
       </footer>
     </main>

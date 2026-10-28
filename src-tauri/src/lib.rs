@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod desktop;
 pub mod file_clipboard;
+pub mod file_icons;
 pub mod preferences;
 pub mod visibility;
 pub mod clipboard_history;
@@ -535,8 +536,9 @@ pub fn run() {
             if let Some(data) = std::env::var_os("EVERY_DIRECTORY_DATA") {
                 window.data_directory = Some(std::path::PathBuf::from(data).join("webview"));
             }
-            if std::env::var_os("EVERY_DIRECTORY_WINDOWS_UI").is_some()
-                || std::env::var_os("EVERY_DIRECTORY_E2E_SUITE").is_some()
+            // macOS WKWebView는 숨긴 창의 화면 갱신을 멈추므로 검증 창을 보이게 둔다.
+            if cfg!(windows) && (std::env::var_os("EVERY_DIRECTORY_WINDOWS_UI").is_some()
+                || std::env::var_os("EVERY_DIRECTORY_E2E_SUITE").is_some())
             {
                 window.visible = false;
             }
@@ -618,6 +620,10 @@ pub fn run() {
                     let _ = webview.eval(include_str!("../../scripts/reliability-smoke.js"));
                 }
             }
+            #[cfg(feature = "smoke-test")]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("ux") {
+                let _ = webview.eval(include_str!("../../scripts/ux-e2e.js"));
+            }
             #[cfg(all(windows, feature="smoke-test"))]
             if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("history"){
                 let restart=std::env::var_os("EVERY_DIRECTORY_HISTORY_RESTART").is_some();
@@ -680,7 +686,7 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("actions") {
                 let _ = webview.eval(include_str!("../../scripts/actions-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("desktop") {
                 let _ = webview.eval("window.__edE2E=true;");
                 let _ = webview.eval(include_str!("../../scripts/desktop-smoke.js"));
@@ -698,6 +704,24 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));
+        })
+        .register_asynchronous_uri_scheme_protocol("edicon", |context, request, responder| {
+            let app = context.app_handle().clone();
+            let engine = app.state::<Arc<Engine>>().inner().clone();
+            std::thread::spawn(move || {
+                // macOS AppKit 이미지는 주 스레드에서 그리고, 경로 확인·캐시는 작업 스레드에서 처리한다.
+                let render = |target: file_icons::IconTarget, path: Option<std::path::PathBuf>, size: u32| {
+                    #[cfg(target_os = "macos")]
+                    {
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        app.run_on_main_thread(move || { let _ = sender.send(file_icons::native_png(&target, path, size)); }).ok()?;
+                        receiver.recv().ok().flatten()
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    file_icons::native_png(&target, path, size)
+                };
+                responder.respond(file_icons::response(&engine, &request, &render));
+            });
         })
         .build(context)
         .map(|app| app.run(|app, event| {

@@ -1,0 +1,740 @@
+/*
+ * Windows 11 파일 탐색기(Fluent)에 맞춘 화면 기준.
+ * 마지막에 불러와 기존 색·간격 규칙 위에 덮어쓴다. macOS에서는 글꼴·크기만 Finder 기준으로 바꾼다.
+ */
+:root {
+  --fl-font: "Segoe UI Variable Text", "Segoe UI", "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --fl-canvas: #f3f3f3;
+  --fl-surface: #ffffff;
+  --fl-surface-2: #fbfbfb;
+  --fl-subtle: #ebebeb;
+  --fl-input: #ffffff;
+  --fl-text: #1b1b1b;
+  --fl-text-2: #5c5c5c;
+  --fl-text-3: #767676;
+  --fl-stroke: #e5e5e5;
+  --fl-stroke-control: #d1d1d1;
+  --fl-stroke-strong: #8a8a8a;
+  --fl-hover: rgba(0, 0, 0, 0.042);
+  --fl-hover-strong: rgba(0, 0, 0, 0.075);
+  --fl-pressed: rgba(0, 0, 0, 0.09);
+  --fl-accent: #005fb8;
+  --fl-accent-hover: #1a6fc0;
+  --fl-accent-pressed: #004c93;
+  --fl-on-accent: #ffffff;
+  --fl-row-hover: #e5f3ff;
+  --fl-selected: #cce8ff;
+  --fl-selected-hover: #bfe1ff;
+  --fl-selected-border: #99d1ff;
+  --fl-focus: #1b1b1b;
+  --fl-shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12);
+  --fl-shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.19), 0 2px 21px rgba(0, 0, 0, 0.15);
+  --fl-radius: 4px;
+  --fl-radius-lg: 8px;
+  --fl-folder: #e8a93a;
+  /* 기존 규칙이 쓰는 토큰을 Fluent 값으로 연결한다. */
+  --canvas: var(--fl-canvas);
+  --surface: var(--fl-surface);
+  --surface-soft: var(--fl-surface-2);
+  --surface-hover: #f5f5f5;
+  --fg: var(--fl-text);
+  --fg-soft: var(--fl-text-2);
+  --muted: var(--fl-text-3);
+  --text-soft: var(--fl-text-2);
+  --border: var(--fl-stroke);
+  --accent: var(--fl-accent);
+  --accent-dark: var(--fl-accent-pressed);
+  --accent-soft: #e5f1fb;
+  --sidebar: var(--fl-canvas);
+  --sidebar-text: var(--fl-text);
+  --sidebar-muted: var(--fl-text-2);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --pane-accent: var(--fl-accent);
+  font-family: var(--fl-font);
+  font-size: 12px;
+  color: var(--fl-text);
+  background: var(--fl-canvas);
+}
+:root[data-platform="mac"] {
+  --fl-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo", "Segoe UI", "Noto Sans KR", sans-serif;
+  font-size: 13px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --fl-canvas: #202020;
+  --fl-surface: #1c1c1c;
+  --fl-surface-2: #242424;
+  --fl-subtle: #2d2d2d;
+  --fl-input: #2b2b2b;
+  --fl-text: #ffffff;
+  --fl-text-2: #c8c8c8;
+  --fl-text-3: #a3a3a3;
+  --fl-stroke: #333333;
+  --fl-stroke-control: #444444;
+  --fl-stroke-strong: #9a9a9a;
+  --fl-hover: rgba(255, 255, 255, 0.06);
+  --fl-hover-strong: rgba(255, 255, 255, 0.09);
+  --fl-pressed: rgba(255, 255, 255, 0.04);
+  --fl-accent: #4cc2ff;
+  --fl-accent-hover: #47b1e8;
+  --fl-accent-pressed: #42a1d2;
+  --fl-on-accent: #000000;
+  --fl-row-hover: #2a2d30;
+  --fl-selected: #1d3a52;
+  --fl-selected-hover: #234560;
+  --fl-selected-border: #2f6a96;
+  --fl-focus: #ffffff;
+  --fl-folder: #f1bd4f;
+  --fl-shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.36), 0 0 2px rgba(0, 0, 0, 0.5);
+  --surface-hover: #2a2a2a;
+  --accent-soft: #1d3a52;
+  --pane-accent: var(--fl-accent);
+}
+/* 사용자가 고른 활성 탐색창 강조 색은 유지한다. */
+:root[data-pane-accent="violet"] { --pane-accent: #7b32bb; }
+:root[data-pane-accent="orange"] { --pane-accent: #ad4400; }
+:root[data-pane-accent="green"] { --pane-accent: #087846; }
+:root[data-theme="dark"][data-pane-accent="violet"] { --pane-accent: #be9aff; }
+:root[data-theme="dark"][data-pane-accent="orange"] { --pane-accent: #ffad70; }
+:root[data-theme="dark"][data-pane-accent="green"] { --pane-accent: #65dfab; }
+
+:root body,
+:root .app-shell {
+  font-family: var(--fl-font);
+  background: var(--fl-canvas);
+  color: var(--fl-text);
+  -webkit-font-smoothing: auto;
+}
+:root[data-platform="mac"] body { -webkit-font-smoothing: antialiased; }
+:root button,
+:root input,
+:root select,
+:root textarea { font-family: var(--fl-font); }
+
+/* 초점 표시: Windows 11처럼 두 겹 테두리로 위치를 분명하게 보여 준다. */
+:root button:focus-visible,
+:root a:focus-visible,
+:root select:focus-visible,
+:root [tabindex]:focus-visible {
+  outline: 2px solid var(--fl-focus);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--fl-surface);
+}
+:root .file-row:focus-visible,
+:root [role="option"]:focus-visible,
+:root [role="treeitem"]:focus-visible { outline-offset: -2px; box-shadow: none; }
+:root .file-scroll:focus-visible { outline: none; }
+
+/* 스크롤 막대: 얇은 Windows 11 스타일 */
+:root ::-webkit-scrollbar { width: 12px; height: 12px; }
+:root ::-webkit-scrollbar-track { background: transparent; }
+:root ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.32); border: 4px solid transparent; border-radius: 8px; background-clip: padding-box; }
+:root ::-webkit-scrollbar-thumb:hover { background-color: rgba(0, 0, 0, 0.5); border-width: 3px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.32); }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.5); }
+:root ::-webkit-scrollbar-corner { background: transparent; }
+
+/* 버튼·입력·선택 상자: WinUI 컨트롤 크기(32px)와 4px 모서리 */
+:root .button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--fl-radius);
+  font-size: 12px;
+  font-weight: 400;
+  border: 1px solid var(--fl-stroke-control);
+  box-shadow: none;
+}
+:root .button.small { min-height: 28px; padding: 0 10px; }
+:root .button.primary {
+  background: var(--fl-accent);
+  border-color: var(--fl-accent);
+  color: var(--fl-on-accent);
+  font-weight: 600;
+}
+:root .button.primary:hover:not(:disabled) { background: var(--fl-accent-hover); border-color: var(--fl-accent-hover); }
+:root .button.primary:active:not(:disabled) { background: var(--fl-accent-pressed); }
+:root[data-theme="dark"] .button.primary { background: var(--fl-accent); border-color: var(--fl-accent); color: #000; }
+:root .button.secondary {
+  background: var(--fl-surface);
+  color: var(--fl-text);
+  border-color: var(--fl-stroke-control);
+  border-bottom-color: color-mix(in srgb, var(--fl-stroke-control) 70%, #000 30%);
+}
+:root[data-theme="dark"] .button.secondary { background: #2d2d2d; border-color: #3d3d3d; border-top-color: #474747; }
+:root .button.secondary:hover:not(:disabled) { background: var(--surface-hover); color: var(--fl-text); }
+:root .icon-button { border-radius: var(--fl-radius); color: var(--fl-text-2); }
+:root .icon-button:hover:not(:disabled) { background: var(--fl-hover); color: var(--fl-text); }
+:root .icon-button:active:not(:disabled) { background: var(--fl-pressed); }
+:root .icon-button.chosen,
+:root .icon-button[aria-pressed="true"] { background: var(--fl-hover-strong); color: var(--fl-text); }
+:root select,
+:root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
+  border-radius: var(--fl-radius);
+}
+:root input[type="checkbox"],
+:root input[type="radio"],
+:root input[type="range"] { accent-color: var(--fl-accent); }
+:root kbd {
+  font-family: var(--fl-font);
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-stroke-control);
+  border-bottom-width: 2px;
+  color: var(--fl-text-2);
+  border-radius: 4px;
+}
+
+/* 상단 명령 모음: 브랜드 영역을 줄이고 Windows 명령 막대처럼 정리한다. */
+:root .app-header {
+  height: 48px;
+  padding: 0 10px 0 6px;
+  gap: 10px;
+  background: var(--fl-canvas);
+  border-bottom: 1px solid var(--fl-stroke);
+}
+:root .brand { font-size: 13px; font-weight: 600; letter-spacing: 0; gap: 8px; color: var(--fl-text); }
+:root .brand .brand-light { font-weight: 400; }
+:root .brand-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: linear-gradient(160deg, #ffd56a, var(--fl-folder));
+  color: #6b4400;
+  box-shadow: none;
+}
+:root .workspace-actions { gap: 4px; }
+:root .workspace-actions > .button,
+:root .workspace-actions .layout-button,
+:root .workspace-actions .toolbox-trigger {
+  min-height: 32px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fl-text);
+  gap: 6px;
+}
+:root .workspace-actions > .button:hover:not(:disabled),
+:root .workspace-actions .layout-button:hover,
+:root .workspace-actions .toolbox-trigger:hover,
+:root .workspace-actions .layout-button.pressed { background: var(--fl-hover); border-color: transparent; }
+:root .workspace-actions .connect-folder-button {
+  background: var(--fl-accent);
+  border-color: var(--fl-accent);
+  color: var(--fl-on-accent);
+}
+:root .workspace-actions .connect-folder-button:hover:not(:disabled) { background: var(--fl-accent-hover); border-color: var(--fl-accent-hover); }
+:root .pane-count-control {
+  min-height: 32px;
+  border-radius: var(--fl-radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fl-text);
+}
+:root .pane-count-control:hover { background: var(--fl-hover); }
+:root .pane-count-control select { background: transparent; color: var(--fl-text); }
+:root .header-actions { gap: 2px; }
+:root .header-actions .icon-button { width: 36px; height: 32px; }
+
+/* 레이아웃·메뉴 팝업: Fluent 플라이아웃 */
+:root .layout-popover,
+:root .context-menu,
+:root .column-width-menu,
+:root .search-column-menu,
+:root [role="menu"] {
+  border-radius: var(--fl-radius-lg);
+  border: 1px solid var(--fl-stroke);
+  background: var(--fl-surface);
+  box-shadow: var(--fl-shadow-flyout);
+}
+:root[data-theme="dark"] .layout-popover,
+:root[data-theme="dark"] .context-menu,
+:root[data-theme="dark"] .column-width-menu,
+:root[data-theme="dark"] [role="menu"] { background: #2c2c2c; border-color: #3c3c3c; }
+
+/* 왼쪽 탐색 창: 어두운 패널 대신 탐색기의 밝은 탐색 창 */
+:root .sidebar {
+  background: var(--fl-canvas);
+  color: var(--fl-text);
+  border-right: 1px solid var(--fl-stroke);
+  padding: 10px 6px 10px;
+  width: 220px;
+}
+:root .sidebar-label,
+:root .sidebar-section-title {
+  color: var(--fl-text-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root .sidebar-label { margin: 4px 12px 6px; }
+:root .sidebar-section-title { margin: 14px 8px 4px 12px; }
+:root .sidebar-nav,
+:root .sidebar-folder {
+  position: relative;
+  min-height: 32px;
+  height: auto;
+  padding: 6px 10px;
+  margin-bottom: 1px;
+  gap: 10px;
+  border-radius: var(--fl-radius);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fl-text);
+  background: transparent;
+}
+:root[data-platform="mac"] .sidebar-nav,
+:root[data-platform="mac"] .sidebar-folder { font-size: 13px; min-height: 28px; }
+:root .sidebar-nav:hover:not(.current),
+:root .sidebar-folder:hover { background: var(--fl-hover); color: var(--fl-text); }
+:root .sidebar-nav.current { background: var(--fl-hover-strong); color: var(--fl-text); font-weight: 600; }
+:root .sidebar-nav.current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--fl-accent);
+}
+:root .sidebar-nav svg,
+:root .sidebar-folder > svg:first-child { color: var(--fl-text-2); }
+:root .sidebar-folder.root-folder > svg:first-child { color: #4f7fb8; }
+:root .favorite-list .sidebar-folder > svg:first-child { color: var(--fl-folder); }
+:root .nav-count { background: var(--fl-hover-strong); color: var(--fl-text-2); border-radius: 8px; }
+:root .sidebar-empty { color: var(--fl-text-3); font-size: 11px; line-height: 1.6; }
+:root .add-folder-link { color: var(--fl-accent); font-size: 12px; padding: 6px 12px; }
+:root .add-folder-link:hover { background: var(--fl-hover); border-radius: var(--fl-radius); }
+:root .local-index-note {
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-stroke);
+  border-radius: var(--fl-radius-lg);
+  color: var(--fl-text);
+  box-shadow: none;
+}
+:root .local-index-note small { color: var(--fl-text-2); }
+:root .keyboard-link { color: var(--fl-text-2); font-size: 11px; }
+:root .keyboard-link:hover { color: var(--fl-accent); }
+
+/* 작업 영역 */
+:root .main-area { background: var(--fl-canvas); }
+:root .search-panel,
+:root .explorer-pane {
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-stroke);
+  border-radius: var(--fl-radius-lg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+:root .search-input-wrap {
+  min-height: 36px;
+  border-radius: var(--fl-radius);
+  border: 1px solid var(--fl-stroke-control);
+  border-bottom-color: var(--fl-stroke-strong);
+  background: var(--fl-input);
+  box-shadow: none;
+}
+:root .search-input-wrap:focus-within {
+  border-color: var(--fl-stroke-control);
+  border-bottom: 2px solid var(--fl-accent);
+  box-shadow: none;
+}
+:root .search-filters button {
+  border-radius: var(--fl-radius);
+  border: 1px solid transparent;
+  color: var(--fl-text-2);
+  min-height: 28px;
+}
+:root .search-filters button:hover:not(.active) { background: var(--fl-hover); color: var(--fl-text); }
+:root .search-filters button.active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--fl-accent);
+  font-weight: 600;
+}
+:root[data-theme="dark"] .search-filters button.active { color: var(--fl-accent); }
+:root .result-summary { color: var(--fl-text-2); }
+:root .result-summary strong { color: var(--fl-text); }
+
+/* 탐색창 탭: Windows 11 탐색기 탭 */
+:root .tab-bar { background: var(--fl-canvas); border-bottom: 1px solid var(--fl-stroke); padding: 4px 6px 0; min-height: 38px; }
+:root .explorer-pane .tab-bar { border-radius: var(--fl-radius-lg) var(--fl-radius-lg) 0 0; }
+:root .explorer-tab {
+  border-radius: 6px 6px 0 0;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: transparent;
+  color: var(--fl-text-2);
+  min-height: 32px;
+  margin-bottom: -1px;
+}
+:root .explorer-tab:hover:not(.current) { background: var(--fl-hover); color: var(--fl-text); }
+:root .explorer-tab.current {
+  background: var(--fl-surface);
+  border-color: var(--fl-stroke);
+  color: var(--fl-text);
+  font-weight: 600;
+}
+:root .explorer-tab [role="tab"] > svg:first-child { color: var(--fl-folder); fill: color-mix(in srgb, var(--fl-folder) 35%, transparent); }
+:root .pane-activate { border-radius: 12px; }
+
+/* 주소 표시줄과 이동 단추 */
+:root .explorer-navigation { background: var(--fl-surface); border-bottom: 1px solid var(--fl-stroke); padding: 6px 8px; gap: 4px; }
+:root .navigation-arrows .icon-button { width: 32px; height: 30px; }
+:root .breadcrumbs,
+:root .address-form input {
+  min-height: 30px;
+  border-radius: var(--fl-radius);
+  border: 1px solid var(--fl-stroke-control);
+  background: var(--fl-input);
+  color: var(--fl-text);
+}
+:root .breadcrumbs > svg:first-child { color: var(--fl-folder); }
+:root .breadcrumbs button { border-radius: 3px; padding: 2px 5px; color: var(--fl-text); }
+:root .breadcrumbs button:hover { background: var(--fl-hover); }
+:root .breadcrumbs .lucide-chevron-right { color: var(--fl-text-3); }
+:root .address-form input:focus { border-bottom: 2px solid var(--fl-accent); }
+
+/* 명령 막대(새로 만들기·잘라내기·복사·붙여넣기·이름 바꾸기·삭제) */
+:root .file-action-bar {
+  background: var(--fl-surface);
+  border-bottom: 1px solid var(--fl-stroke);
+  padding: 4px 6px;
+  gap: 2px;
+}
+:root .file-action-bar > button {
+  min-height: 30px;
+  padding: 0 9px;
+  gap: 6px;
+  border-radius: var(--fl-radius);
+  border: 1px solid transparent;
+  color: var(--fl-text);
+  background: transparent;
+  font-size: 12px;
+}
+:root .file-action-bar > button:hover:not(:disabled) { background: var(--fl-hover); color: var(--fl-text); }
+:root .file-action-bar > button:active:not(:disabled) { background: var(--fl-pressed); }
+:root .file-action-bar > button:disabled { opacity: 0.4; }
+:root .file-action-bar > button:first-child svg { color: var(--fl-accent); }
+:root .file-action-bar > button svg { color: var(--fl-text-2); }
+
+/* 주소줄 오른쪽의 현재 폴더 검색 상자(탐색기 검색 상자 위치) */
+:root .app-shell .explorer-navigation { height: auto; min-height: 42px; padding: 5px 8px; }
+:root .app-shell .explorer-navigation .folder-filter {
+  flex: 0 1 240px;
+  min-width: 120px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  gap: 6px;
+  border: 1px solid var(--fl-stroke-control);
+  border-bottom-color: var(--fl-stroke-strong);
+  border-radius: var(--fl-radius);
+  background: var(--fl-input);
+}
+:root .app-shell .explorer-navigation .folder-filter:focus-within { border-bottom: 2px solid var(--fl-accent); }
+:root .app-shell .folder-filter input { height: 26px; font-size: 12px; color: var(--fl-text); }
+:root .folder-filter .filter-icon { color: var(--fl-text-2); flex-shrink: 0; }
+:root .folder-filter > button { border-radius: var(--fl-radius); padding: 3px; }
+:root .folder-filter > button:hover { background: var(--fl-hover); }
+
+/* 명령 막대 오른쪽의 정렬·보기(탐색기의 ‘정렬’·‘보기’ 메뉴 위치) */
+:root .app-shell .file-action-bar { height: auto; min-height: 40px; flex-wrap: wrap; row-gap: 2px; }
+:root .app-shell .file-action-bar > button { height: 30px; min-height: 30px; padding: 0 9px; }
+:root .file-action-bar > button:last-of-type { margin-left: 0; }
+:root .file-action-bar .explorer-view-controls {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex-wrap: nowrap;
+  gap: 4px;
+  color: var(--fl-text-2);
+  font-size: 12px;
+  min-width: 0;
+}
+:root .command-flyout { position: relative; }
+:root .file-action-bar .flyout-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--fl-radius);
+  color: var(--fl-text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+:root .file-action-bar .flyout-trigger svg { color: var(--fl-text-2); }
+:root .file-action-bar .flyout-trigger:hover,
+:root .file-action-bar .flyout-trigger[aria-expanded="true"] { background: var(--fl-hover); }
+:root .file-action-bar .flyout-chevron { margin-left: -2px; }
+:root .flyout-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--fl-stroke);
+  border-radius: var(--fl-radius-lg);
+  background: var(--fl-surface);
+  box-shadow: var(--fl-shadow-flyout);
+  color: var(--fl-text);
+}
+:root .flyout-panel[hidden] { display: none; }
+:root[data-theme="dark"] .flyout-panel { background: #2c2c2c; border-color: #3c3c3c; }
+:root .flyout-panel label { display: flex; flex-direction: column; align-items: stretch; gap: 3px; color: var(--fl-text-2); font-size: 11px; padding: 0 2px; }
+:root .flyout-panel label > span { padding: 2px 6px 0; }
+:root .flyout-panel select {
+  width: 100%;
+  max-width: none;
+  border: 1px solid var(--fl-stroke-control);
+  border-radius: var(--fl-radius);
+  background: var(--fl-input);
+  color: var(--fl-text);
+  font-size: 12px;
+  padding: 0 4px;
+  min-height: 30px;
+}
+:root .flyout-panel select[size] { padding: 2px; border-color: transparent; background: transparent; overflow: hidden; outline: none; }
+:root .flyout-panel select[size] option { padding: 6px 10px 6px 26px; border-radius: var(--fl-radius); color: var(--fl-text); position: relative; }
+:root .flyout-panel select[size] option:hover { background: var(--fl-hover); }
+:root .flyout-panel select[size] option:checked {
+  background: var(--fl-hover-strong) linear-gradient(var(--fl-accent), var(--fl-accent)) 10px 50% / 6px 6px no-repeat;
+  border-radius: var(--fl-radius);
+  color: var(--fl-text);
+  font-weight: 600;
+}
+:root .flyout-panel select[size]:focus-visible option:checked { box-shadow: inset 0 0 0 1px var(--fl-focus); }
+:root .flyout-panel .sort-direction,
+:root .flyout-panel .tree-toggle,
+:root .flyout-panel .search-columns-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--fl-radius);
+  background: transparent;
+  color: var(--fl-text);
+  font-size: 12px;
+  text-align: left;
+}
+:root .flyout-panel .sort-direction:hover,
+:root .flyout-panel .tree-toggle:hover,
+:root .flyout-panel .search-columns-trigger:hover { background: var(--fl-hover); }
+:root .flyout-panel .tree-toggle.chosen { background: transparent; }
+:root .flyout-panel .flyout-check { margin-left: auto; color: var(--fl-accent); }
+:root .flyout-panel .search-columns-trigger small { margin-left: auto; }
+:root .flyout-panel > * + .tree-toggle { border-top: 1px solid var(--fl-stroke); border-radius: 0 0 var(--fl-radius) var(--fl-radius); padding-top: 2px; }
+/* 좁은 탐색창: 보조 명령은 아이콘만(도구 설명 제공) */
+:root .file-action-bar.dense > button:not(:first-child):not(:last-of-type) span,
+:root .file-action-bar.compact > button span,
+:root .file-action-bar.compact .flyout-trigger > span { display: none; }
+:root .file-action-bar.dense > button:not(:first-child):not(:last-of-type) { padding: 0 8px; }
+
+/* 파일 목록: 탐색기 ‘자세히’ 보기의 행 높이·선택 색 */
+:root .file-columns {
+  background: var(--fl-surface);
+  border-bottom: 1px solid var(--fl-stroke);
+  color: var(--fl-text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+:root .file-columns [role="columnheader"] { border-right: 1px solid var(--fl-stroke); }
+:root .file-columns button { color: var(--fl-text-2); font-weight: 400; font-size: 12px; }
+:root .file-columns button:hover { background: var(--fl-hover); color: var(--fl-text); }
+:root .file-scroll { background: var(--fl-surface); }
+:root .file-table .file-row {
+  border: 1px solid transparent;
+  border-radius: var(--fl-radius);
+  background: transparent;
+  box-shadow: none;
+  color: var(--fl-text);
+}
+:root .file-table:not(.grid-table) .file-row { border-bottom: 1px solid transparent; }
+:root .file-table .file-row:hover { background: var(--fl-row-hover); }
+:root .file-table .file-row.selected {
+  background: var(--fl-selected);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--fl-text);
+}
+:root .file-table .file-row.selected:hover { background: var(--fl-selected-hover); }
+:root .file-table .file-row.selected::before,
+:root .file-table .file-row.selected::after { display: none; }
+:root .file-table .file-row .file-name,
+:root .app-shell .file-table .file-row .file-name { color: var(--fl-text); font-weight: 400; }
+:root .app-shell .file-table .file-row .search-cell,
+:root .file-table .file-row .file-type,
+:root .file-table .file-row .file-size,
+:root .file-table .file-row .file-modified { color: var(--fl-text-2); font-size: calc(12px * var(--user-font-scale)); }
+:root .file-table .file-row .file-checkbox { opacity: 0; transition: opacity 0.08s; }
+:root .file-table .file-row:hover .file-checkbox,
+:root .file-table .file-row.selected .file-checkbox,
+:root .file-table .file-row .file-checkbox:focus-visible,
+:root .file-table .file-row .file-checkbox:checked { opacity: 1; }
+:root .file-table .row-open { opacity: 0; }
+:root .file-table .file-row:hover .row-open,
+:root .file-table .file-row.selected .row-open { opacity: 0.75; }
+:root .file-group-heading { color: var(--fl-accent); border-bottom: 1px solid var(--fl-stroke); font-size: 12px; }
+:root .empty-files { color: var(--fl-text-2); }
+:root .empty-files svg { color: var(--fl-text-3); }
+
+/* 실제 OS 아이콘과 대체 아이콘 */
+:root .file-icon { position: relative; color: var(--fl-text-3); height: auto; min-height: 16px; }
+:root .file-icon > img { width: 100%; height: 100%; object-fit: contain; display: block; }
+:root .file-icon > img[hidden] { display: none; }
+:root .file-icon.native > svg { display: none; }
+:root .file-icon.thumbnail > img { border-radius: 2px; box-shadow: 0 0 0 1px var(--fl-stroke); background: var(--fl-surface); }
+:root .file-icon.folder > svg { color: #c88f22; fill: var(--fl-folder); stroke: #b07a16; stroke-width: 1.3; }
+:root .file-icon.pdf > svg { color: #c4314b; }
+:root .file-icon.image > svg { color: #0f7b6c; }
+:root .file-icon.code > svg { color: #5c2e91; }
+:root .file-icon.document > svg { color: #185abd; }
+:root .file-icon.audio > svg { color: #ca5010; }
+:root .file-icon.archive > svg { color: #8e562e; }
+:root .file-grid .file-row { border-radius: var(--fl-radius); }
+
+/* 폴더 트리 */
+:root .folder-tree { background: var(--fl-surface); border-right: 1px solid var(--fl-stroke); }
+:root .folder-tree [role="treeitem"] > .tree-row,
+:root .folder-tree .tree-node { border-radius: var(--fl-radius); }
+
+/* 상태 표시줄 */
+:root .explorer-footer {
+  background: var(--fl-surface);
+  border-top: 1px solid var(--fl-stroke);
+  color: var(--fl-text-2);
+  font-size: 12px;
+  min-height: 26px;
+}
+:root .explorer-footer button { color: var(--fl-accent); }
+
+/* 대화상자: WinUI ContentDialog */
+:root .modal {
+  border-radius: var(--fl-radius-lg);
+  border: 1px solid var(--fl-stroke);
+  background: var(--fl-surface);
+  color: var(--fl-text);
+  box-shadow: var(--fl-shadow-dialog);
+}
+:root[data-theme="dark"] .modal { background: #2b2b2b; border-color: #3d3d3d; }
+:root .modal::backdrop { background: rgba(0, 0, 0, 0.3); }
+:root .modal-header { border-bottom: 0; padding-top: 20px; }
+:root .modal-header h2 { font-size: 18px; font-weight: 600; color: var(--fl-text); }
+:root .modal-header p { color: var(--fl-text-2); }
+:root .modal-footer {
+  background: var(--fl-canvas);
+  border-top: 1px solid var(--fl-stroke);
+  border-radius: 0 0 var(--fl-radius-lg) var(--fl-radius-lg);
+}
+:root[data-theme="dark"] .modal-footer { background: #202020; }
+
+/* 알림 */
+:root .toast {
+  border-radius: var(--fl-radius-lg);
+  border: 1px solid var(--fl-stroke);
+  background: var(--fl-surface);
+  color: var(--fl-text);
+  box-shadow: var(--fl-shadow-flyout);
+}
+
+/* 도구 탭: 피벗(Pivot) 스타일 */
+:root .tools-tabs { gap: 4px; border-bottom: 1px solid var(--fl-stroke); }
+:root .tools-tabs button {
+  border: 0;
+  border-radius: var(--fl-radius);
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--fl-text-2);
+  position: relative;
+}
+:root .tools-tabs button:hover { background: var(--fl-hover); color: var(--fl-text); }
+:root .tools-tabs button[aria-selected="true"] { background: transparent; color: var(--fl-text); font-weight: 600; }
+:root .tools-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  width: 20px;
+  height: 3px;
+  margin-left: -10px;
+  border-radius: 2px;
+  background: var(--fl-accent);
+}
+
+/* 빠른 검색 창 */
+:root .quick-shell { border-radius: var(--fl-radius-lg); border-color: var(--fl-stroke-control); background: var(--fl-surface); color: var(--fl-text); }
+:root[data-theme="dark"] .quick-shell { background: #2b2b2b; }
+:root .quick-result { border-radius: var(--fl-radius); }
+:root .quick-result.active { background: var(--fl-selected); }
+:root .quick-result .file-icon { width: 24px; }
+:root .quick-filters[hidden],
+:root .quick-clipboard .quick-history { display: none; }
+:root .quick-clipboard .quick-content { padding: 0; }
+
+/* 검색 조건 줄: 너무 작은 글자를 Windows 기본 크기로 맞춘다. */
+:root .search-method,
+:root .search-scope,
+:root .search-scope select,
+:root .search-scope button,
+:root .search-method select { font-size: 12px; color: var(--fl-text-2); }
+:root .search-method select,
+:root .search-scope select { color: var(--fl-text); }
+:root .search-scope button { border-radius: var(--fl-radius); padding: 3px 6px; }
+:root .search-scope button:hover { background: var(--fl-hover); color: var(--fl-text); }
+:root .search-selection { border-top: 1px solid var(--fl-stroke); background: var(--fl-surface-2); }
+
+/* 상단 명령 단추는 테두리 없는 Windows 명령 막대 단추로 통일한다(다크 포함). */
+:root .app-header .workspace-actions .button.secondary,
+:root[data-theme="dark"] .app-header .workspace-actions .button.secondary {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fl-text);
+}
+:root .app-header .workspace-actions .button.secondary:hover:not(:disabled),
+:root[data-theme="dark"] .app-header .workspace-actions .button.secondary:hover:not(:disabled),
+:root .app-header .workspace-actions .button.secondary.pressed { background: var(--fl-hover); }
+:root .app-shell .result-summary { background: var(--fl-surface); border-color: var(--fl-stroke); }
+
+/* 우클릭 메뉴의 단축키는 Windows 11처럼 테두리 없는 회색 글자로 표시한다. */
+:root .file-context-menu .context-items kbd,
+:root [role="menu"] kbd { border: 0; background: transparent; padding: 0; color: var(--fl-text-3); font-size: 11px; }
+:root .file-context-menu .context-items > button { border-radius: var(--fl-radius); }
+:root .file-context-menu .context-items > button:hover:not(:disabled),
+:root .file-context-menu .context-items > button.active { background: var(--fl-hover-strong); }
+:root .local-index-note strong { color: var(--fl-text); }
+:root .local-index-note > svg { color: var(--fl-text-2); }
+
+/* 주소줄: 좁아지면 앞쪽 경로부터 줄여 현재 폴더 이름이 항상 보이게 한다. */
+:root .app-shell .breadcrumbs { overflow: hidden; gap: 2px; padding: 0 6px; }
+:root .app-shell .breadcrumbs > button,
+:root .app-shell .breadcrumbs > span { min-width: 0; flex-shrink: 1; }
+:root .app-shell .breadcrumbs > span { display: flex; align-items: center; gap: 2px; }
+:root .app-shell .breadcrumbs > span:last-child { flex-shrink: 0; max-width: 75%; }
+:root .app-shell .breadcrumbs button {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+:root .app-shell .breadcrumbs > span:last-child > button { font-weight: 600; }
+:root .app-shell .explorer-navigation .folder-filter { flex-basis: 200px; min-width: 110px; }
+
+/* 상태 표시줄 오른쪽의 자세히·아이콘 보기 전환(탐색기 위치) */
+:root .explorer-footer { display: flex; align-items: center; gap: 10px; }
+:root .explorer-footer > span:first-child { margin-right: auto; }
+:root .footer-views { display: flex; gap: 1px; margin-left: 4px; }
+:root .footer-views .icon-button { width: 24px; min-width: 24px; height: 22px; padding: 2px; }
+:root .footer-views .icon-button.chosen { background: var(--fl-hover-strong); color: var(--fl-text); }
+:root .explorer-footer button { font-size: 12px; }
+:root .footer-views .icon-button { color: var(--fl-text-2); }

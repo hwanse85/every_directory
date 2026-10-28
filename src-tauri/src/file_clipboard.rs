@@ -66,7 +66,12 @@ pub fn sequence() -> u32 {
     {
         unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
     }
-    #[cfg(not(windows))]
+    // macOS는 붙여넣기 보드 변경 횟수로 새 복사를 감지한다.
+    #[cfg(target_os = "macos")]
+    {
+        objc2::rc::autoreleasepool(|_| objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() as u32)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         0
     }
@@ -89,7 +94,7 @@ pub fn finish_cut(owner: isize, expected: u32) {
 
 // macOS 파일 URL 객체를 기록해 Finder 붙여넣기를 지원한다.
 #[cfg(target_os = "macos")]
-fn write_files(paths: &[PathBuf], _owner: isize, _cut: bool) -> Result<(), String> {
+pub(crate) fn write_files(paths: &[PathBuf], _owner: isize, _cut: bool) -> Result<(), String> {
     write_macos(&objc2_app_kit::NSPasteboard::generalPasteboard(), paths)
 }
 

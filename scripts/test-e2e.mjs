@@ -9,29 +9,36 @@ import {
 import path from "node:path";
 import os from "node:os";
 import { prepare } from "./e2e-fixtures.mjs";
-if (process.platform !== "win32")
-  throw new Error("Windows WebView2에서 실행하세요.");
 const suite = process.argv[2] ?? "search";
+// macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. 나머지는 Windows 경로·셸 동작을 검증한다.
+const macSuites = ["ux", "quick", "empty", "desktop"];
+if (process.platform !== "win32" && !(process.platform === "darwin" && macSuites.includes(suite)))
+  throw new Error(`Windows WebView2에서 실행하세요. macOS에서는 ${macSuites.join(", ")} 스위트를 지원합니다.`);
+const mac = process.platform === "darwin";
 await mkdir("test-results/e2e", {recursive:true});
 await writeFile(`test-results/e2e/${suite}.json`,JSON.stringify({suite,passed:false,tests:[],errors:["검증 실행이 완료되지 않았습니다."]}));
 let clipboardGuard;
-if (["clipboard","history","history-monitor","quick","desktop","actions"].includes(suite)) {
-  clipboardGuard = spawn(
-    "powershell.exe",
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-STA",
-      "-File",
-      path.resolve("scripts/clipboard-guard.ps1"),
-    ],
-    { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
-  );
+const touchesClipboard = ["clipboard","history","history-monitor","quick","desktop","actions","ux"].includes(suite);
+if (touchesClipboard) {
+  // Windows는 PowerShell, macOS는 Swift 도우미로 모든 클립보드 형식을 메모리에 보관한다.
+  clipboardGuard = mac
+    ? spawn("swift", [path.resolve("scripts/clipboard-guard-mac.swift")], { stdio: ["pipe", "pipe", "pipe"] })
+    : spawn(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-STA",
+        "-File",
+        path.resolve("scripts/clipboard-guard.ps1"),
+      ],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
+    );
   const preserved = await new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => { clipboardGuard.kill(); resolve(false); },
-      10000,
+      mac ? 90000 : 10000,
     );
     clipboardGuard.stdout.on("data", (data) => {
       if (String(data).includes("ED_CLIPBOARD_READY")) {
@@ -95,9 +102,9 @@ if (!process.argv.includes("--no-build")) {
     );
   });
 }
-const executable = path.join(temp, "EveryDirectory-e2e.exe");
+const executable = path.join(temp, mac ? "EveryDirectory-e2e" : "EveryDirectory-e2e.exe");
 await copyFile(
-  path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", "debug/every-directory.exe"),
+  path.resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target", mac ? "debug/every-directory" : "debug/every-directory.exe"),
   executable,
 );
 let child = spawn(executable, [], {

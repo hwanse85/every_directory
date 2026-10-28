@@ -87,7 +87,7 @@ import type {
   TableSort,
 } from "./types";
 import { Explorer, createPane, createTab } from "./components/Explorer";
-import { FileTable } from "./components/FileTable";
+import { FileTable, type FileCursor } from "./components/FileTable";
 import { SearchColumnPicker } from "./components/SearchColumnPicker";
 import { normalizeSearchColumns, normalizeTableSort } from "./searchColumns";
 import { restorePaneState } from "./tabs";
@@ -281,6 +281,7 @@ export default function App() {
     elapsed: 0,
   });
   const [searchSelection,setSearchSelection]=useState<FileEntry[]>([]);
+  const [searchCursor,setSearchCursor]=useState<FileCursor>();
   const [searchTool,setSearchTool]=useState<ToolRequest>();
   const [searchTransfer,setSearchTransfer]=useState<{action:"copy"|"move";paneId:string}>();
   const [searchTransferBusy,setSearchTransferBusy]=useState(false);
@@ -1665,6 +1666,12 @@ export default function App() {
                         e.nativeEvent.keyCode === 229
                       )
                         return;
+                      if (e.key === "ArrowDown" && result.entries.length) {
+                        // 검색어 입력 중 ↓로 결과 목록의 선택 항목(없으면 첫 항목)으로 들어간다.
+                        e.preventDefault();
+                        setSearchCursor({ token: performance.now(), id: selected?.id, focus: true });
+                        return;
+                      }
                       if (e.key === "Enter" && query.trim() && isDesktop) {
                         void quickAccess("query", { query }).catch((cause) =>
                           notify(String(cause), true),
@@ -1856,6 +1863,7 @@ export default function App() {
                 searchMode={mode}
                 caseSensitive={caseSensitive}
                 onSelect={selectResult}
+                cursor={searchCursor}
                 onOpen={(entry) => void openResult(entry)}
                 onQuickPreview={setPreview}
                 compact={density === "compact"}

@@ -1,7 +1,7 @@
 import {usePreferences,visibleFile,updatePreferences} from "../preferences";
 import { writeClipboard, isDesktop, importDroppedFiles, supportsWindowsNew, windowsNewMenu } from "../client";
 import type { FileDrag } from "../fileDrag";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -23,6 +23,10 @@ import {
   Palette,
   Pin,
   ExternalLink,
+  Search,
+  ArrowUpDown,
+  ChevronDown,
+  LayoutGrid,
 } from "lucide-react";
 import type { IndexClient } from "../client";
 import type {
@@ -35,7 +39,7 @@ import type {
   ToolRequest,
 } from "../types";
 import { FileActions } from "./FileActions";
-import { FileTable } from "./FileTable";
+import { FileTable, type FileCursor } from "./FileTable";
 import { FolderTree } from "./FolderTree";
 import { FileContextMenu } from "./FileContextMenu";
 import { Modal } from "./Modal";
@@ -131,6 +135,14 @@ export function Explorer({
   const [address, setAddress] = useState<string>();
   const addressRef = useRef<HTMLInputElement>(null);
   const revealed = useRef<FileEntry | undefined>(undefined);
+  const [cursor, setCursor] = useState<FileCursor>();
+  const cursorIntent = useRef<{ focus: boolean; from: Location } | undefined>(undefined);
+  const previousLocation = useRef(location);
+  const selectedRef = useRef<FileEntry | undefined>(undefined);
+  const entriesRef = useRef<FileEntry[]>([]);
+  const createdName = useRef<{ name: string; at: number } | undefined>(undefined);
+  const revealRef = useRef(revealEntry);
+  revealRef.current = revealEntry;
   const [filter, setFilter] = useState("");
   const filterEditing = useSearchInput("initials", setFilter);
   const composingFilter = filterEditing.composing;
@@ -145,6 +157,32 @@ export function Explorer({
   const closeTabMenu=useCallback(()=>setTabMenu(undefined),[]);
   useEffect(()=>{savePreference(`closedTabs:${pane.id}`,closedTabs);},[closedTabs,pane.id]);
   useEffect(()=>{savePreference(`folderTreeVisible:${pane.id}`,tree);},[tree,pane.id]);
+  const [flyout, setFlyout] = useState<"sort" | "view">();
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!flyout) return;
+    // 바깥을 누르거나 Esc를 누르면 정렬·보기 메뉴를 닫고 단추로 초점을 돌린다.
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (!flyoutRef.current?.contains(target) && !target.closest?.(".search-columns-picker")) setFlyout(undefined);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // 마우스로 연 메뉴는 WebView에 따라 초점이 문서에 남으므로 그 경우에도 닫는다.
+      const inside = !!flyoutRef.current?.contains(document.activeElement);
+      if (!inside && document.activeElement && document.activeElement !== document.body) return;
+      event.preventDefault();
+      event.stopPropagation();
+      flyoutRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus();
+      setFlyout(undefined);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [flyout]);
   const [context, setContext] = useState<{ x: number; y: number }>();
   const [localTool, setLocalTool] = useState<ToolRequest>();
   const [transfer, setTransfer] = useState<Location[]>();
@@ -461,7 +499,31 @@ export function Explorer({
       .request<FileEntry[]>("list", location)
       .then((result) => {
         if (alive) {
+          const intent = cursorIntent.current;
+          cursorIntent.current = undefined;
+          const before = selectedRef.current;
+          const previousEntries = entriesRef.current;
           setEntries(result);
+          if (!revealRef.current || revealed.current === revealRef.current) {
+            if (intent) {
+              // 상위 폴더로 돌아오면 방금 있던 하위 폴더를, 키보드로 들어왔으면 첫 항목을 가리킨다.
+              const prefix = location.path ? `${location.path}/` : "";
+              const child = intent.from.rootId === location.rootId && intent.from.path.startsWith(prefix) && intent.from.path !== location.path
+                ? result.find((entry) => entry.path === prefix + intent.from.path.slice(prefix.length).split("/")[0])
+                : undefined;
+              // 응답을 기다리는 동안 사용자가 다른 입력칸으로 옮겼다면 초점을 빼앗지 않는다.
+              const focus = intent.focus && keyboardInList();
+              if (child || focus) setCursor({ token: performance.now(), id: child?.id, focus });
+            } else if (createdName.current && performance.now() - createdName.current.at < 5000 && result.some((entry) => entry.parent === location.path && entry.name === createdName.current?.name)) {
+              const created = result.find((entry) => entry.parent === location.path && entry.name === createdName.current?.name);
+              createdName.current = undefined;
+              setCursor({ token: performance.now(), id: created?.id, focus: active && keyboardInList() });
+            } else if (before && !result.some((entry) => entry.id === before.id)) {
+              // 삭제·이동은 같은 자리의 다음 항목을, 이름 변경은 새 이름의 항목을 선택한다.
+              const added = result.filter((entry) => !previousEntries.some((item) => item.id === entry.id));
+              setCursor({ token: performance.now(), id: added.length === 1 ? added[0].id : undefined, replaced: before.id, focus: active && keyboardInList() });
+            }
+          }
           setSelected((previous) =>
             result.find((entry) => entry.id === previous?.id),
           );
@@ -489,6 +551,32 @@ export function Explorer({
       alive = false;
     };
   }, [client, location.rootId, location.path, revision, reload]);
+  selectedRef.current = selected;
+  entriesRef.current = entries;
+  // 이 탐색창의 파일 목록이 키보드 초점을 가졌는지 확인한다.
+  function listFocused() {
+    return !!paneRef.current?.querySelector(".file-scroll")?.contains(document.activeElement);
+  }
+  // 초점이 목록에 있거나, 목록 행이 다시 그려지며 초점이 문서로 떨어진 경우만 목록 초점으로 본다.
+  const listHadFocus = useRef(false);
+  useEffect(() => {
+    const track = (event: FocusEvent) => {
+      // 목록에서 연 대화상자·메뉴 안의 초점 이동은 ‘목록 작업 중’ 상태를 지우지 않는다.
+      if ((event.target as Element | null)?.closest?.('dialog,[role="menu"]')) return;
+      listHadFocus.current = !!paneRef.current?.querySelector(".file-scroll")?.contains(event.target as Node);
+    };
+    document.addEventListener("focusin", track);
+    return () => document.removeEventListener("focusin", track);
+  }, []);
+  function keyboardInList() {
+    return listFocused() || ((!document.activeElement || document.activeElement === document.body) && listHadFocus.current);
+  }
+  useLayoutEffect(() => {
+    const from = previousLocation.current;
+    previousLocation.current = location;
+    if (from.rootId === location.rootId && from.path === location.path) return;
+    cursorIntent.current = { focus: active && listFocused(), from };
+  }, [location.rootId, location.path]);
   useEffect(() => {
     setSelected(undefined);
     setSelection([]);
@@ -921,24 +1009,43 @@ export function Explorer({
           </button>
           <span className="tool-divider" />
           {isDesktop&&<button className="icon-button" title="현재 폴더를 운영체제 기본 탐색기에서 열기" aria-label="기본 탐색기에서 열기" disabled={!root||!!root.demo} onClick={()=>void client.request("operation",{action:"open",entries:[location]}).catch(cause=>onError(String(cause)))}><ExternalLink size={14}/></button>}
-          <button
-            className={`icon-button ${pane.view === "list" ? "chosen" : ""}`}
-            title="목록 보기"
-            aria-label="목록 보기"
-            aria-pressed={pane.view === "list"}
-            onClick={() => onChange({ ...pane, view: "list" })}
-          >
-            <List size={15} />
-          </button>
-          <button
-            className={`icon-button ${pane.view === "grid" ? "chosen" : ""}`}
-            title="격자 보기"
-            aria-label="격자 보기"
-            aria-pressed={pane.view === "grid"}
-            onClick={() => onChange({ ...pane, view: "grid" })}
-          >
-            <Grid2X2 size={14} />
-          </button>
+        </div>
+        <div className="folder-filter">
+          <Search size={13} className="filter-icon" aria-hidden="true" />
+          <SearchTextInput
+            aria-label={`탐색창 ${number} 파일 필터`}
+            preview={filterEditing.preview}
+            ref={filterRef}
+            placeholder={`${location.path.split("/").pop() || locationLabel(root) || "현재 폴더"} 검색`}
+            title="이름 일부·한글 초성·와일드카드로 필터"
+            maxLength={512}
+            value={filter}
+            onCompositionStart={filterEditing.onCompositionStart}
+            onCompositionEnd={filterEditing.onCompositionEnd}
+            onChange={filterEditing.onChange}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" && !composingFilter.current && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                setCursor({ token: performance.now(), id: selected?.id, focus: true });
+                return;
+              }
+              if (event.key === "Escape" && !composingFilter.current && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                setFilter("");
+                paneRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+              }
+            }}
+          />
+          {!showHidden && (
+            <span className="hidden-status" title="숨김 파일을 감추고 있습니다">
+              <EyeOff size={13} />
+            </span>
+          )}
+          {filter && (
+            <button aria-label="폴더 필터 지우기" onClick={() => setFilter("")}>
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
       <FileActions
@@ -958,54 +1065,30 @@ export function Explorer({
           setSelection(visibleEntries);
           setSelected(visibleEntries[0]);
         }}
+        onCreated={(name) => { createdName.current = { name, at: performance.now() }; }}
+        extra={<div className="explorer-view-controls" ref={flyoutRef} aria-label={`탐색창 ${number} 보기 설정`}>
+          <div className="command-flyout">
+            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "sort"} title="정렬 기준과 분류" onClick={() => setFlyout(flyout === "sort" ? undefined : "sort")}>
+              <ArrowUpDown size={14} /><span>정렬</span><ChevronDown size={12} className="flyout-chevron" />
+            </button>
+            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 정렬`} hidden={flyout !== "sort"}>
+              <label><span>정렬 기준</span><select size={Math.min(searchColumnOptions.length, 8)} aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+              <button className="sort-direction" aria-label={`탐색창 ${number} ${explorerSort.descending?"오름차순":"내림차순"}으로 정렬`} title={explorerSort.descending?"내림차순 · 클릭하여 오름차순":"오름차순 · 클릭하여 내림차순"} onClick={()=>onChange({...pane,sort:{...explorerSort,descending:!explorerSort.descending}})}>{explorerSort.descending?<ArrowDown size={13}/>:<ArrowUp size={13}/>}<span>{explorerSort.descending ? "내림차순" : "오름차순"}</span></button>
+              <label><span>분류(그룹)</span><select aria-label={`탐색창 ${number} 분류 기준`} value={pane.group??"none"} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+            </div>
+          </div>
+          <div className="command-flyout">
+            <button className="flyout-trigger" aria-haspopup="true" aria-expanded={flyout === "view"} title="보기 방식·탐색 창·표시 항목" onClick={() => setFlyout(flyout === "view" ? undefined : "view")}>
+              <LayoutGrid size={14} /><span>보기</span><ChevronDown size={12} className="flyout-chevron" />
+            </button>
+            <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 보기`} hidden={flyout !== "view"}>
+              <label><span>보기 방식</span><select size={explorerViews.length} aria-label={`탐색창 ${number} 보기 종류`} value={pane.view} onChange={event=>{onChange({...pane,view:event.target.value as ExplorerPane["view"]});}} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();setFlyout(undefined);}}} onClick={event=>{if((event.target as HTMLElement).tagName==="OPTION")setFlyout(undefined);}}>{explorerViews.map(view=><option key={view.id} value={view.id}>{view.label}</option>)}</select></label>
+              <button className={`tree-toggle ${tree ? "chosen" : ""}`} aria-label="폴더 트리 표시" aria-pressed={tree} title="폴더 트리(탐색 창)" onClick={() => setTree(!tree)}><FolderTreeIcon size={14} /><span>폴더 트리(탐색 창)</span>{tree && <Check size={13} className="flyout-check" />}</button>
+              <SearchColumnPicker label={`탐색창 ${number} 표시 항목`} defaults={defaultExplorerColumns} columns={explorerColumns} onChange={columns=>onChange({...pane,columns,view:"list"})}/>
+            </div>
+          </div>
+        </div>}
       />
-      <div className="folder-filter">
-        <button
-          className={tree ? "chosen" : ""}
-          aria-label="폴더 트리 표시"
-          aria-pressed={tree}
-          title="폴더 트리"
-          onClick={() => setTree(!tree)}
-        >
-          <FolderTreeIcon size={14} />
-        </button>
-        <SearchTextInput
-          aria-label={`탐색창 ${number} 파일 필터`}
-          preview={filterEditing.preview}
-          ref={filterRef}
-          placeholder="현재 폴더에서 필터…"
-          title="이름 일부·한글 초성·와일드카드로 필터"
-          maxLength={512}
-          value={filter}
-          onCompositionStart={filterEditing.onCompositionStart}
-          onCompositionEnd={filterEditing.onCompositionEnd}
-          onChange={filterEditing.onChange}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !composingFilter.current && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              setFilter("");
-              paneRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
-            }
-          }}
-        />
-        {!showHidden && (
-          <span className="hidden-status" title="숨김 파일을 감추고 있습니다">
-            <EyeOff size={13} />
-          </span>
-        )}
-        {filter && (
-          <button aria-label="폴더 필터 지우기" onClick={() => setFilter("")}>
-            <X size={12} />
-          </button>
-        )}
-      </div>
-      <div className="explorer-view-controls" aria-label={`탐색창 ${number} 보기 설정`}>
-        <label><span>보기</span><select aria-label={`탐색창 ${number} 보기 종류`} value={pane.view} onChange={event=>onChange({...pane,view:event.target.value as ExplorerPane["view"]})}>{explorerViews.map(view=><option key={view.id} value={view.id}>{view.label}</option>)}</select></label>
-        <label><span>정렬</span><select aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
-        <button className="sort-direction" aria-label={`탐색창 ${number} ${explorerSort.descending?"오름차순":"내림차순"}으로 정렬`} title={explorerSort.descending?"내림차순 · 클릭하여 오름차순":"오름차순 · 클릭하여 내림차순"} onClick={()=>onChange({...pane,sort:{...explorerSort,descending:!explorerSort.descending}})}>{explorerSort.descending?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</button>
-        <label><span>분류</span><select aria-label={`탐색창 ${number} 분류 기준`} value={pane.group??"none"} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
-        <SearchColumnPicker label={`탐색창 ${number} 표시 항목`} defaults={defaultExplorerColumns} columns={explorerColumns} onChange={columns=>onChange({...pane,columns,view:"list"})}/>
-      </div>
       <div
         className="explorer-files"
         onContextMenu={(event) => {
@@ -1055,6 +1138,7 @@ export function Explorer({
           sortState={explorerSort}
           onSortChange={sort=>onChange({...pane,sort:sort??{key:"name",descending:false}})}
           onSelect={setSelected}
+          cursor={cursor}
           onOpen={openEntry}
           onContextMenu={
             root && !root.demo
@@ -1219,6 +1303,27 @@ export function Explorer({
             {active ? "활성 탐색창" : "탐색창"}
           </span>
         )}
+        {/* 탐색기처럼 상태 표시줄 오른쪽에서 자세히·아이콘 보기를 바로 바꾼다. */}
+        <div className="footer-views">
+        <button
+          className={`icon-button ${pane.view === "list" ? "chosen" : ""}`}
+          title="목록 보기"
+          aria-label="목록 보기"
+          aria-pressed={pane.view === "list"}
+          onClick={() => onChange({ ...pane, view: "list" })}
+        >
+          <List size={15} />
+        </button>
+        <button
+          className={`icon-button ${pane.view === "grid" ? "chosen" : ""}`}
+          title="격자 보기"
+          aria-label="격자 보기"
+          aria-pressed={pane.view === "grid"}
+          onClick={() => onChange({ ...pane, view: "grid" })}
+        >
+          <Grid2X2 size={14} />
+        </button>
+        </div>
       </footer>
       {drop && (
         <div className="drop-label">

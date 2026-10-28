@@ -10,8 +10,8 @@ async function command(args) {
     child.once("exit", (code) => resolve(code ?? 1));
   });
 }
-if (process.platform !== "win32")
-  throw new Error("Windows WebView2용 E2E입니다.");
+if (!["win32", "darwin"].includes(process.platform))
+  throw new Error("Windows WebView2·macOS WKWebView용 E2E입니다.");
 if (
   (await command([
     "scripts/desktop.mjs",
@@ -24,7 +24,8 @@ if (
 )
   throw new Error("E2E 빌드 실패");
 const reports = [];
-for (const suite of [
+// macOS는 플랫폼 공용 스위트만, Windows는 전체 스위트를 실행한다.
+const suites = process.platform === "darwin" ? ["ux", "quick", "empty", "desktop"] : [
   "search",
   "audit",
   "explorer",
@@ -44,7 +45,9 @@ for (const suite of [
   "transfer",
   "empty",
   "windows",
-]) {
+  "ux",
+];
+for (const suite of suites) {
   const code = await command(["scripts/test-e2e.mjs", suite, "--no-build"]);
   try {
     const report = JSON.parse(

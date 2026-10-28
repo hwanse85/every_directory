@@ -447,25 +447,50 @@ pub fn show_quick(app: &AppHandle, toggle: bool) -> Result<(), String> {
     }
     if let Ok(position) = app.cursor_position() {
         if let Ok(Some(monitor)) = app.monitor_from_point(position.x, position.y) {
-            let area = monitor.work_area();
-            let scale = monitor.scale_factor();
-            let width = 720.0f64
-                .min(area.size.width as f64 / scale - 24.0)
-                .max(320.0);
-            let height = 540.0f64
-                .min(area.size.height as f64 / scale - 24.0)
-                .max(280.0);
-            let _ = window.set_size(tauri::LogicalSize::new(width, height));
-            let x = area.position.x + ((area.size.width as f64 - width * scale) / 2.0) as i32;
-            let y = area.position.y
-                + ((area.size.height as f64 - height * scale) / 3.0).max(0.0) as i32;
-            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            place_quick(&window, &monitor, QUICK_SIZE);
         }
     }
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     app.emit_to("quick-search", "ed-quick-show", ())
         .map_err(|e| e.to_string())
+}
+
+const QUICK_SIZE: (f64, f64) = (720.0, 540.0);
+// 클립보드 이력은 한 번에 여러 항목과 미리보기를 보도록 더 큰 창을 쓴다.
+const QUICK_CLIPBOARD_SIZE: (f64, f64) = (1040.0, 760.0);
+
+// 모니터 작업 영역을 넘지 않는 크기로 검색창을 가운데 위쪽에 배치한다.
+fn place_quick(window: &tauri::WebviewWindow, monitor: &tauri::Monitor, (width, height): (f64, f64)) {
+    let area = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let width = width.min(area.size.width as f64 / scale - 24.0).max(320.0);
+    let height = height.min(area.size.height as f64 / scale - 24.0).max(280.0);
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let x = area.position.x + ((area.size.width as f64 - width * scale) / 2.0) as i32;
+    let y = area.position.y + ((area.size.height as f64 - height * scale) / 3.0).max(0.0) as i32;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+// 사용자가 옮긴 위치를 지키도록 현재 중심을 기준으로 크기만 바꾸고, 작업 영역을 벗어나면 안으로 들인다.
+fn resize_quick(window: &tauri::WebviewWindow, monitor: &tauri::Monitor, (width, height): (f64, f64)) {
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return place_quick(window, monitor, (width, height));
+    };
+    let area = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let width = width.min(area.size.width as f64 / scale - 24.0).max(320.0);
+    let height = height.min(area.size.height as f64 / scale - 24.0).max(280.0);
+    let (physical_width, physical_height) = ((width * scale) as i32, (height * scale) as i32);
+    let center = (position.x + size.width as i32 / 2, position.y + size.height as i32 / 2);
+    let left = area.position.x;
+    let top = area.position.y;
+    let right = left + area.size.width as i32 - physical_width;
+    let bottom = top + area.size.height as i32 - physical_height;
+    let x = (center.0 - physical_width / 2).clamp(left, right.max(left));
+    let y = (center.1 - physical_height / 2).clamp(top, bottom.max(top));
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 // 검색창의 숨김과 메인 탐색창 연결만 허용한다.
@@ -490,6 +515,15 @@ pub async fn quick_control(
             }
         }
         "show" => show_quick(&app, false)?,
+        "expand" | "restore" => {
+            if let Some(window) = app.get_webview_window("quick-search") {
+                // 한 번도 표시하지 않은 창은 현재 모니터가 없을 수 있어 주 모니터를 기준으로 한다.
+                let monitor = window.current_monitor().ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
+                if let Some(monitor) = monitor {
+                    resize_quick(&window, &monitor, if action == "expand" { QUICK_CLIPBOARD_SIZE } else { QUICK_SIZE });
+                }
+            }
+        }
         "main" | "folders" | "reveal" => {
             let target = if action == "reveal" {
                 let engine = app.state::<Arc<Engine>>();

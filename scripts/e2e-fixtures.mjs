@@ -42,6 +42,14 @@ export async function prepare(root, suite) {
     execFileSync("attrib.exe",["+H",path.join(root,"native-hidden.txt")],{windowsHide:true});
     return;
   }
+  if(suite==="ux"){
+    for(const folder of ["가 폴더/하위","나 폴더"])await mkdir(path.join(root,folder),{recursive:true});
+    for(const name of ["가 폴더/하위/내용.txt","다 문서.txt","사 삭제용.txt","아 이름변경.txt","자 마지막.txt"])await writeFile(path.join(root,name),`ux ${name}`);
+    await writeFile(path.join(root,"라 계산.xlsx"),"xlsx placeholder");
+    await writeFile(path.join(root,"마 보고서.pdf"),pdf());
+    await sharp({create:{width:96,height:64,channels:3,background:"#2f7fd8"}}).png().toFile(path.join(root,"바 그림.png"));
+    return;
+  }
   if(suite==="explorer"){
     for(const folder of ["문서/하위","비공개/하위","대상"])await mkdir(path.join(root,folder),{recursive:true});
     await writeFile(path.join(root,"업무 보고서.txt"),"미리보기 검증\n".repeat(60));

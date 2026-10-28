@@ -17,6 +17,11 @@ const env = privateBuildEnvironment({
     process.env.PATH,
   ].join(path.delimiter),
 });
+// Homebrew makensis는 C 로캘에서 바로 종료되므로 macOS 교차 빌드에서는 UTF-8 로캘을 지정한다.
+if (cross && !/UTF-?8/i.test(env.LC_ALL || env.LANG || "")) {
+  env.LANG = "en_US.UTF-8";
+  env.LC_ALL = "en_US.UTF-8";
+}
 const args = [
   "node_modules/@tauri-apps/cli/tauri.js",
   "build",

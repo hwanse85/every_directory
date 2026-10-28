@@ -1,0 +1,4 @@
+c67f839359cdd934df87c5b89356d486e5504cf5e26f1a69f4ea1da1acf94cc5  EveryDirectory-0.11.0-macos-arm64.dmg
+cd8c9248b1d6aebb21b31237db6b919073cf510f59a9bf9ef88b19d3ce932932  EveryDirectory-0.11.0-macos-arm64.zip
+9d4df7c8c0e06fd7a40b992bd61612a3ad29548ddcd9d7cd6a4ffd4d9e329536  EveryDirectory-0.11.0-windows-x64-portable.zip
+b4eb4a40303bd12428e4451a9b527b4bf3893670f4125b6528fc689de82e43a8  EveryDirectory-0.11.0-windows-x64-setup.exe

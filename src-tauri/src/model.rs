@@ -48,7 +48,7 @@ pub struct Root {
 }
 
 // 등록된 폴더 안의 상대 경로만 파일 작업에 사용한다.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
     pub root_id: String,

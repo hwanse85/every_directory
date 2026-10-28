@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Archive,
   ClipboardPaste,
@@ -14,6 +14,7 @@ import {
   copyFiles,
   pasteFiles,
   isDesktop,
+  isMac,
   quickAccess,
   type IndexClient,
 } from "../client";
@@ -72,6 +73,8 @@ export function FileActions({
   onMore,
   scope = "explorer",
   selectionOnly = false,
+  extra,
+  onCreated,
 }: {
   client: IndexClient;
   entries: FileEntry[];
@@ -88,6 +91,8 @@ export function FileActions({
   onMore: (x: number, y: number) => void;
   scope?: "explorer" | "search";
   selectionOnly?: boolean;
+  extra?: ReactNode;
+  onCreated?: (name: string) => void;
 }) {
   const [imageTool, setImageTool] = useState<"resizeImages" | "ocr">();
   const handledTool = useRef<number | undefined>(undefined);
@@ -103,6 +108,7 @@ export function FileActions({
   const [trash, setTrash] = useState<TrashItem[]>([]);
   const toolbar = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+  const [dense, setDense] = useState(false);
   const selected = entries.map(({ rootId, path }) => ({ rootId, path }));
   let preview: string[] = [];
   let previewError = "";
@@ -336,9 +342,11 @@ export function FileActions({
   }, [toolRequest, disabled, busy, entries, location.rootId, location.path]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(([entry]) =>
-      setCompact(entry.contentRect.width < 560),
-    );
+    // 좁으면 Windows 11 명령 막대처럼 보조 명령은 아이콘만, 더 좁으면 모든 이름을 숨긴다.
+    const observer = new ResizeObserver(([entry]) => {
+      setCompact(entry.contentRect.width < 560);
+      setDense(entry.contentRect.width < 820);
+    });
     if (toolbar.current) observer.observe(toolbar.current);
     return () => observer.disconnect();
   }, []);
@@ -419,12 +427,15 @@ export function FileActions({
   // 현재 입력을 실제 서버 파일 작업으로 적용한다.
   async function submit(): Promise<void> {
     if (!dialog || dialog === "properties" || dialog === "trashList") return;
-    await perform(
+    const creates = ["mkdir", "mkfile", "zip", "unzip"].includes(dialog);
+    const done = await perform(
       { action: dialog, entries: selected, destination: location, name, rule },
       dialog === "trash"
         ? "앱 휴지통으로 이동했습니다. 휴지통에서 복원할 수 있습니다."
         : "파일 작업을 완료했습니다.",
     );
+    // 탐색기처럼 새로 만든 폴더·파일·압축 결과를 목록에서 선택하도록 이름을 알린다.
+    if (done && creates) onCreated?.(name.trim());
   }
 
   const blocked = disabled || busy;
@@ -443,7 +454,7 @@ export function FileActions({
     <>
       <div
         ref={toolbar}
-        className={`file-action-bar ${compact ? "compact" : ""}`}
+        className={`file-action-bar ${compact ? "compact" : ""} ${dense ? "dense" : ""}`}
         aria-label="파일 작업"
         hidden={selectionOnly&&!entries.length}
       >
@@ -482,10 +493,10 @@ export function FileActions({
         <button
           disabled={blocked || entries.length !== 1}
           onClick={() => show("rename")}
-          title="이름 변경 · F2"
+          title={`${isMac ? "이름 변경" : "이름 바꾸기"} · F2`}
         >
           <Pencil size={14} />
-          <span>이름</span>
+          <span>{isMac ? "이름 변경" : "이름 바꾸기"}</span>
         </button>
         <button
           disabled={blocked || !entries.length}
@@ -503,6 +514,7 @@ export function FileActions({
           <Archive size={14} />
           <span>압축</span>
         </button>
+        {extra}
         <button
           aria-label="추가 파일 도구"
           title="모든 파일 작업"

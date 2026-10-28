@@ -1,0 +1,48 @@
+{
+  "version": "0.11.0",
+  "verifiedAt": "2026-10-28T12:01:22.303656+00:00",
+  "node": {
+    "passed": 69,
+    "failed": 0
+  },
+  "rust": {
+    "passed": 61,
+    "failed": 0,
+    "ignored": 4,
+    "platform": "macOS arm64"
+  },
+  "macE2E": {
+    "passed": true,
+    "checks": 100,
+    "suites": {
+      "ux": {
+        "passed": true,
+        "checks": 32
+      },
+      "quick": {
+        "passed": true,
+        "checks": 19
+      },
+      "empty": {
+        "passed": true,
+        "checks": 3
+      },
+      "desktop": {
+        "passed": true,
+        "checks": 46
+      }
+    }
+  },
+  "windowsCrossBuild": {
+    "target": "x86_64-pc-windows-msvc",
+    "installer": "EveryDirectory-0.11.0-windows-x64-setup.exe",
+    "portable": "EveryDirectory-0.11.0-windows-x64-portable.zip",
+    "privacyCheck": true
+  },
+  "notVerified": [
+    "Windows 실기기 WebView2 E2E(19개 기존 스위트 + ux)는 이 Mac에서 실행하지 못함",
+    "Windows 셸 아이콘(edicon) 실행 결과는 교차 컴파일까지만 확인",
+    "로컬 macOS 빌드는 임시 서명(ad-hoc)이며 Apple 공증 전"
+  ],
+  "artifacts": "SHA256SUMS.txt"
+}

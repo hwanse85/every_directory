@@ -1,6 +1,6 @@
 [package]
 name = "every-directory"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 description = "로컬 파일 검색과 다중 탐색창"
 
@@ -39,13 +39,13 @@ libc = "0.2"
 tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_System_Com", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+windows = { version = "0.62", features = ["Win32_System_Com", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_Controls", "Win32_Storage_FileSystem"] }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Security_Cryptography", "Win32_System_Threading"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "NSWindow", "libc"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "NSWindow", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphicsContext", "NSGraphics", "objc2-core-graphics", "objc2-core-foundation", "libc"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL", "NSDictionary", "NSData", "NSGeometry", "objc2-core-foundation"] }
 
 [profile.release]
 opt-level = "s"
