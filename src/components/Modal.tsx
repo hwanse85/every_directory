@@ -20,9 +20,12 @@ export function Modal({
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
-    dialog.current?.showModal();
+    const node = dialog.current;
+    node?.showModal();
     return () => {
-      previous?.focus();
+      // 닫히는 사이 사용자가 다른 곳(예: F3 검색창)으로 초점을 옮겼다면 되돌리지 않는다.
+      const current = document.activeElement;
+      if (!current || current === document.body || node?.contains(current)) previous?.focus();
     };
   }, []);
   return (

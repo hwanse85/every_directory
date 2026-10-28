@@ -185,7 +185,7 @@
 
 /* 상단 명령 모음: 브랜드 영역을 줄이고 Windows 명령 막대처럼 정리한다. */
 :root .app-header {
-  height: 48px;
+  height: 44px;
   padding: 0 10px 0 6px;
   gap: 10px;
   background: var(--fl-canvas);

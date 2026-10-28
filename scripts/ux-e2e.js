@@ -86,8 +86,10 @@
     verify('보기 단추는 메뉴 패널을 연다',viewButton.getAttribute('aria-expanded')==='true'&&!viewButton.nextElementSibling.hidden);
     const view=pane(1).querySelector('[aria-label="탐색창 1 보기 종류"]');set(view,'icons-large');
     await until(()=>pane(1).querySelector('.file-table').dataset.view==='icons-large','큰 아이콘 보기');
-    await until(()=>row('바 그림.png')?.querySelector('.file-icon.thumbnail img')?.naturalWidth>0,'이미지 미리보기 그림');
-    verify('큰 아이콘 보기의 이미지 파일은 미리보기 그림으로 표시',true);
+    const thumbnail=await until(()=>row('바 그림.png')?.querySelector('.file-icon.thumbnail img'),'이미지 미리보기 그림');
+    verify('큰 아이콘 보기의 이미지 파일은 원본 파일 미리보기 그림을 사용',/edfile/.test(thumbnail.src)&&thumbnail.loading==='lazy');
+    // 지연 로딩 그림은 화면에 그려지는 창에서만 받으므로, 숨긴 검증 창(Windows)에서는 주소까지만 확인한다.
+    if(document.visibilityState==='visible'){await until(()=>thumbnail.naturalWidth>0,'미리보기 그림 불러오기');verify('미리보기 그림을 실제로 불러옴',true);}
     set(view,'list');view.focus();key(view,'Escape');await pause();
     verify('Esc로 보기 메뉴를 닫고 단추로 초점 복귀',viewButton.nextElementSibling.hidden&&document.activeElement===viewButton);
     sortButton.click();await pause();document.activeElement?.blur?.();key(document.body,'Escape');await pause();
