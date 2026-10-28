@@ -88,8 +88,9 @@
     await until(()=>pane(1).querySelector('.file-table').dataset.view==='icons-large','큰 아이콘 보기');
     const thumbnail=await until(()=>row('바 그림.png')?.querySelector('.file-icon.thumbnail img'),'이미지 미리보기 그림');
     verify('큰 아이콘 보기의 이미지 파일은 원본 파일 미리보기 그림을 사용',/edfile/.test(thumbnail.src)&&thumbnail.loading==='lazy');
-    // 지연 로딩 그림은 화면에 그려지는 창에서만 받으므로, 숨긴 검증 창(Windows)에서는 주소까지만 확인한다.
-    if(document.visibilityState==='visible'){await until(()=>thumbnail.naturalWidth>0,'미리보기 그림 불러오기');verify('미리보기 그림을 실제로 불러옴',true);}
+    // 숨긴 검증 창은 화면을 그리지 않아 지연 로딩이 시작되지 않으므로, 즉시 로딩으로 바꿔 주소가 실제 그림을 주는지 확인한다.
+    thumbnail.loading='eager';await until(()=>thumbnail.complete&&thumbnail.naturalWidth>0,'미리보기 그림 불러오기');
+    verify('미리보기 주소(edfile·수정 시각)가 실제 그림을 제공',thumbnail.naturalWidth===96);
     set(view,'list');view.focus();key(view,'Escape');await pause();
     verify('Esc로 보기 메뉴를 닫고 단추로 초점 복귀',viewButton.nextElementSibling.hidden&&document.activeElement===viewButton);
     sortButton.click();await pause();document.activeElement?.blur?.();key(document.body,'Escape');await pause();
