@@ -32,6 +32,7 @@ import {
   quickSearch,
   writeClipboard,
   desktopControl,
+  isDesktop,
 } from "../client";
 import {
   isComposingKey,
@@ -55,10 +56,13 @@ import type {
   SearchMode,
 } from "../types";
 import { FileIcon } from "./FileIcon";
+import { fileDragErrorEvent, startFileDrag } from "../fileDrag";
 import "../quick-search.css";
 
 type Action =
   "open" | "reveal" | "main" | "copy" | "path" | "destination" | "favorite";
+// 빠른 검색에서 한 번에 보여 줄 결과 수. 창에 10개 남짓 보이고 나머지는 목록을 내려 본다.
+const quickLimit = 30;
 const emptyAccess: QuickAccess = {
   initialized: false,
   favorites: [],
@@ -191,6 +195,13 @@ export default function QuickSearch() {
     if (current) selectedId.current = current.id;
   }, [entries, selected]);
 
+  // 다른 앱으로 끌기를 시작하지 못한 이유를 검색창 아래에 표시한다.
+  useEffect(() => {
+    const failed = (event: Event) => setError((event as CustomEvent<string>).detail);
+    window.addEventListener(fileDragErrorEvent, failed);
+    return () => window.removeEventListener(fileDragErrorEvent, failed);
+  }, []);
+
   // 클립보드 이력은 여러 항목과 미리보기를 함께 보도록 창을 넓히고, 돌아오면 원래 크기로 되돌린다.
   const clipboardView = view === "clipboard";
   useEffect(() => {
@@ -262,12 +273,12 @@ export default function QuickSearch() {
                   rootId: scope,
                   category,
                   fullPath: isPathQuery(query) || preferences.quickFullPath,
-                  limit: 12,
+                  limit: quickLimit,
                 })
               : { entries: [], total: 0, elapsed: 0 };
             if (version !== requestVersion.current) return;
             setPathMatch(located?.id);
-            applyEntries(located ? [located, ...result.entries.filter((file) => file.id !== located.id)].slice(0, 12) : result.entries);
+            applyEntries(located ? [located, ...result.entries.filter((file) => file.id !== located.id)].slice(0, quickLimit) : result.entries);
             setPartial(!!result.partial);
           } catch (cause) {
             if (version === requestVersion.current) {
@@ -489,7 +500,7 @@ export default function QuickSearch() {
         </div>
       </header>
       <div className="quick-input-row">
-        <Search size={23} />
+        <Search size={21} />
         <SearchTextInput
           ref={input}
           preview={searchEditing.preview}
@@ -737,8 +748,9 @@ export default function QuickSearch() {
                     );
                   }}
                   onDoubleClick={() => void run("open")}
+                  onPointerDown={isDesktop ? (event) => startFileDrag(event, [{ rootId: file.rootId, path: file.path }], { immediate: true }) : undefined}
                 >
-                  <FileIcon entry={file} pixels={24} />
+                  <FileIcon entry={file} pixels={20} />
                   <div className="quick-result-text">
                     <strong title={file.name}><Highlight text={file.name} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)}/></strong>
                     <span
@@ -776,7 +788,7 @@ export default function QuickSearch() {
                       input.current?.focus();
                     }}
                   >
-                    <ChevronRight size={17} />
+                    <ChevronRight size={15} />
                   </button>
                 </div>
               ))}

@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod desktop;
+mod drag_out;
 pub mod file_clipboard;
 pub mod file_icons;
 pub mod preferences;
@@ -332,7 +333,7 @@ async fn quick_search(
             return Err("검색 요청이 취소되었습니다.".into());
         }
         let mut options = options;
-        options.limit = Some(options.limit.unwrap_or(12).clamp(1, 20));
+        options.limit = Some(options.limit.unwrap_or(30).clamp(1, 50));
         let store = engine.store.lock().unwrap();
         if cancelled() {
             return Err("검색 요청이 취소되었습니다.".into());
@@ -363,6 +364,26 @@ async fn copy_files(
     tauri::async_runtime::spawn_blocking(move || {
         engine.wait_ready()?;
         file_clipboard::copy(&engine, &locations, owner, cut.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// 선택한 파일을 운영체제 드래그로 넘긴다. 창 밖의 다른 앱에 놓으면 복사로 받는다.
+#[tauri::command]
+async fn drag_files(
+    window: tauri::WebviewWindow,
+    engine: State<'_, Arc<Engine>>,
+    locations: Vec<Location>,
+) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
+        let paths = locations
+            .iter()
+            .map(|location| engine.resolve(location))
+            .collect::<Result<Vec<_>, _>>()?;
+        drag_out::start(&window, paths)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -716,7 +737,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
+        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, drag_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

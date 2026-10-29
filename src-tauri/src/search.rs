@@ -7,7 +7,7 @@ use std::{
     borrow::Cow,
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use unicode_normalization::UnicodeNormalization;
 
@@ -378,6 +378,25 @@ impl Index {
         self.hidden_dirs=self.entries.iter().filter(|e|e.hidden&&e.kind=="directory").map(|e|e.id.clone()).collect();
     }
 
+    // 항목의 상위 폴더 중 숨김 폴더가 있는지 확인한다.
+    fn under_hidden_dir(&self, entry: &Entry) -> bool {
+        if self.hidden_dirs.is_empty() {
+            return false;
+        }
+        let mut key = format!("{}:", entry.root_id);
+        let base = key.len();
+        entry
+            .parent
+            .match_indices('/')
+            .map(|(i, _)| &entry.parent[..i])
+            .chain(std::iter::once(entry.parent.as_str()))
+            .any(|parent| {
+                key.truncate(base);
+                key.push_str(parent);
+                self.hidden_dirs.contains(&key)
+            })
+    }
+
     // AND는 가장 작은 필수 후보, OR는 각 분기의 합집합을 사용한다.
     // 제외 조건이나 인덱스로 제한할 수 없는 분기는 전체 검사로 되돌린다.
     fn candidates<'a>(&'a self, query: &Query, full_path: bool) -> Option<Cow<'a, [u32]>> {
@@ -436,7 +455,7 @@ impl Index {
 
     // 다섯 검색 방식과 필터를 적용하고 시간 초과 여부를 명시한다.
     pub fn search(&self, options: &SearchOptions) -> Result<SearchResult, String> {
-        self.search_inner(options, None, &|| false)
+        self.search_inner(options, None, &|| false, Instant::now() + Duration::from_millis(650))
     }
 
     // 빠른 검색은 전체 후보에서 상위 항목을 고르고 이전 요청을 중단한다.
@@ -446,7 +465,37 @@ impl Index {
         boosts: &HashMap<String, usize>,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<SearchResult, String> {
-        self.search_inner(options, Some(boosts), cancelled)
+        let start = Instant::now();
+        let deadline = start + Duration::from_millis(250);
+        if !options.full_path {
+            return self.search_inner(options, Some(boosts), cancelled, deadline);
+        }
+        // 경로 검색은 영문·숫자에 쓸 색인 키가 없어 전체를 훑는다. 큰 색인에서 시간 제한에 걸려
+        // 파일명 일치까지 놓치지 않도록 색인으로 파일명 일치를 먼저 찾고, 남은 시간에 경로 일치를 더한다.
+        let names = self.search_inner(
+            &SearchOptions { full_path: false, ..options.clone() },
+            Some(boosts),
+            cancelled,
+            deadline,
+        )?;
+        let paths = self.search_inner(options, Some(boosts), cancelled, deadline)?;
+        let limit = options.limit.unwrap_or(500).clamp(1, 1000);
+        let mut entries = names.entries;
+        for entry in paths.entries {
+            if entries.len() >= limit {
+                break;
+            }
+            if !entries.iter().any(|item| item.id == entry.id) {
+                entries.push(entry);
+            }
+        }
+        Ok(SearchResult {
+            entries,
+            total: names.total.max(paths.total),
+            elapsed: start.elapsed().as_secs_f64() * 1000.0,
+            partial: names.partial || paths.partial,
+            scanned: names.scanned + paths.scanned,
+        })
     }
 
     // 공통 검색 조건을 적용하되 빠른 검색의 메모리와 응답 시간을 제한한다.
@@ -455,6 +504,7 @@ impl Index {
         options: &SearchOptions,
         boosts: Option<&HashMap<String, usize>>,
         cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
     ) -> Result<SearchResult, String> {
         let start = Instant::now();
         if options.query.chars().count() > 512 {
@@ -505,7 +555,7 @@ impl Index {
                 if cancelled() {
                     return Err("검색 요청이 취소되었습니다.".into());
                 }
-                if start.elapsed().as_millis() > if boosts.is_some() { 250 } else { 650 } {
+                if Instant::now() > deadline {
                     partial = true;
                     break;
                 }
@@ -521,10 +571,7 @@ impl Index {
             let flags=self.visibility[i];
             if flags&4!=0 {if !options.show_recycle_bin {continue;}}
             else if flags&2!=0 {if !options.show_temporary {continue;}}
-            else if !options.show_hidden {
-                if flags&1!=0 {continue;}
-                if !self.hidden_dirs.is_empty()&&entry.parent.match_indices('/').map(|(i,_)|&entry.parent[..i]).chain(std::iter::once(entry.parent.as_str())).any(|p|self.hidden_dirs.contains(&format!("{}:{p}",entry.root_id))) {continue;}
-            }
+            else if !options.show_hidden && flags&1!=0 {continue;}
             let original: String;
             let value = if sensitive || options.mode == "regex" {
                 original = if options.full_path {
@@ -553,6 +600,8 @@ impl Index {
                     .unwrap()
                     .matches(entry, value, path_value)
             };
+            // 숨김 폴더 아래인지는 상위 경로마다 키를 만들어야 해서 일치한 항목에만 확인한다.
+            let score = score.filter(|_| options.show_hidden || flags&6!=0 || !self.under_hidden_dir(entry));
             if let Some(score) = score {
                 total += 1;
                 if let Some(boosts) = boosts {

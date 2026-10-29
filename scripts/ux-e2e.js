@@ -154,12 +154,32 @@
     verify('즐겨찾기 탭 개수 갱신',true);
     document.querySelector('dialog[open] [aria-label="닫기"]').click();await pause();
 
+    // 8. 파일을 창 밖으로 끌면 운영체제 드래그로 넘긴다. 실제 OS 드래그는 마우스 단추가 눌린 상태에서만 시작한다.
+    await ready();
+    const dragged=rows(1).find(item=>nameOf(item))??rows(1)[0];const box=dragged.getBoundingClientRect();
+    let handed;const watch=event=>{if(event.detail.phase==='native')handed=event.detail;};window.addEventListener('ed-file-drag',watch);
+    const at=(x)=>({bubbles:true,cancelable:true,buttons:1,pointerId:31,clientX:x,clientY:box.top+box.height/2});
+    dragged.dispatchEvent(new PointerEvent('pointerdown',{...at(box.left+30),button:0}));
+    window.dispatchEvent(new PointerEvent('pointermove',at(box.left+80)));
+    const ghost=!!document.querySelector('.file-drag-ghost');
+    window.dispatchEvent(new PointerEvent('pointermove',at(-30)));
+    window.dispatchEvent(new PointerEvent('pointerup',{...at(-30),buttons:0,button:0}));
+    window.removeEventListener('ed-file-drag',watch);await pause();
+    verify('창 안에서 끄는 동안은 앱 내부 끌기 표시',ghost);
+    verify('창 밖으로 나가면 운영체제 드래그로 넘기고 앱 내부 끌기를 끝냄',handed?.entries?.length===1&&!document.querySelector('.file-drag-ghost')&&!document.querySelector('dialog[open]'));
+    let refused=false;try{await invoke('drag_files',{locations:[{rootId:root.id,path:'../밖'}]});}catch{refused=true;}
+    verify('연결 폴더 밖 경로는 운영체제 드래그 거부',refused);
+    await invoke('drag_files',{locations:[{rootId:root.id,path:'다 문서.txt'}]});
+    verify('단추를 누르지 않은 끌기 요청은 아무 곳에도 놓지 않고 끝남',!document.querySelector('dialog[open]'));
+
     // 7. 빠른 검색의 클립보드 보기는 창을 키우고, 파일 검색으로 돌아오면 원래 크기로 줄인다.
     const size=async()=>{const value=await invoke('plugin:window|inner_size',{label:'quick-search'});const scale=await invoke('plugin:window|scale_factor',{label:'quick-search'});return {width:value.width/scale,height:value.height/scale};};
     await invoke('quick_control',{action:'restore',location:null});await pause(300);const small=await size();
     await invoke('quick_control',{action:'expand',location:null});await pause(300);const large=await size();
     report.quickSizes={small,large};
-    verify('클립보드 보기용 빠른 검색 창은 더 넓고 높게 확대',large.width>=small.width+150&&large.height>=small.height+100);
+    // 작은 화면에서는 두 크기 모두 작업 영역에 맞춰 줄어들므로 너비 차이로 확대를 확인한다.
+    verify('클립보드 보기용 빠른 검색 창은 더 넓고 높게 확대',large.width>=small.width+100&&large.height>=small.height);
+    verify('빠른 검색 기본 창은 결과를 넉넉히 보이는 크기',small.width>=Math.min(860,screen.availWidth-24)-2&&small.height>=Math.min(680,screen.availHeight-24)-2);
     await invoke('quick_control',{action:'restore',location:null});await pause(300);const restored=await size();
     verify('파일 검색으로 돌아오면 원래 크기로 복원',Math.abs(restored.width-small.width)<2&&Math.abs(restored.height-small.height)<2);
     await clip('clear');

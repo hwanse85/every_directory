@@ -66,6 +66,20 @@
       );
       verify(`빠른 검색: ${query}`, true);
     }
+    // 영문·숫자 여러 단어 검색은 기본 설정(경로까지 검색)에서도 파일명 일치를 찾는다.
+    search("yk5 xlsx");
+    await until(
+      () =>
+        !document.querySelector(".quick-input-row .spin") &&
+        document.querySelector('[role="option"]')?.textContent.includes("YK5 정산표.xlsx"),
+      "빠른 검색 yk5 xlsx",
+    );
+    verify("빠른 검색: 영문·숫자 여러 단어(yk5 xlsx)", true);
+    const resultRow = document.querySelector(".quick-result");
+    const resultList = document.querySelector("#quick-results");
+    const rowHeight = resultRow.getBoundingClientRect().height;
+    verify("빠른 검색 결과 행은 낮게 배치", rowHeight <= 44);
+    verify("빠른 검색 창에 결과 10개 이상이 한 번에 보임", resultList.clientHeight / rowHeight >= 10);
     const imeInput = document.querySelector(
       '[aria-label="파일·폴더 빠른 검색"]',
     );

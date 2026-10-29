@@ -132,7 +132,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         WebviewUrl::App("index.html#quick-search".into()),
     )
     .title("Every Directory · 빠른 검색")
-    .inner_size(720.0, 540.0)
+    .inner_size(860.0, 680.0)
     .min_inner_size(480.0, 360.0)
     .visible(false)
     .focused(false)
@@ -456,9 +456,10 @@ pub fn show_quick(app: &AppHandle, toggle: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-const QUICK_SIZE: (f64, f64) = (720.0, 540.0);
+// 결과를 한 화면에 10개 이상 보이도록 넉넉한 기본 크기를 쓴다. 작은 화면에서는 작업 영역에 맞춰 줄인다.
+const QUICK_SIZE: (f64, f64) = (860.0, 680.0);
 // 클립보드 이력은 한 번에 여러 항목과 미리보기를 보도록 더 큰 창을 쓴다.
-const QUICK_CLIPBOARD_SIZE: (f64, f64) = (1040.0, 760.0);
+const QUICK_CLIPBOARD_SIZE: (f64, f64) = (1120.0, 820.0);
 
 // 모니터 작업 영역을 넘지 않는 크기로 검색창을 가운데 위쪽에 배치한다.
 fn place_quick(window: &tauri::WebviewWindow, monitor: &tauri::Monitor, (width, height): (f64, f64)) {

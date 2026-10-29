@@ -108,6 +108,7 @@ import { FileContextMenu } from "./components/FileContextMenu";
 import { FileActions } from "./components/FileActions";
 import { locationPath, fileUri } from "./paths";
 import { shortcutLabel } from "./quickSearch";
+import { fileDragErrorEvent } from "./fileDrag";
 import { useSearchInput } from "./useSearchInput";
 import { SearchTextInput } from "./components/SearchTextInput";
 import { AboutPanel } from "./components/AboutPanel";
@@ -453,6 +454,13 @@ export default function App() {
     (message: string, error = false) => setToast({ message, error }),
     [],
   );
+
+  // 창 밖으로 끌기를 시작하지 못한 이유를 알린다.
+  useEffect(() => {
+    const failed = (event: Event) => notify((event as CustomEvent<string>).detail, true);
+    window.addEventListener(fileDragErrorEvent, failed);
+    return () => window.removeEventListener(fileDragErrorEvent, failed);
+  }, [notify]);
 
   useEffect(() => {
     client.onProgress = setProgress;

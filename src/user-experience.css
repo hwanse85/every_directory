@@ -14,8 +14,8 @@
 .app-shell .file-table .file-row .search-cell { font-size:calc(11px * var(--user-font-scale)); }
 .folder-tree .tree-name { font-size:calc(12px * var(--user-font-scale)); }
 .folder-tree { font-size:calc(12px * var(--user-font-scale)); }
-.quick-result strong { font-size:calc(15px * var(--user-font-scale)); }
-.quick-result .quick-result-text strong { font-size:calc(15px * var(--user-font-scale)); }
+.quick-result strong { font-size:calc(13px * var(--user-font-scale)); }
+.quick-result .quick-result-text strong { font-size:calc(13px * var(--user-font-scale)); }
 mark { background:#ffe082; color:#302300; border-radius:2px; padding:0 1px; }
 [data-theme="dark"] mark { background:#715714; color:#fff4be; }
 .tools-tabs { display:flex; gap:6px; padding:12px 20px; border-bottom:1px solid var(--border,#d6deea); }

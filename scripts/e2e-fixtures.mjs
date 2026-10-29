@@ -99,6 +99,7 @@ export async function prepare(root, suite) {
     await writeFile(path.join(root, "쏠리마인드.txt"), "된소리 검색");
     await writeFile(path.join(root, "README.md"), "# readme");
     await writeFile(path.join(root, "문서", "메모.txt"), "메모");
+    if (suite === "quick") await writeFile(path.join(root, "문서", "YK5 정산표.xlsx"), "xlsx placeholder");
     if (suite === "actions")
       await sharp({
         create: { width: 320, height: 180, channels: 3, background: "#6389c6" },

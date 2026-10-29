@@ -136,3 +136,71 @@ fn candidate_planning_preserves_a_direct_match_oracle() {
         }
     }
 }
+
+// 실제 PC처럼 깊은 폴더와 숨김 폴더가 섞인 큰 색인을 만든다.
+fn deep_fixture(count: usize) -> Index {
+    let mut entries: Vec<Entry> = (0..count)
+        .map(|n| {
+            let parent = format!("users/me/appdata/local/vendor{}/cache{}/part{}", n % 97, n % 31, n % 7);
+            let name = format!("asset_{n:08}.dat");
+            Entry {
+                id: format!("root:{parent}/{name}"),
+                root_id: "root".into(),
+                path: format!("{parent}/{name}"),
+                name,
+                parent,
+                kind: "file".into(),
+                extension: "dat".into(),
+                size: Some(1),
+                modified: 0,
+                hidden: false, created: None, accessed: None, readonly: false,
+            }
+        })
+        .collect();
+    for (path, kind, hidden) in [("users/me/appdata", "directory", true), ("users/me/문서/업무/YK5 정산표.xlsx", "file", false)] {
+        let (parent, name) = path.rsplit_once('/').unwrap();
+        entries.push(Entry {
+            id: format!("root:{path}"),
+            root_id: "root".into(),
+            name: name.into(),
+            path: path.into(),
+            parent: parent.into(),
+            kind: kind.into(),
+            extension: if kind == "file" { "xlsx".into() } else { String::new() },
+            size: Some(1),
+            modified: 0,
+            hidden, created: None, accessed: None, readonly: false,
+        });
+    }
+    let mut index = Index::default();
+    index.replace(entries);
+    index
+}
+
+// 빠른 검색은 기본으로 경로까지 검색하므로, 큰 색인에서도 파일명 일치를 시간 제한 안에 찾아야 한다.
+fn verify_quick_full_path(index: &Index) {
+    for query in ["yk5 xlsx", "yk5", "정산 xlsx", "업무 yk5"] {
+        let options: SearchOptions = serde_json::from_value(
+            serde_json::json!({"query":query,"mode":"initials","fullPath":true,"limit":12}),
+        )
+        .unwrap();
+        let result = index.quick_search(&options, &HashMap::new(), &|| false).unwrap();
+        println!("{query}: total={}, scanned={}, partial={}, elapsed={:.2}ms", result.total, result.scanned, result.partial, result.elapsed);
+        assert!(
+            result.entries.iter().any(|entry| entry.name == "YK5 정산표.xlsx"),
+            "{query}: partial={} scanned={} elapsed={:.2}ms",
+            result.partial, result.scanned, result.elapsed
+        );
+    }
+}
+
+#[test]
+fn quick_full_path_search_finds_file_names_in_a_large_index() {
+    verify_quick_full_path(&deep_fixture(200_000));
+}
+
+#[test]
+#[ignore = "explicit million-entry performance verification"]
+fn million_entries_quick_full_path_search() {
+    verify_quick_full_path(&deep_fixture(1_000_000));
+}

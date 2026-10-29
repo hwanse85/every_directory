@@ -24,7 +24,7 @@ fn wide(path: &Path) -> Vec<u16> {
 }
 
 // Shell parsing names use ordinary drive/UNC paths rather than Win32's verbatim prefix.
-fn shell_path(path: &Path) -> Vec<u16> {
+pub(crate) fn shell_path(path: &Path) -> Vec<u16> {
     let mut value = wide(path);
     if value.starts_with(&[92, 92, 63, 92, 85, 78, 67, 92]) {
         value.drain(..8);
