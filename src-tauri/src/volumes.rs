@@ -91,6 +91,8 @@ fn native_kind(_: &Path) -> Option<&'static str> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkAddress {
     pub scheme: String,
+    // 주소에 적은 사용자 이름. 운영체제 로그인 창에 미리 채운다.
+    pub user: Option<String>,
     pub host: String,
     pub port: Option<u16>,
     pub segments: Vec<String>,
@@ -107,7 +109,20 @@ pub fn parse_address(input: &str) -> Result<Option<NetworkAddress>, String> {
     if authority.contains(':') && authority.contains('@') && authority.split('@').next().is_some_and(|user| user.contains(':')) {
         return Err("비밀번호가 포함된 주소는 사용할 수 없습니다. 연결할 때 운영체제 창에서 입력해 주세요.".into());
     }
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let (user, host_port) = match authority.rsplit_once('@') {
+        Some((user, host_port)) => (Some(user), host_port),
+        None => (None, authority),
+    };
+    let user = match user.filter(|user| !user.is_empty()) {
+        Some(user) => {
+            let user = percent_encoding::percent_decode_str(user).decode_utf8().map_err(|e| e.to_string())?.into_owned();
+            if user.contains(['"', '@']) || user.chars().any(char::is_control) {
+                return Err("사용자 이름을 확인해 주세요.".into());
+            }
+            Some(user)
+        }
+        None => None,
+    };
     let (host, port) = match host_port.rsplit_once(':') {
         Some((host, port)) if !host.is_empty() && !host_port.starts_with('[') => (host, Some(port.parse::<u16>().map_err(|_| "포트 번호가 올바르지 않습니다.")?)),
         _ => (host_port, None),
@@ -123,7 +138,7 @@ pub fn parse_address(input: &str) -> Result<Option<NetworkAddress>, String> {
     if segments.iter().any(|part| part == "." || part == ".." || part.contains(['\\', '"'])) {
         return Err("주소의 경로를 확인해 주세요.".into());
     }
-    Ok(Some(NetworkAddress { scheme, host: host.into(), port, segments }))
+    Ok(Some(NetworkAddress { scheme, user, host: host.into(), port, segments }))
 }
 
 // Windows는 SMB 주소를 UNC로, WebDAV 주소를 WebClient의 DavWWWRoot UNC로 바꾼다.
@@ -165,7 +180,10 @@ pub fn mac_mount_url(address: &NetworkAddress) -> String {
         .iter()
         .map(|part| percent_encoding::utf8_percent_encode(part, percent_encoding::NON_ALPHANUMERIC).to_string())
         .collect();
-    format!("{scheme}://{}{port}/{}", address.host, path.join("/"))
+    // `도메인;사용자` 표기의 ;는 그대로 둔다.
+    const USER: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC.remove(b';').remove(b'.').remove(b'-').remove(b'_');
+    let user = address.user.as_deref().map_or(String::new(), |user| format!("{}@", percent_encoding::utf8_percent_encode(user, USER)));
+    format!("{scheme}://{user}{}{port}/{}", address.host, path.join("/"))
 }
 
 // UNC 경로의 서버·공유 부분(\\서버\공유)만 남긴다. WebDAV는 \\서버@SSL\DavWWWRoot까지다.
@@ -194,13 +212,14 @@ pub fn connect(target: &str, owner: isize) -> Result<String, String> {
     }
     #[cfg(windows)]
     {
+        let user = address.as_ref().and_then(|address| address.user.clone());
         let unc = match address {
             Some(address) => Some(windows_unc(&address)?),
             None if target.starts_with(r"\\") || target.starts_with("//") => Some(target.replace('/', r"\")),
             None => None,
         };
         if let Some(unc) = unc {
-            ensure_windows_connection(&unc, owner)?;
+            ensure_windows_connection(&unc, user.as_deref(), owner)?;
             return Ok(unc);
         }
     }
@@ -246,8 +265,9 @@ fn mount_mac(address: &NetworkAddress) -> Result<String, String> {
 }
 
 // UNC 공유에 접근할 수 없으면 Windows 자격 증명 창으로 연결을 만든다(WNetAddConnection3W).
+// 주소에 사용자 이름이 있으면 그 계정으로 로그인 창을 띄운다.
 #[cfg(windows)]
-fn ensure_windows_connection(unc: &str, owner: isize) -> Result<(), String> {
+fn ensure_windows_connection(unc: &str, user: Option<&str>, owner: isize) -> Result<(), String> {
     use windows_sys::Win32::NetworkManagement::WNet::{WNetAddConnection3W, CONNECT_INTERACTIVE, CONNECT_PROMPT, NETRESOURCEW, RESOURCETYPE_DISK};
     if Path::new(unc).is_dir() {
         return Ok(());
@@ -257,7 +277,9 @@ fn ensure_windows_connection(unc: &str, owner: isize) -> Result<(), String> {
     let mut resource: NETRESOURCEW = unsafe { std::mem::zeroed() };
     resource.dwType = RESOURCETYPE_DISK;
     resource.lpRemoteName = remote.as_mut_ptr();
-    let code = unsafe { WNetAddConnection3W(owner as _, &resource, std::ptr::null(), std::ptr::null(), CONNECT_INTERACTIVE | CONNECT_PROMPT) };
+    let user: Option<Vec<u16>> = user.map(|user| user.encode_utf16().chain([0]).collect());
+    let user_name = user.as_ref().map_or(std::ptr::null(), |user| user.as_ptr());
+    let code = unsafe { WNetAddConnection3W(owner as _, &resource, std::ptr::null(), user_name, CONNECT_INTERACTIVE | CONNECT_PROMPT) };
     // 1219: 같은 서버에 다른 계정으로 이미 연결됨, 1223: 사용자가 취소함
     match code {
         0 | 85 if Path::new(unc).is_dir() => Ok(()),
@@ -286,6 +308,12 @@ mod tests {
         assert!(parse_address("C:\\Data").unwrap().is_none());
         assert!(parse_address("ftp://host/x").is_err());
         assert!(parse_address("smb://user:secret@host/share").is_err());
+        let named = parse_address("smb://CORP;hong%20gil@nas.local/share").unwrap().unwrap();
+        assert_eq!(named.user.as_deref(), Some("CORP;hong gil"));
+        assert_eq!(named.host, "nas.local");
+        assert_eq!(mac_mount_url(&named), "smb://CORP;hong%20gil@nas.local/share");
+        assert_eq!(windows_unc(&named).unwrap(), r"\\nas.local\share");
+        assert_eq!(parse_address("smb://@nas/share").unwrap().unwrap().user, None);
         assert!(parse_address("smb://host/../etc").is_err());
         assert!(windows_unc(&parse_address("smb://host").unwrap().unwrap()).is_err());
     }

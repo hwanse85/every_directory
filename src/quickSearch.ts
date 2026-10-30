@@ -71,6 +71,15 @@ export function isPathQuery(query: string): boolean {
   return /[\\/]/.test(value) || /^[a-z]:$/i.test(value);
 }
 
+// 경로 입력을 검색할 방식을 정한다. 정규식의 \는 이스케이프라 경로로 보지 않는다(undefined).
+// 초성 경로는 초성으로, 나머지는 와일드카드(* ?)를 이해하는 일반 검색으로 경로 전체에서 찾는다.
+export function pathQueryMode(query: string, defaultMode: SearchMode = "initials"): SearchMode | undefined {
+  if (!isPathQuery(query)) return undefined;
+  const mode = quickSearchMode(query, defaultMode);
+  if (mode === "regex") return undefined;
+  return mode === "initials" ? "initials" : "normal";
+}
+
 // 경로 입력을 연결 폴더 안의 후보 위치로 바꾼다. 절대 경로·연결 폴더 이름으로 시작하는 경로·상대 경로 순으로 시도한다.
 export function pathCandidates(query: string, roots: ConnectedRoot[], scope = ""): Location[] {
   let value = query.trim().replace(/^"(.*)"$/, "$1");

@@ -467,11 +467,13 @@ impl Index {
     ) -> Result<SearchResult, String> {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(250);
-        if !options.full_path {
-            return self.search_inner(options, Some(boosts), cancelled, deadline);
-        }
         // 경로 검색은 영문·숫자에 쓸 색인 키가 없어 전체를 훑는다. 큰 색인에서 시간 제한에 걸려
         // 파일명 일치까지 놓치지 않도록 색인으로 파일명 일치를 먼저 찾고, 남은 시간에 경로 일치를 더한다.
+        // 파일명 색인으로 후보를 좁힐 수 없는 검색(정규식·퍼지·한두 글자)은 두 단계 모두 전체를 훑어
+        // 경로 단계가 시간을 받지 못하므로, 경로 검색 한 번으로 찾는다(경로에는 파일명도 들어 있다).
+        if !options.full_path || !self.names_indexed(options) {
+            return self.search_inner(options, Some(boosts), cancelled, deadline);
+        }
         let names = self.search_inner(
             &SearchOptions { full_path: false, ..options.clone() },
             Some(boosts),
@@ -496,6 +498,18 @@ impl Index {
             partial: names.partial || paths.partial,
             scanned: names.scanned + paths.scanned,
         })
+    }
+
+    // 파일명 검색을 세 글자 색인으로 좁힐 수 있는지 확인한다.
+    fn names_indexed(&self, options: &SearchOptions) -> bool {
+        if options.mode == "regex" {
+            return false;
+        }
+        let sensitive = options.case_sensitive && options.mode != "initials";
+        let query: String = options.query.nfc().collect();
+        Query::parse(&query, &options.mode, sensitive)
+            .ok()
+            .is_some_and(|query| self.candidates(&query, false).is_some())
     }
 
     // 공통 검색 조건을 적용하되 빠른 검색의 메모리와 응답 시간을 제한한다.

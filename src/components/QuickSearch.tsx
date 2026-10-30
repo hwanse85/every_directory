@@ -36,7 +36,7 @@ import {
 } from "../client";
 import {
   isComposingKey,
-  isPathQuery,
+  pathQueryMode,
   pathCandidates,
   pathSearchText,
   quickSearchMode,
@@ -96,7 +96,7 @@ export default function QuickSearch() {
   const [destination, setDestination] = useState<Location>();
   // 경로 입력이 실제 위치와 일치한 항목. Enter로 Every Directory 탐색창에서 그 위치를 연다.
   const [pathMatch, setPathMatch] = useState<string>();
-  const pathInput = isPathQuery(query);
+  const pathInput = !!pathQueryMode(query, defaultMode);
   const [directories, setDirectories] = useState<FileEntry[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const searchEditing = useSearchInput(text => quickSearchMode(text,defaultMode), text=>{
@@ -242,6 +242,7 @@ export default function QuickSearch() {
             setAccess(suggestions.access);
             if (suggestions.warning) setError(suggestions.warning);
             if (!query.trim()) {
+              setPathMatch(undefined);
               applyEntries(
                 suggestions.entries.filter(
                   (e) =>
@@ -254,7 +255,8 @@ export default function QuickSearch() {
             }
             // 경로를 입력하면 연결 폴더 안의 실제 위치를 먼저 찾고, 그 아래 항목을 경로 검색으로 보여 준다.
             let located: FileEntry | undefined;
-            if (isPathQuery(query)) {
+            const pathMode = pathQueryMode(query, defaultMode);
+            if (pathMode) {
               for (const location of pathCandidates(query, suggestions.roots, scope)) {
                 try {
                   located = await client.request<FileEntry>("quickEntry", location);
@@ -265,14 +267,14 @@ export default function QuickSearch() {
               }
               if (version !== requestVersion.current) return;
             }
-            const text = isPathQuery(query) ? pathSearchText(query, suggestions.roots, scope) : query;
+            const text = pathMode ? pathSearchText(query, suggestions.roots, scope) : query;
             const result = text
               ? await quickSearch({
                   query: text,
-                  mode: isPathQuery(query) ? "normal" : quickSearchMode(query, defaultMode),
+                  mode: pathMode ?? quickSearchMode(query, defaultMode),
                   rootId: scope,
                   category,
-                  fullPath: isPathQuery(query) || preferences.quickFullPath,
+                  fullPath: !!pathMode || preferences.quickFullPath,
                   limit: quickLimit,
                 })
               : { entries: [], total: 0, elapsed: 0 };
@@ -283,6 +285,7 @@ export default function QuickSearch() {
           } catch (cause) {
             if (version === requestVersion.current) {
               setError(String(cause));
+              setPathMatch(undefined);
               setEntries([]);
             }
           } finally {

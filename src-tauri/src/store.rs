@@ -7,7 +7,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{BufWriter, Write},
     path::{Component, Path, PathBuf},
@@ -151,6 +151,9 @@ pub struct Store {
     pub index: Index,
     pub version: u64,
 }
+// 다시 읽은 결과. 연결 폴더 id, 다시 읽은 상대 경로, 그 아래 항목.
+type Gathered = Vec<(String, Vec<String>, Vec<Entry>)>;
+
 // 파일 엔진과 진행 상태를 데스크톱 명령 사이에서 공유한다.
 pub struct Engine {
     pub data: PathBuf,
@@ -166,6 +169,10 @@ pub struct Engine {
     journal: Mutex<Journal>,
     checkpoint_write: Mutex<()>,
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+    // 주기 확인 스레드가 돌고 있는 네트워크 연결 폴더 id. 다시 색인해도 스레드를 하나만 둔다.
+    pollers: Mutex<HashSet<String>>,
+    // 연결 폴더별 색인 변경 횟수. 잠금 밖에서 읽은 결과가 그사이 낡았는지 확인한다.
+    changes: Mutex<HashMap<String, u64>>,
     pub instance: String,
     startup: Mutex<Option<Result<(), String>>>,
     startup_complete: Condvar,
@@ -267,6 +274,8 @@ impl Engine {
             journal: Mutex::new(Journal::empty()),
             checkpoint_write: Mutex::new(()),
             watchers: Mutex::new(HashMap::new()),
+            pollers: Mutex::new(HashSet::new()),
+            changes: Mutex::new(HashMap::new()),
             instance: Uuid::new_v4().to_string(),
             startup: Mutex::new(None),
             startup_complete: Condvar::new(),
@@ -592,6 +601,7 @@ impl Engine {
         }
         *self.progress.lock().unwrap() =
             Some(json!({"rootId":root.id,"count":0,"directory":root.name}));
+        let new_root = existing.is_none() && !self.roots().iter().any(|r| r.id == root.id);
         self.watch(&root);
         let (entries, skipped) = self.collect(&root, &absolute);
         root.count = entries.len();
@@ -602,7 +612,15 @@ impl Engine {
             root: root.clone(),
             entries,
         });
-        self.persist(next.clone())?;
+        if let Err(error) = self.persist(next.clone()) {
+            // 처음 연결하다 저장에 실패하면 미리 시작한 감시·주기 확인을 거둔다.
+            if new_root {
+                self.watchers.lock().unwrap().remove(&root.id);
+                self.pollers.lock().unwrap().remove(&root.id);
+            }
+            return Err(error);
+        }
+        self.mark_changed(&root.id);
         self.install(next);
         Ok(root)
     }
@@ -614,6 +632,8 @@ impl Engine {
         next.retain(|s| s.root.id != id);
         self.persist(next.clone())?;
         self.watchers.lock().unwrap().remove(id);
+        self.pollers.lock().unwrap().remove(id);
+        self.mark_changed(id);
         self.install(next);
         Ok(())
     }
@@ -658,7 +678,10 @@ impl Engine {
             }
         }
         let absolute = crate::volumes::real_path(&current).map_err(|e| e.to_string())?;
-        if !absolute.starts_with(&base) {
+        // 웹 버전이 저장한 \\서버\공유처럼 실제 경로 표기(\\?\UNC\…)와 다른 기준 경로도 실제 경로로 맞춰 비교한다.
+        if !absolute.starts_with(&base)
+            && !crate::volumes::real_path(&base).is_ok_and(|real| absolute.starts_with(real))
+        {
             return Err("연결 폴더 밖에 접근할 수 없습니다.".into());
         }
         Ok(absolute)
@@ -666,6 +689,12 @@ impl Engine {
 
     // 변경된 경로의 하위 항목만 다시 읽어 인덱스를 갱신한다.
     pub fn refresh(self: &Arc<Self>, paths: &[PathBuf]) -> Result<(), String> {
+        let gathered = self.gather(paths)?;
+        self.apply(gathered)
+    }
+
+    // 변경된 경로를 디스크에서 다시 읽는다. 색인은 바꾸지 않는다.
+    fn gather(&self, paths: &[PathBuf]) -> Result<Gathered, String> {
         let paths: Vec<PathBuf> = paths
             .iter()
             .map(|path| {
@@ -726,6 +755,11 @@ impl Engine {
             }
             gathered.push((root.id, relatives, entries));
         }
+        Ok(gathered)
+    }
+
+    // 다시 읽은 항목과 색인을 비교해 바뀐 부분만 기록하고 반영한다.
+    fn apply(self: &Arc<Self>, gathered: Gathered) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
         let mut mutation = Mutation::default();
         for (root_id, relatives, entries) in gathered {
@@ -771,11 +805,25 @@ impl Engine {
         store
             .index
             .update(&mutation.removed, mutation.entries.clone());
+        let changed: Vec<String> = mutation.roots.iter().map(|root| root.id.clone()).collect();
         mutation.apply(&mut store.snapshots);
         store.version += 1;
         drop(store);
+        for id in &changed {
+            self.mark_changed(id);
+        }
         self.schedule_checkpoint();
         Ok(())
+    }
+
+    // 연결 폴더의 색인 변경 횟수를 늘린다.
+    fn mark_changed(&self, id: &str) {
+        *self.changes.lock().unwrap().entry(id.to_owned()).or_default() += 1;
+    }
+
+    // 연결 폴더의 현재 색인 변경 횟수를 읽는다.
+    fn change_count(&self, id: &str) -> u64 {
+        self.changes.lock().unwrap().get(id).copied().unwrap_or_default()
     }
 
     // 운영체제 변경 이벤트를 묶어 증분 갱신한다.
@@ -783,6 +831,9 @@ impl Engine {
         if crate::volumes::is_remote(&root.volume) || crate::volumes::looks_remote(&root.absolute_path) {
             // 네트워크 드라이브는 감시 등록이 오래 걸리거나 다른 PC의 변경을 놓칠 수 있어 별도 스레드에서 주기 확인과 함께 시작한다.
             self.set_refresh_minutes(&root.id, Some(crate::volumes::NETWORK_REFRESH_MINUTES));
+            if !self.pollers.lock().unwrap().insert(root.id.clone()) {
+                return;
+            }
             let engine = Arc::downgrade(self);
             let root = root.clone();
             std::thread::spawn(move || {
@@ -809,6 +860,9 @@ impl Engine {
                 }
                 if crate::volumes::is_remote(&root.volume) {
                     strong.set_refresh_minutes(&root.id, Some(crate::volumes::NETWORK_REFRESH_MINUTES));
+                    if !strong.pollers.lock().unwrap().insert(root.id.clone()) {
+                        return;
+                    }
                     drop(strong);
                     Self::poll_remote(engine, root);
                 }
@@ -818,8 +872,8 @@ impl Engine {
 
     // 운영체제 변경 알림을 등록하고, 실패하면 연결 폴더에 이유를 남긴다.
     fn start_watcher(self: &Arc<Self>, root: &Root) {
-        let mut watchers = self.watchers.lock().unwrap();
-        if watchers.contains_key(&root.id) {
+        // 끊긴 공유 폴더의 감시 등록은 오래 걸릴 수 있어, 등록하는 동안 다른 폴더를 막지 않도록 잠금을 놓는다.
+        if self.watchers.lock().unwrap().contains_key(&root.id) {
             return;
         }
         let (tx, rx) = mpsc::channel();
@@ -841,7 +895,15 @@ impl Engine {
             }
             return;
         }
-        watchers.insert(root.id.clone(), watcher);
+        {
+            let mut watchers = self.watchers.lock().unwrap();
+            // 등록하는 사이 같은 폴더의 감시가 먼저 시작됐거나, 네트워크 폴더의 연결이 해제됐으면 이번 감시는 버린다.
+            let remote = crate::volumes::is_remote(&root.volume) || crate::volumes::looks_remote(&root.absolute_path);
+            if watchers.contains_key(&root.id) || (remote && !self.pollers.lock().unwrap().contains(&root.id)) {
+                return;
+            }
+            watchers.insert(root.id.clone(), watcher);
+        }
         let engine = Arc::downgrade(self);
         let root_path = PathBuf::from(&root.absolute_path);
         std::thread::spawn(move || {
@@ -890,38 +952,66 @@ impl Engine {
 
     // 네트워크 드라이브는 실시간 알림과 별개로 주기적으로 다시 읽어 다른 PC의 변경을 반영한다.
     // 한 번 읽는 데 오래 걸리면 간격을 늘리고, 연결이 끊겼을 때는 마지막 색인을 유지한다.
+    // 공유 폴더를 읽는 동안에는 파일 작업 잠금을 잡지 않고, 반영할 때만 잠깐 잡는다.
     fn poll_remote(engine: std::sync::Weak<Self>, root: Root) {
         let minimum = Duration::from_secs(crate::volumes::NETWORK_REFRESH_MINUTES as u64 * 60);
         let mut interval = minimum;
         loop {
             std::thread::sleep(interval);
             let Some(engine) = engine.upgrade() else { break };
-            if !engine.roots().iter().any(|item| item.id == root.id) {
+            // 연결을 해제하면 끝낸다. 첫 색인이 아직 끝나지 않았으면 다음 차례에 확인하고,
+            // 색인 중인 작업도 없는데 연결 폴더가 없으면(첫 색인 실패) 끝낸다.
+            if !engine.pollers.lock().unwrap().contains(&root.id) {
                 break;
+            }
+            if !engine.roots().iter().any(|item| item.id == root.id) {
+                if engine.busy.load(Ordering::SeqCst) == 0 {
+                    engine.pollers.lock().unwrap().remove(&root.id);
+                    break;
+                }
+                continue;
             }
             let path = PathBuf::from(&root.absolute_path);
             let offline = !path.is_dir();
-            {
-                let mut store = engine.store.lock().unwrap();
-                if let Some(snapshot) = store.snapshots.iter_mut().find(|s| s.root.id == root.id) {
-                    if offline {
-                        snapshot.root.watch_error = Some("네트워크 위치에 연결할 수 없어 마지막 색인을 표시합니다. 다시 연결되면 자동으로 갱신합니다.".into());
-                    } else if snapshot.root.watch_error.as_deref().is_some_and(|message| message.starts_with("네트워크 위치에 연결할 수 없어")) {
-                        snapshot.root.watch_error = None;
-                    }
-                }
-            }
+            engine.set_offline(&root.id, offline);
             if offline {
                 continue;
             }
             let started = std::time::Instant::now();
+            let before = engine.change_count(&root.id);
+            let gathered = engine.gather(std::slice::from_ref(&path));
+            // 동시에 도는 새 폴더 색인이 없을 때만 진행 표시를 지운다.
+            if engine.busy.load(Ordering::SeqCst) == 0 {
+                *engine.progress.lock().unwrap() = None;
+            }
+            let Ok(gathered) = gathered else { continue };
+            // 읽는 도중 연결이 끊겼으면 읽지 못한 항목을 지운 것으로 처리하지 않도록 버린다.
+            if !path.is_dir() {
+                engine.set_offline(&root.id, true);
+                continue;
+            }
             {
                 let _operation = engine.operations.lock().unwrap();
-                let _ = engine.refresh(&[path]);
-                *engine.progress.lock().unwrap() = None;
+                // 읽는 사이 같은 폴더의 색인이 바뀌었으면(파일 작업·실시간 알림) 낡은 결과로 덮지 않고 다음 차례에 다시 읽는다.
+                if engine.change_count(&root.id) == before {
+                    let _ = engine.apply(gathered);
+                }
             }
             interval = (started.elapsed() * 10).clamp(minimum, Duration::from_secs(60 * 60));
             engine.set_refresh_minutes(&root.id, Some((interval.as_secs() / 60) as u32));
+        }
+    }
+
+    // 네트워크 위치에 연결할 수 없는지 연결 폴더에 표시하거나 지운다.
+    fn set_offline(&self, id: &str, offline: bool) {
+        const MESSAGE: &str = "네트워크 위치에 연결할 수 없어 마지막 색인을 표시합니다. 다시 연결되면 자동으로 갱신합니다.";
+        let mut store = self.store.lock().unwrap();
+        if let Some(snapshot) = store.snapshots.iter_mut().find(|s| s.root.id == id) {
+            if offline {
+                snapshot.root.watch_error = Some(MESSAGE.into());
+            } else if snapshot.root.watch_error.as_deref() == Some(MESSAGE) {
+                snapshot.root.watch_error = None;
+            }
         }
     }
 

@@ -54,7 +54,7 @@ test("IME consonant clusters display as separate initials", () => {
 });
 
 test("quick search resolves absolute, root-name and relative paths inside connected folders", async () => {
-  const { isPathQuery, pathCandidates, pathSearchText } = await import("../src/quickSearch");
+  const { isPathQuery, pathCandidates, pathSearchText, pathQueryMode } = await import("../src/quickSearch");
   const roots = [
     { id: "w", name: "업무 자료", absolutePath: "C:\\Data\\업무 자료", count: 1, lastIndexed: 0, skipped: 0 },
     { id: "m", name: "Projects", absolutePath: "/Users/me/Projects", count: 1, lastIndexed: 0, skipped: 0 },
@@ -62,6 +62,13 @@ test("quick search resolves absolute, root-name and relative paths inside connec
   assert.equal(isPathQuery("보고서"), false);
   assert.equal(isPathQuery("프로젝트\\보고서"), true);
   assert.equal(isPathQuery("/Users/me"), true);
+  // 정규식의 \는 경로가 아니고, 초성 경로는 초성으로·나머지는 일반 검색으로 찾는다.
+  assert.equal(pathQueryMode("\\d{4}", "regex"), undefined);
+  assert.equal(pathQueryMode("ㅇㅁ/ㅂㄱㅅ", "initials"), "initials");
+  assert.equal(pathQueryMode("ㅇㅁ/ㅂㄱㅅ", "normal"), "initials");
+  assert.equal(pathQueryMode("업무/보고서", "wildcard"), "normal");
+  assert.equal(pathQueryMode("업무/*.xlsx", "fuzzy"), "normal");
+  assert.equal(pathQueryMode("보고서", "normal"), undefined);
   assert.deepEqual(pathCandidates("C:\\Data\\업무 자료\\프로젝트\\", roots), [{ rootId: "w", path: "프로젝트" }]);
   assert.deepEqual(pathCandidates('"c:/data/업무 자료/프로젝트"', roots), [{ rootId: "w", path: "프로젝트" }]);
   assert.deepEqual(pathCandidates("/Users/me/Projects/app/src", roots), [{ rootId: "m", path: "app/src" }]);

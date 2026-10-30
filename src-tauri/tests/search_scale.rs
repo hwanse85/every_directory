@@ -179,7 +179,8 @@ fn deep_fixture(count: usize) -> Index {
 
 // 빠른 검색은 기본으로 경로까지 검색하므로, 큰 색인에서도 파일명 일치를 시간 제한 안에 찾아야 한다.
 fn verify_quick_full_path(index: &Index) {
-    for query in ["yk5 xlsx", "yk5", "정산 xlsx", "업무 yk5"] {
+    // "업"은 파일명 색인으로 좁힐 수 없고 경로에서만 일치한다.
+    for query in ["yk5 xlsx", "yk5", "정산 xlsx", "업무 yk5", "업"] {
         let options: SearchOptions = serde_json::from_value(
             serde_json::json!({"query":query,"mode":"initials","fullPath":true,"limit":12}),
         )

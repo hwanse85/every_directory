@@ -50,10 +50,13 @@ pub fn entry(engine: &Engine, location: &Location) -> Result<Entry, String> {
         });
     }
     let root=snapshot.root.clone();
+    // Windows는 대소문자가 달라도 같은 경로이므로 색인에 저장된 실제 표기를 찾는다.
+    let folded=location.path.to_lowercase();
     let found=snapshot
         .entries
         .iter()
         .find(|e| e.path == location.path)
+        .or_else(|| snapshot.entries.iter().find(|e| cfg!(windows) && e.path.to_lowercase() == folded))
         .cloned();
     drop(store);
     if let Some(entry)=found{return Ok(entry);}
