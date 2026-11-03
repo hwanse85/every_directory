@@ -334,6 +334,8 @@ export default function App() {
     | "saveWorkspace"
     | null
   >(null);
+  // 설정 창 닫기 요청. 사용자 설정 편집기가 저장하지 않은 변경을 확인한 뒤 닫는다.
+  const settingsClose = useRef<() => void>(() => setModal(null));
   const [toolRequest, setToolRequest] = useState<
     ToolRequest & { paneId: string }
   >();
@@ -2251,10 +2253,10 @@ export default function App() {
         <Modal
           title="프로그램 설정"
           subtitle="사용자 설정은 이 PC에 저장되며 다시 실행해도 유지됩니다."
-          onClose={() => setModal(null)}
+          onClose={() => settingsClose.current()}
         >
-          <div className="modal-content">
-            <AdvancedPreferences/>
+          <div className="modal-content settings-content">
+            <AdvancedPreferences closeRequest={settingsClose} onClose={() => setModal(null)}>
             <label className="setting-row">
               <span>
                 <strong>기본 검색 방식</strong>
@@ -2548,6 +2550,7 @@ export default function App() {
                 변경 후 자동으로 인덱스를 갱신합니다.
               </span>
             </div>
+            </AdvancedPreferences>
           </div>
         </Modal>
       )}

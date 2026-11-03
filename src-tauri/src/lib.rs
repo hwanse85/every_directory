@@ -671,7 +671,7 @@ pub fn run() {
             if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("history-monitor"){
                 let _=webview.eval(include_str!("../../scripts/history-monitor-e2e.js"));
             }
-            #[cfg(all(windows,feature="smoke-test"))]
+            #[cfg(feature="smoke-test")]
             if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("portable"){
                 let restart=std::env::var_os("EVERY_DIRECTORY_HISTORY_RESTART").is_some();
                 let _=webview.eval(&format!("window.__portableRestart={restart};"));

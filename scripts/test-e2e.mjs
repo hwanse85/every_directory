@@ -11,7 +11,7 @@ import os from "node:os";
 import { prepare } from "./e2e-fixtures.mjs";
 const suite = process.argv[2] ?? "search";
 // macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. 나머지는 Windows 경로·셸 동작을 검증한다.
-const macSuites = ["ux", "quick", "empty", "desktop", "audit"];
+const macSuites = ["ux", "quick", "empty", "desktop", "audit", "portable"];
 if (process.platform !== "win32" && !(process.platform === "darwin" && macSuites.includes(suite)))
   throw new Error(`Windows WebView2에서 실행하세요. macOS에서는 ${macSuites.join(", ")} 스위트를 지원합니다.`);
 const mac = process.platform === "darwin";
@@ -151,8 +151,11 @@ try {
   if(suite==="portable"&&report?.passed){
     const preferences=JSON.parse(await readFile(path.join(data,"preferences.json"),"utf8"));
     const {stat}=await import("node:fs/promises");
-    if(preferences.clipboardDays!==23||!(await stat(path.join(data,"webview"))).isDirectory())throw new Error("Portable data/profile location mismatch");
-    report.tests.push({name:"설정 파일과 WebView 프로필은 실행 파일 옆 portable-data에 저장",passed:true});
+    // macOS WKWebView는 프로필 폴더를 지정하지 않으므로 WebView 프로필 위치는 Windows에서만 확인한다.
+    if(preferences.clipboardDays!==23||preferences.followSearchSelection!==true||preferences.showHidden!==true||(!mac&&!(await stat(path.join(data,"webview"))).isDirectory()))throw new Error("Portable data/profile location mismatch");
+    const desktop=JSON.parse(await readFile(path.join(data,"desktop.json"),"utf8"));
+    if((desktop.defaultSearchMode??desktop.default_search_mode)!=="normal")throw new Error("Portable desktop settings location mismatch");
+    report.tests.push({name:mac?"설정 파일은 실행 파일 옆 portable-data에 저장":"설정 파일과 WebView 프로필은 실행 파일 옆 portable-data에 저장",passed:true});
   }
   console.log(`E2E 결과: ${path.join(data, "smoke-report.json")}`);
   console.log(JSON.stringify(report, null, 2));

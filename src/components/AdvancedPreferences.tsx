@@ -1,13 +1,18 @@
-import {useEffect,useState} from "react";
+import {useEffect,useState,type MutableRefObject,type ReactNode} from "react";
 import {defaultPreferences,updatePreferences,usePreferences,type Preferences} from "../preferences";
 import {explorerViews} from "../explorerView";
-export function AdvancedPreferences(){
- const {preferences,preferencesError}=usePreferences();const [draft,setDraft]=useState(preferences);const [dirty,setDirty]=useState(false);const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");
+// 사용자 설정을 편집하고, 창 아래에 고정한 저장 단추로 저장한다. 저장하지 않은 변경이 있으면 닫기 전에 묻는다.
+export function AdvancedPreferences({children,closeRequest,onClose}:{children?:ReactNode;closeRequest:MutableRefObject<()=>void>;onClose:()=>void}){
+ const {preferences,preferencesError}=usePreferences();const [draft,setDraft]=useState(preferences);const [dirty,setDirty]=useState(false);const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");const [asking,setAsking]=useState(false);
  useEffect(()=>{if(!dirty)setDraft(preferences);},[preferences,dirty]);
- function set<K extends keyof Preferences>(key:K,value:Preferences[K]){setDraft(p=>({...p,[key]:value}));setDirty(true);setMessage("");}
+ // 창 닫기(X·Esc·바깥 클릭)는 저장하지 않은 변경이 있으면 아래 고정 영역에서 저장 여부를 묻는다.
+ useEffect(()=>{closeRequest.current=()=>{if(dirty)setAsking(true);else onClose();};});
+ // 편집 중인 값을 저장하고, 성공하면 필요에 따라 창을 닫는다.
+ function save(close=false){setBusy(true);void updatePreferences(draft).then(()=>{setDirty(false);setAsking(false);setMessage("사용자 설정을 저장했습니다.");if(close)onClose();}).catch(e=>setMessage(String(e))).finally(()=>setBusy(false));}
+ function set<K extends keyof Preferences>(key:K,value:Preferences[K]){setDraft(p=>({...p,[key]:value}));setDirty(true);setAsking(false);setMessage("");}
  const toggle=(key:keyof Preferences,title:string,detail:string)=> <label className="setting-row" key={key}><span><strong>{title}</strong><p>{detail}</p></span><input type="checkbox" className="toggle" aria-label={title} checked={Boolean(draft[key])} onChange={e=>set(key,e.target.checked as never)}/></label>;
  const range=(key:"clipboardDays"|"fontScale"|"searchDelay"|"searchPageSize"|"clipboardMaxMb",title:string,min:number,max:number,suffix:string,step=1)=><label className="setting-row" key={key}><span><strong>{title}</strong><p><output>{draft[key]}{suffix}</output></p></span><input type="range" aria-label={title} min={min} max={max} step={step} value={draft[key]} onChange={e=>set(key,Number(e.target.value))}/></label>;
- return <section className="advanced-preferences" aria-label="사용자 편의 설정"><p>변경 후 ‘사용자 설정 저장’을 누르세요. 저장한 값은 다시 실행해도 유지됩니다.</p>
+ return <><section className="advanced-preferences" aria-label="사용자 편의 설정"><p>변경 후 창 아래의 ‘사용자 설정 저장’을 누르세요. 저장한 값은 다시 실행해도 유지됩니다.</p>
  <h3>검색 결과와 탐색</h3>
  {toggle("showHidden","숨김 파일 표시","숨김 속성 및 숨김 폴더 안의 검색 결과를 표시합니다. 기본값은 꺼짐입니다.")}
  {toggle("showTemporary","임시·잠금 파일 표시","~$ Office 잠금 파일, .tmp·.temp·.swp 등의 임시 파일을 표시합니다. $로만 시작하는 일반 파일은 숨기지 않습니다.")}
@@ -31,6 +36,17 @@ export function AdvancedPreferences(){
  {range("clipboardMaxMb","항목당 최대 저장 크기",1,64," MB")}
  <label className="setting-row"><span><strong>클립보드 기록 제외 앱</strong><p>실행 파일·앱 이름을 ;로 구분합니다. Windows의 기록 금지 표시와 macOS 비밀번호 관리자의 숨김 표시도 존중합니다.</p></span><input aria-label="클립보드 기록 제외 앱" value={draft.clipboardExcludedApps} onChange={e=>set("clipboardExcludedApps",e.target.value)}/></label>
  <p className="muted">전체 이력은 최대 200 MB / 2,000개입니다. 보관 기간이나 한도를 넘으면 오래된 순으로 삭제합니다. 즐겨찾기에도 같은 보관 기간을 적용합니다.</p>
- <div className="preference-actions"><button className="button secondary" disabled={busy} onClick={()=>{setDraft({...defaultPreferences});setDirty(true);}}>사용자 설정 기본값 복원</button><button className="button primary" disabled={busy||!dirty} onClick={()=>{setBusy(true);void updatePreferences(draft).then(()=>{setDirty(false);setMessage("사용자 설정을 저장했습니다.");}).catch(e=>setMessage(String(e))).finally(()=>setBusy(false));}}>사용자 설정 저장</button></div>
- <p role="status">{message||preferencesError}</p></section>;
+ </section>
+ {children}
+ <div className={`preference-actions${dirty?" dirty":""}`}>
+  <p role="status">{asking?"저장하지 않은 사용자 설정이 있습니다. 저장할까요?":message||preferencesError||(dirty?"저장하지 않은 변경이 있습니다.":"")}</p>
+  {asking?<>
+   <button className="button secondary" disabled={busy} onClick={onClose}>저장하지 않고 닫기</button>
+   <button className="button secondary" disabled={busy} onClick={()=>setAsking(false)}>계속 편집</button>
+   <button className="button primary" disabled={busy} onClick={()=>save(true)}>저장하고 닫기</button>
+  </>:<>
+   <button className="button secondary" disabled={busy} onClick={()=>{setDraft({...defaultPreferences});setDirty(true);setMessage("");}}>사용자 설정 기본값 복원</button>
+   <button className="button primary" disabled={busy||!dirty} onClick={()=>save()}>사용자 설정 저장</button>
+  </>}
+ </div></>;
 }
