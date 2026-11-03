@@ -27,3 +27,9 @@ test("default visibility excludes hidden temporary and recycle files without exc
  assert.equal(visibleFile(entry("~$report.docx"),{showHidden:true,showTemporary:true,showRecycleBin:true}),true);
  const prefs=normalizePreferences({clipboardDays:100,fontScale:1,clipboardKeyword:"invalid keyword",showHidden:"yes"});assert.equal(prefs.clipboardDays,60);assert.equal(prefs.fontScale,90);assert.equal(prefs.clipboardKeyword,"clip");assert.equal(prefs.showHidden,false);
 });
+test("search selection leaves the active pane alone by default and keeps a saved on value",()=>{
+ assert.equal(defaultPreferences.followSearchSelection,false);
+ assert.equal(normalizePreferences({quickFullPath:false}).followSearchSelection,false);
+ assert.equal(normalizePreferences({followSearchSelection:true}).followSearchSelection,true);
+ assert.equal(normalizePreferences({followSearchSelection:"yes"}).followSearchSelection,false);
+});

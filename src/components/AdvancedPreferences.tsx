@@ -13,6 +13,7 @@ export function AdvancedPreferences(){
  {toggle("showTemporary","임시·잠금 파일 표시","~$ Office 잠금 파일, .tmp·.temp·.swp 등의 임시 파일을 표시합니다. $로만 시작하는 일반 파일은 숨기지 않습니다.")}
  {toggle("showRecycleBin","휴지통 항목 표시","Windows $Recycle.Bin 등 휴지통의 인덱싱 가능한 항목을 검색에 포함합니다. 권한·인덱스 제외 규칙은 유지합니다.")}
  {toggle("highlightMatches","검색어 매칭 강조","초성·일반 검색에서 이름과 경로 등 표시된 속성의 일치 부분을 강조합니다.")}
+ {toggle("followSearchSelection","검색 결과 선택 시 탐색창 따라가기","켜면 검색 결과를 클릭하거나 화살표로 옮길 때 활성 탐색창이 그 위치로 이동합니다. 기본값은 꺼짐이며, 이때는 Ctrl+Enter·‘새 탭에서 열기’·폴더 더블클릭으로 위치를 엽니다.")}
  {toggle("quickFullPath","빠른 검색에서 경로도 검색","파일명 외에 인덱스의 폴더 경로에서도 검색합니다.")}
  {range("searchDelay","검색 입력 대기",40,500," ms",10)}
  {range("searchPageSize","한 번에 불러올 검색 결과",100,1000,"개",100)}

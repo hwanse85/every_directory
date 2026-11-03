@@ -77,9 +77,18 @@
     // 3-1. 검색창 ↓로 결과 목록에 들어간다.
     const search=document.querySelector('[aria-label="파일 검색"]');search.focus();set(search,'마 보고서');
     await until(()=>{const found=[...document.querySelectorAll('.search-table .file-row')];return found.length===1&&nameOf(found[0])?.includes('마 보고서');},'검색 결과');
+    const places=()=>[...document.querySelectorAll('.explorer-pane .breadcrumbs')].map(item=>item.textContent).join('|');const placesBefore=places();
     key(search,'ArrowDown');await until(()=>document.activeElement?.closest?.('.search-table'),'검색 결과 초점');
     verify('검색창에서 ↓로 첫 검색 결과에 선택과 초점',document.activeElement.classList.contains('selected')&&nameOf(document.activeElement)==='마 보고서.pdf');
-    await until(()=>!crumbs().endsWith('가 폴더')&&row('가 폴더'),'검색 결과 위치 표시');
+    // 기본값(따라가기 꺼짐)에서는 선택해도 활성 탐색창 위치가 그대로다.
+    const before=await invoke('preferences_control',{next:null});
+    verify('검색 결과 선택 시 탐색창 따라가기 기본값은 꺼짐',before.followSearchSelection===false);
+    await pause(400);
+    verify('따라가기 꺼짐: 검색 결과를 선택해도 탐색창 위치 유지',places()===placesBefore);
+    // 설정을 켜면 검색 결과 선택이 활성 탐색창 위치를 옮긴다. 설정 알림이 화면에 닿을 때까지 다시 누른다.
+    await invoke('preferences_control',{next:{...before,followSearchSelection:true}});
+    await until(()=>{if(!crumbs().endsWith('가 폴더')&&row('가 폴더'))return true;document.querySelector('.search-table .file-row')?.click();return false;},'검색 결과 위치 표시');
+    verify('따라가기 켜짐: 검색 결과 선택 시 활성 탐색창이 그 위치로 이동',true);
     set(search,'');
 
     // 4. 운영체제 탐색기와 같은 파일 아이콘을 불러온다.

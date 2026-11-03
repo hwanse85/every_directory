@@ -967,10 +967,10 @@ export default function App() {
     );
   }
 
-  // 검색 항목을 선택하면 활성 탐색창에서 해당 위치와 파일을 표시한다.
+  // 검색 항목을 선택하면 설정에 따라 활성 탐색창에서 해당 위치와 파일을 표시한다.
   function selectResult(entry: FileEntry,multi=false): void {
     setSelected(entry);
-    if(!multi)reveal(entry);
+    if(!multi&&preferences.followSearchSelection)reveal(entry);
   }
 
   // 검색 파일은 기본 앱으로 실행하고 폴더는 활성 탐색창에서 연다.

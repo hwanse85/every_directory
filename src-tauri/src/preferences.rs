@@ -14,6 +14,7 @@ pub struct Preferences {
     pub search_delay: u16,
     pub search_page_size: usize,
     pub quick_full_path: bool,
+    pub follow_search_selection: bool,
     pub clipboard_enabled: bool,
     pub clipboard_days: u16,
     pub clipboard_keyword: String,
@@ -36,6 +37,7 @@ impl Default for Preferences {
             search_delay: 80,
             search_page_size: 1000,
             quick_full_path: true,
+            follow_search_selection: false,
             clipboard_enabled: true,
             clipboard_days: 10,
             clipboard_keyword: "clip".into(),
@@ -153,6 +155,15 @@ mod tests {
         bad.clipboard_days = 0;
         assert!(store.save(bad).is_err());
         assert_eq!(store.value.lock().unwrap().clipboard_keyword, "clips");
+    }
+
+    // 이전 버전 설정 파일에 없는 검색 선택 따라가기는 꺼진 값으로 읽는다.
+    #[test]
+    fn follow_search_selection_defaults_off_for_old_files() {
+        let old: Preferences = serde_json::from_str(r#"{"quickFullPath":false}"#).unwrap();
+        assert!(!old.follow_search_selection);
+        let on: Preferences = serde_json::from_str(r#"{"followSearchSelection":true}"#).unwrap();
+        assert!(on.follow_search_selection);
     }
 }
 

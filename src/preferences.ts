@@ -6,10 +6,10 @@ import type {ExplorerView,FileEntry} from "./types";
 
 export interface Preferences {
  showHidden:boolean;showTemporary:boolean;showRecycleBin:boolean;highlightMatches:boolean;fontScale:number;
- activePaneAccent:"blue"|"violet"|"orange"|"green";defaultExplorerView:ExplorerView;searchDelay:number;searchPageSize:number;quickFullPath:boolean;
+ activePaneAccent:"blue"|"violet"|"orange"|"green";defaultExplorerView:ExplorerView;searchDelay:number;searchPageSize:number;quickFullPath:boolean;followSearchSelection:boolean;
  clipboardEnabled:boolean;clipboardDays:number;clipboardKeyword:string;clipboardText:boolean;clipboardImages:boolean;clipboardFiles:boolean;clipboardMaxMb:number;clipboardExcludedApps:string;
 }
-export const defaultPreferences:Preferences={showHidden:false,showTemporary:false,showRecycleBin:false,highlightMatches:true,fontScale:100,activePaneAccent:"blue",defaultExplorerView:"list",searchDelay:80,searchPageSize:1000,quickFullPath:true,clipboardEnabled:true,clipboardDays:10,clipboardKeyword:"clip",clipboardText:true,clipboardImages:true,clipboardFiles:true,clipboardMaxMb:16,clipboardExcludedApps:"1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe"};
+export const defaultPreferences:Preferences={showHidden:false,showTemporary:false,showRecycleBin:false,highlightMatches:true,fontScale:100,activePaneAccent:"blue",defaultExplorerView:"list",searchDelay:80,searchPageSize:1000,quickFullPath:true,followSearchSelection:false,clipboardEnabled:true,clipboardDays:10,clipboardKeyword:"clip",clipboardText:true,clipboardImages:true,clipboardFiles:true,clipboardMaxMb:16,clipboardExcludedApps:"1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe"};
 export function normalizePreferences(input:unknown):Preferences{
  const value={...defaultPreferences,...(input&&typeof input==="object"?input:{})} as Preferences;
  for(const key of Object.keys(defaultPreferences) as (keyof Preferences)[])if(typeof value[key]!==typeof defaultPreferences[key])Object.assign(value,{[key]:defaultPreferences[key]});

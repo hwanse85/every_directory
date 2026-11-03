@@ -66,6 +66,8 @@ const root = path.join(temp, "E2E 한글 [1]&'()");
 const data = path.join(temp, suite==="portable"?"portable-data":"data");
 if(suite==="portable")await writeFile(path.join(temp,"portable.flag"),"portable data beside this executable\n");
 await prepare(root, suite);
+// 기존 검사는 검색 결과 선택 시 탐색창이 따라가는 흐름을 쓰므로 켜 두고, ux는 실제 기본값(꺼짐)부터 검증한다.
+if(!["ux","portable","empty"].includes(suite)){await mkdir(data,{recursive:true});await writeFile(path.join(data,"preferences.json"),JSON.stringify({followSearchSelection:true}));}
 const env = {
   ...process.env,
   EVERY_DIRECTORY_DATA: data,
