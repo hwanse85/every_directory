@@ -89,6 +89,46 @@
     await invoke('preferences_control',{next:{...before,followSearchSelection:true}});
     await until(()=>{if(!crumbs().endsWith('가 폴더')&&row('가 폴더'))return true;document.querySelector('.search-table .file-row')?.click();return false;},'검색 결과 위치 표시');
     verify('따라가기 켜짐: 검색 결과 선택 시 활성 탐색창이 그 위치로 이동',true);
+    await pause(1200);
+    verify('따라가기 켜짐: 위치를 옮긴 뒤에도 검색 결과 선택 유지',document.querySelector('.search-table .file-row')?.classList.contains('selected'));
+    set(search,'');
+
+    // 3-2. 검색 영역 접기·펼치기: 접어도 검색어·결과·선택을 유지하고, 접힌 동안 Tab은 탐색창끼리만 돈다.
+    const searchToggle=document.querySelector('.search-toggle');const shown=()=>searchToggle.getAttribute('aria-pressed')==='true';
+    const savedVisible=()=>JSON.parse(sessionStorage.getItem('ed:searchVisible')??localStorage.getItem('ed:searchVisible')??'null');
+    verify('검색 영역 스위치는 도구 막대 맨 앞에 켜짐으로 표시',shown()&&document.querySelector('.workspace-actions').firstElementChild===searchToggle&&searchToggle.textContent.includes('검색'));
+    // 접기 검사는 기본값(따라가기 꺼짐)에서 한다.
+    await invoke('preferences_control',{next:{...before,followSearchSelection:false}});await pause(600);
+    set(search,'마 보고서');await until(()=>document.querySelectorAll('.search-table .file-row').length===1,'접기 전 검색 결과');
+    const firstResult=()=>document.querySelector('.search-table .file-row');
+    await until(()=>{if(firstResult()?.classList.contains('selected'))return true;firstResult()?.click();return false;},'접기 전 검색 결과 선택');
+    // 검색과 무관한 설정(글자 크기)을 바꿔도 검색을 다시 돌리지 않아 선택이 남는다.
+    await invoke('preferences_control',{next:{...before,followSearchSelection:false,fontScale:110}});
+    await until(()=>document.documentElement.style.getPropertyValue('--user-font-scale')==='1.1','글자 크기 설정 반영');await pause(800);
+    verify('검색과 무관한 설정을 바꿔도 검색 결과 선택 유지',firstResult()?.classList.contains('selected'));
+    await invoke('preferences_control',{next:{...before,followSearchSelection:false}});await pause(600);
+    const explorersWidth=document.querySelector('.explorers-section').getBoundingClientRect().width;
+    search.focus();key(search,'F',{ctrlKey:true,metaKey:true,shiftKey:true});
+    await until(()=>!shown()&&document.querySelector('.search-rail'),'Ctrl/⌘+Shift+F로 검색 영역 접기');
+    verify('검색 영역을 접으면 탐색창이 넓어지고 가장자리에 ‘검색 열기’ 띠 표시',getComputedStyle(document.querySelector('.search-panel')).display==='none'&&document.querySelector('.explorers-section').getBoundingClientRect().width>explorersWidth+200&&document.querySelector('.search-rail').textContent.includes('검색 열기'));
+    verify('검색 안에서 접으면 초점을 활성 탐색창 목록으로 옮김',!!document.activeElement?.closest?.('.explorer-pane'));
+    verify('접힌 띠에 유지 중인 검색 결과 개수 표시',document.querySelector('.search-rail-badge')?.textContent==='1');
+    verify('검색 영역 표시 상태를 저장',savedVisible()===false);
+    const hiddenOrder=[region()];for(let n=0;n<3;n++){pressTab();await pause(80);hiddenOrder.push(region());}
+    report.hiddenTabOrder=hiddenOrder;
+    verify('검색 영역을 접으면 Tab은 탐색창끼리만 순환',hiddenOrder.every(item=>item?.startsWith('탐색창'))&&new Set(hiddenOrder).size===2);
+    document.querySelector('.search-rail').click();
+    await until(()=>shown()&&document.activeElement===search,'띠로 검색 영역 펼치기');
+    await pause(300);
+    verify('‘검색 열기’ 띠로 펼치면 입력칸에 초점, 검색어와 결과 유지',search.value==='마 보고서'&&document.querySelectorAll('.search-table .file-row').length===1);
+    verify('펼친 뒤에도 접기 전 검색 결과 선택 유지',firstResult()?.classList.contains('selected'));
+    document.querySelector('.search-hide-button').click();await until(()=>!shown(),'숨기기 단추로 접기');
+    key(document.body,'k',{ctrlKey:true,metaKey:true});
+    await until(()=>shown()&&document.activeElement===search,'Ctrl/⌘+K로 검색 영역 펼치기');
+    verify('검색 입력 줄의 숨기기 단추로 접고 Ctrl/⌘+K로 다시 펼쳐 입력칸으로 이동',savedVisible()===true);
+    searchToggle.click();await until(()=>!shown(),'도구 막대 스위치로 접기');
+    searchToggle.click();await until(()=>shown(),'도구 막대 스위치로 펼치기');
+    verify('도구 막대 검색 스위치로 접고 펼치기',!document.querySelector('.search-rail'));
     set(search,'');
 
     // 4. 운영체제 탐색기와 같은 파일 아이콘을 불러온다.

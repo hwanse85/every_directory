@@ -39,7 +39,9 @@ export async function prepare(root, suite) {
   if(suite==="history"){
     for(const folder of ["대상","$Recycle.Bin/a",".hidden","문서/경로 보고서"])await mkdir(path.join(root,folder),{recursive:true});
     for(const name of ["업무 보고서.txt","$budget.txt","~$lock.docx","cache.tmp","native-hidden.txt","$Recycle.Bin/a/deleted.txt",".hidden/secret.txt","문서/경로 보고서/보관.txt"])await writeFile(path.join(root,name),"history fixture");
-    execFileSync("attrib.exe",["+H",path.join(root,"native-hidden.txt")],{windowsHide:true});
+    // 운영체제 숨김 표시: Windows는 숨김 속성, macOS는 Finder 숨김 플래그
+    if(process.platform==="win32")execFileSync("attrib.exe",["+H",path.join(root,"native-hidden.txt")],{windowsHide:true});
+    else execFileSync("chflags",["hidden",path.join(root,"native-hidden.txt")]);
     return;
   }
   if(suite==="ux"){

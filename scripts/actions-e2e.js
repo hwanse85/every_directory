@@ -63,14 +63,14 @@
     const row = await until(
       () =>
         [...document.querySelectorAll(".search-table .file-row")].find((row) =>
-          row.title.endsWith(`\\${name}`),
+          row.title.split(/[\\/]/).pop()===name,
         ),
       `검색 ${name}`,
     );
     row.click();
     await until(
       () =>
-        pane().querySelector(".file-row.selected")?.title.endsWith(`\\${name}`),
+        pane().querySelector(".file-row.selected")?.title.split(/[\\/]/).pop()===name,
       `선택 ${name}`,
     );
   }

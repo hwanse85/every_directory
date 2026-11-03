@@ -52,6 +52,10 @@ import {
   Moon,
   Sun,
   PanelBottomClose,
+  PanelLeftClose,
+  PanelRightClose,
+  PanelTopClose,
+  ScanSearch,
   Monitor,
   Hash,
   Cloud,
@@ -231,6 +235,7 @@ interface SavedWorkspace {
   ratio: number;
   paneRatio: number;
   arrangement: Arrangement;
+  searchVisible?: boolean;
 }
 
 // 저장된 탐색창 구조가 현재 버전에서 읽을 수 있는지 확인한다.
@@ -284,8 +289,11 @@ export default function App() {
   const [fileColors,setFileColors]=useState(()=>readPreference<unknown>("fileColors",false)===true);
   useEffect(()=>{savePreference("fileColors",fileColors);},[fileColors]);
   const [searchPage,setSearchPage]=useState({key:"",offset:0});
-  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,preferences,revision]);
-  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,preferences]);
+  // 검색 결과에 영향을 주는 설정만 검색 조건으로 본다. 글자 크기·따라가기 같은 설정을 바꿔도 결과와 선택을 유지한다.
+  const searchPreferences=[preferences.showHidden,preferences.showTemporary,preferences.showRecycleBin,preferences.searchPageSize];
+  const searchPreferencesKey=JSON.stringify(searchPreferences);
+  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences,revision]);
+  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences]);
   const lastSearchCondition=useRef("");
   const searchOffset=searchPage.key===searchKey?searchPage.offset:0;
   useEffect(()=>{setSearchPage(previous=>previous.key===searchKey?previous:{key:searchKey,offset:0});},[searchKey]);
@@ -322,6 +330,18 @@ export default function App() {
     return ["column", "row", "grid"].includes(saved) ? saved : "column";
   });
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // 검색 영역은 필요할 때만 펼친다. 숨겨도 검색어·결과·선택은 그대로 유지한다.
+  const [searchVisible, setSearchVisible] = useState(() => readPreference<unknown>("searchVisible", true) !== false);
+  const searchVisibleRef = useRef(searchVisible);
+  searchVisibleRef.current = searchVisible;
+  const focusSearchPending = useRef(false);
+  // 검색 영역을 펼친 직후, 화면에 나타난 입력칸에 초점을 둔다.
+  useLayoutEffect(() => {
+    if (!searchVisible || !focusSearchPending.current) return;
+    focusSearchPending.current = false;
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, [searchVisible]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readPreference("sidebarCollapsed", false));
   useEffect(() => { savePreference("sidebarCollapsed", sidebarCollapsed); }, [sidebarCollapsed]);
   const [modal, setModal] = useState<
@@ -404,11 +424,7 @@ export default function App() {
       const { listen } = await import("@tauri-apps/api/event");
       const unlisten = await listen<string>("ed-desktop", (event) => {
         if (disposed) return;
-        if (event.payload === "search")
-          requestAnimationFrame(() => {
-            searchInput.current?.focus();
-            searchInput.current?.select();
-          });
+        if (event.payload === "search") requestAnimationFrame(focusSearch);
         else if (event.payload === "tools") setModal("tools");
         else if (event.payload === "folders") setModal("folders");
         else if (event.payload === "settings") setModal("settings");
@@ -450,6 +466,30 @@ export default function App() {
   }, []);
   const vertical = placement === "top" || placement === "bottom";
   const reverse = placement === "right" || placement === "bottom";
+
+  // 검색 영역을 펼치고 검색어 입력칸에 초점을 둔다(이미 보이면 초점만 옮긴다).
+  function focusSearch() {
+    if (searchVisibleRef.current) {
+      searchInput.current?.focus();
+      searchInput.current?.select();
+      return;
+    }
+    focusSearchPending.current = true;
+    setSearchVisible(true);
+  }
+  // 검색 영역을 접는다. 초점이 검색 안에 있었으면 먼저 활성 탐색창 목록으로 옮긴다.
+  function hideSearch() {
+    if (document.activeElement?.closest(".search-panel")) {
+      const pane = document.querySelector<HTMLElement>(".explorer-pane.active") ?? document.querySelector<HTMLElement>(".explorer-pane");
+      (pane?.querySelector<HTMLElement>(".file-row.selected") ?? pane?.querySelector<HTMLElement>('.file-row[tabindex="0"]') ?? pane?.querySelector<HTMLElement>(".file-scroll"))?.focus();
+    }
+    setSearchVisible(false);
+  }
+  // 검색 영역 보이기·숨기기를 전환한다.
+  function toggleSearch() {
+    if (searchVisibleRef.current) hideSearch();
+    else focusSearch();
+  }
 
   // 오류와 처리 결과를 잠시 표시한다.
   const notify = useCallback(
@@ -530,7 +570,8 @@ export default function App() {
     savePreference("ratio", ratio);
     savePreference("arrangement", arrangement);
     savePreference("paneRatio", paneRatio);
-  }, [placement, ratio, arrangement, paneRatio]);
+    savePreference("searchVisible", searchVisible);
+  }, [placement, ratio, arrangement, paneRatio, searchVisible]);
   useEffect(() => {
     savePreference("favorites", favorites);
   }, [favorites]);
@@ -639,7 +680,7 @@ export default function App() {
     notify,
     searchSort,
     searchPage,
-    preferences,
+    searchPreferencesKey,
   ]);
 
   useLayoutEffect(() => {
@@ -701,6 +742,7 @@ export default function App() {
 
   useEffect(() => {
     // 검색창·검색 결과에서 Tab은 탐색창 1 → 2 → … 목록으로, 마지막 탐색창에서는 검색창으로 돌아간다(Shift+Tab은 반대).
+    // 검색 영역을 숨겼으면 탐색창끼리만 돈다.
     function cycleRegions(event: globalThis.KeyboardEvent) {
       if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229) return;
       if (document.querySelector('dialog[open],[role="menu"]')) return;
@@ -710,15 +752,17 @@ export default function App() {
       const paneIndex = lists.findIndex((list) => !!target && list.contains(target));
       if (!inSearch && paneIndex < 0) return;
       event.preventDefault();
-      const current = inSearch ? 0 : paneIndex + 1;
-      const next = (current + (event.shiftKey ? -1 : 1) + lists.length + 1) % (lists.length + 1);
-      if (next === 0) {
+      const withSearch = searchVisibleRef.current ? 1 : 0;
+      const count = lists.length + withSearch;
+      const current = inSearch ? 0 : paneIndex + withSearch;
+      const next = (current + (event.shiftKey ? -1 : 1) + count) % count;
+      if (withSearch && next === 0) {
         searchInput.current?.focus();
         searchInput.current?.select();
         return;
       }
-      const list = lists[next - 1];
-      const paneId = panesRef.current[next - 1]?.id;
+      const list = lists[next - withSearch];
+      const paneId = panesRef.current[next - withSearch]?.id;
       if (paneId) setActivePane(paneId);
       (list.querySelector<HTMLElement>('.file-row[tabindex="0"]') ?? list.querySelector<HTMLElement>(".file-row") ?? list).focus();
     }
@@ -738,7 +782,7 @@ export default function App() {
         return;
       if(!event.ctrlKey&&!event.metaKey&&!event.altKey){
         if(event.key==="F1"){event.preventDefault();setModal("help");return;}
-        if(event.key==="F3"){event.preventDefault();searchInput.current?.focus();searchInput.current?.select();return;}
+        if(event.key==="F3"){event.preventDefault();focusSearch();return;}
         if(event.key==="F11"){
           event.preventDefault();
           if(isDesktop)void desktopControl("fullscreen").then(setDesktop).catch(cause=>notify(String(cause),true));
@@ -754,11 +798,16 @@ export default function App() {
         event.preventDefault();
         setModal("commands");
       }
+      // Ctrl/⌘+Shift+F는 검색 영역 보이기·숨기기, Ctrl/⌘+K·F는 검색 영역을 펼쳐 입력칸으로 간다.
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        toggleSearch();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) &&
         (event.key.toLowerCase() === "k" || (event.key.toLowerCase() === "f" && !(event.target instanceof Element && event.target.closest(".explorer-pane"))))) {
         event.preventDefault();
-        searchInput.current?.focus();
-        searchInput.current?.select();
+        focusSearch();
       }
       if (
         (event.metaKey || event.ctrlKey) &&
@@ -1130,6 +1179,7 @@ export default function App() {
             ratio,
             paneRatio,
             arrangement,
+            searchVisible,
           },
         ].slice(-20),
       );
@@ -1156,6 +1206,7 @@ export default function App() {
     setRatio(workspace.ratio);
     setPaneRatio(workspace.paneRatio);
     setArrangement(workspace.arrangement);
+    setSearchVisible(workspace.searchVisible !== false);
     notify(`${workspace.name} 작업 공간을 열었습니다.`);
   }
 
@@ -1177,7 +1228,14 @@ export default function App() {
       title: "파일 검색으로 이동",
       detail: "검색어 입력 · Ctrl/⌘ K",
       keywords: "search find",
-      run: () => searchInput.current?.focus(),
+      run: focusSearch,
+    },
+    {
+      id: "search-toggle",
+      title: searchVisible ? "검색 영역 숨기기" : "검색 영역 보이기",
+      detail: "탐색창을 넓게 쓰기 · Ctrl/⌘ Shift F",
+      keywords: "search panel toggle hide show 검색창",
+      run: toggleSearch,
     },
     {
       id: "connect",
@@ -1231,6 +1289,8 @@ export default function App() {
   ];
 
   const workspaceStyle = { "--search-size": `${ratio}%` } as CSSProperties;
+  const searchToggleKey = /Mac/.test(navigator.platform) ? "⌘⇧F" : "Ctrl+Shift+F";
+  const SearchCloseIcon = { left: PanelLeftClose, right: PanelRightClose, top: PanelTopClose, bottom: PanelBottomClose }[placement];
   const paneStyle: CSSProperties =
     panes.length === 2 && arrangement !== "grid"
       ? arrangement === "column"
@@ -1251,7 +1311,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            searchInput.current?.focus();
+            focusSearch();
           }}
           aria-label="Every Directory 홈"
         >
@@ -1263,6 +1323,20 @@ export default function App() {
           </span>
         </a>
         <div className="workspace-actions" role="toolbar" aria-label="작업 공간 도구">
+          <button
+            className={`search-toggle${searchVisible ? " on" : ""}`}
+            aria-label="검색 영역"
+            aria-pressed={searchVisible}
+            aria-controls="search-panel"
+            aria-keyshortcuts="Control+Shift+F Meta+Shift+F"
+            title={`${searchVisible ? "검색 영역 숨기기" : "검색 영역 보이기"} · ${searchToggleKey}`}
+            onClick={toggleSearch}
+          >
+            <Search size={15} strokeWidth={2.2} />
+            <span className="search-toggle-label">검색</span>
+            <span className="search-toggle-switch" aria-hidden="true"><i /></span>
+          </button>
+          <span className="toolbar-divider" aria-hidden="true" />
           <button
             className="button secondary toolbox-trigger"
             title="도구" aria-label="도구 열기"
@@ -1285,6 +1359,16 @@ export default function App() {
             {layoutOpen && (
               <div className="layout-popover">
                 <div className="popover-heading">나에게 맞는 작업 공간</div>
+                <label className="layout-search-visible">
+                  <span>검색 영역 표시<small>{searchToggleKey}</small></span>
+                  <input
+                    type="checkbox"
+                    className="toggle"
+                    aria-label="검색 영역 표시"
+                    checked={searchVisible}
+                    onChange={(e) => (e.target.checked ? setSearchVisible(true) : hideSearch())}
+                  />
+                </label>
                 <p>검색 영역 위치</p>
                 <div className="placement-options">
                   {(
@@ -1342,6 +1426,7 @@ export default function App() {
                     setRatio(43);
                     setArrangement("column");
                     setPaneRatio(50);
+                    setSearchVisible(true);
                     changePaneCount(2);
                   }}
                 >
@@ -1387,14 +1472,14 @@ export default function App() {
             <button
               className="icon-button"
               aria-label="빠른 파일 검색 열기"
-              title="빠른 파일 검색"
+              title="빠른 검색 창 열기 · 작은 별도 창"
               onClick={() =>
                 void desktopControl("quick").catch((cause) =>
                   notify(String(cause), true),
                 )
               }
             >
-              <Search size={18} />
+              <ScanSearch size={18} />
             </button>
           )}
 
@@ -1455,7 +1540,7 @@ export default function App() {
               setQuery("");
               setCategory("all");
               setScope("");
-              searchInput.current?.focus();
+              focusSearch();
             }}
           >
             <LayoutPanelLeft size={18} />
@@ -1700,10 +1785,10 @@ export default function App() {
           )}
 
           <div
-            className={`workspace-split placement-${placement}`}
+            className={`workspace-split placement-${placement}${searchVisible ? "" : " search-hidden"}`}
             style={workspaceStyle}
           >
-            <section className="search-panel" aria-label="빠른 검색" onKeyDown={event=>{
+            <section className="search-panel" id="search-panel" aria-label="빠른 검색" inert={!searchVisible} onKeyDown={event=>{
               if(event.defaultPrevented||event.nativeEvent.isComposing||event.nativeEvent.keyCode===229||document.querySelector('dialog[open],[role="menu"]')||(event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]'))return;
               const modifier=event.ctrlKey||event.metaKey;
               if(event.key==="Enter"&&modifier&&searchSelection.length===1){event.preventDefault();reveal(searchSelection[0]);}
@@ -1714,6 +1799,7 @@ export default function App() {
             }}>
 
               <div className="search-controls">
+                <div className="search-input-row">
                 <div className="search-input-wrap">
                   <Search size={19} />
                   <SearchTextInput
@@ -1772,6 +1858,15 @@ export default function App() {
                       {/Mac/.test(navigator.platform) ? <Command size={10} /> : "Ctrl+"} K
                     </kbd>
                   )}
+                </div>
+                <button
+                  className="icon-button search-hide-button"
+                  aria-label="검색 영역 숨기기"
+                  title={`검색 영역 숨기기 · ${searchToggleKey}`}
+                  onClick={hideSearch}
+                >
+                  <SearchCloseIcon size={17} />
+                </button>
                 </div>
                 <div className="search-refinements">
                 <div className="search-method">
@@ -1960,13 +2055,33 @@ export default function App() {
               )}
             </section>
 
-            <ResizeHandle
-              value={ratio}
-              vertical={vertical}
-              reverse={reverse}
-              onChange={setRatio}
-              label="검색과 탐색 영역 크기 조절"
-            />
+            {searchVisible ? (
+              <ResizeHandle
+                value={ratio}
+                vertical={vertical}
+                reverse={reverse}
+                onChange={setRatio}
+                label="검색과 탐색 영역 크기 조절"
+              />
+            ) : (
+              <button
+                className="search-rail"
+                aria-label="검색 영역 보이기"
+                aria-controls="search-panel"
+                aria-expanded={false}
+                title={`검색 영역 보이기 · ${searchToggleKey}`}
+                onClick={focusSearch}
+              >
+                <Search size={17} strokeWidth={2.2} />
+                <span className="search-rail-label">검색 열기</span>
+                {query.trim() && (
+                  <span className="search-rail-badge" title={`‘${query.trim()}’ 검색 결과`}>
+                    {result.total.toLocaleString()}
+                  </span>
+                )}
+                <kbd>{searchToggleKey}</kbd>
+              </button>
+            )}
 
             <section className="explorers-section" aria-label="파일 탐색">
 
@@ -2640,6 +2755,7 @@ export default function App() {
               <div><span>탭 순환 / 역순</span><kbd>Ctrl + Tab / Ctrl + Shift + Tab</kbd></div>
               <div><span>닫은 탭 다시 열기</span><kbd>Ctrl + Shift + T</kbd></div>
               <div><span>칼럼 전체 내용 맞춤</span><kbd>Ctrl + +</kbd></div>
+              <div><span>검색 영역 보이기 / 숨기기</span><kbd>⌘ / Ctrl + Shift + F</kbd></div>
               <div><span>검색창 / 도움말 / 전체 화면</span><kbd>F3 / F1 / F11</kbd></div>
               <div><span>복사 / 붙여넣기 (추가 단축키)</span><kbd>Ctrl + Insert / Shift + Insert</kbd></div>
               <div><span>현재 폴더에서 필터 / 해제</span><kbd>Ctrl + F / Esc</kbd></div>

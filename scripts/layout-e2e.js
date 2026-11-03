@@ -22,7 +22,8 @@
       await until(()=>document.querySelector('[aria-label="사이드바 접기"]'),"사이드바 복원");
       sessionStorage.removeItem(checkpoint);
       await invoke("ed_request",{kind:"smokeResize",payload:{width:900,height:640}});
-      await until(()=>Math.abs(innerWidth-900)<2&&Math.abs(innerHeight-640)<2,"900×640 작은 창");
+      // macOS는 창 크기에 제목 표시줄이 포함되어 내용 높이가 조금 작을 수 있다.
+      await until(()=>Math.abs(innerWidth-900)<2&&innerHeight<=642&&innerHeight>=580,`900×640 작은 창(현재 ${innerWidth}×${innerHeight})`);
       await settle();
       const smallHeader=rect('.app-header'),smallWorkspace=rect('.workspace-split');
       report.geometry.small={viewport:{width:innerWidth,height:innerHeight},workspace:{top:smallWorkspace.top,height:smallWorkspace.height},searchResultsTop:rect('.result-summary').top};

@@ -14,7 +14,7 @@
     document.querySelector(`.explorer-pane[aria-label="탐색창 ${n}"]`);
   function clickRow(p, name, double = false) {
     const row = [...p.querySelectorAll(".file-row")].find((row) =>
-      row.title.endsWith(`\\${name}`),
+      row.title.split(/[\\/]/).pop()===name,
     );
     if (!row) throw new Error(`파일 없음 ${name}`);
     row.click();
@@ -99,7 +99,7 @@
       "Windows 잘라내기 일치 확인과 실제 이동",
       !(await list("대상")).some((x) => x.name === "업무 보고서.txt"),
     );
-    await until(() => [...pane(1).querySelectorAll(".file-row")].some(x => x.title.endsWith("\\업무 보고서.txt")), "이동 목록 반영");
+    await until(() => [...pane(1).querySelectorAll(".file-row")].some(x => x.title.split(/[\\/]/).pop()==="업무 보고서.txt"), "이동 목록 반영");
     clickRow(pane(1), "업무 보고서.txt");
     await ready(pane(1));
     key(document.activeElement, "Enter", { ctrlKey: false, altKey: true });
@@ -118,7 +118,7 @@
     await until(async () => (await list("문서")).some(x => x.name === "단축키 변경.txt"), "이름 변경 실제 반영");
     await until(() => !document.querySelector("dialog[open]"), "이름 변경 닫기");
     verify("F2 이름 변경", true);
-    await until(() => [...pane(1).querySelectorAll(".file-row")].some(x => x.title.endsWith("\\단축키 변경.txt")), "변경 목록");
+    await until(() => [...pane(1).querySelectorAll(".file-row")].some(x => x.title.split(/[\\/]/).pop()==="단축키 변경.txt"), "변경 목록");
     clickRow(pane(1), "단축키 변경.txt");
     await ready(pane(1));
     key(document.activeElement, "Delete", {ctrlKey:false});
@@ -151,11 +151,14 @@
     document.querySelectorAll('.search-table .file-row')[1].focus();key(document.activeElement,"Insert");
     await until(()=>document.querySelector('.toast')?.textContent.includes("2개 항목 복사"),"검색 Ctrl+Insert 다중 복사");
     verify("검색 Ctrl+Insert는 선택 그룹만 Windows 클립보드로 복사",true);
+    // Shift+Insert 붙여넣기는 Insert 키가 있는 Windows 키보드용 보조 단축키라 Windows에서만 검사한다.
+    if(!/Mac/.test(navigator.platform)){
     clickRow(pane(1),"문서",true);
     await until(()=>pane(1).querySelector('.breadcrumbs')?.textContent.includes("문서"),"검색 사본 붙여넣을 폴더");
     pane(1).querySelector('[role="tab"]').focus();await ready(pane(1));key(document.activeElement,"Insert",{ctrlKey:false,shiftKey:true});
     await until(async()=>{const entries=await list("문서");return entries.some(x=>x.name==="쏠리마인드.txt")&&entries.some(x=>x.name==="README.md");},"검색 그룹 Shift+Insert 붙여넣기");
     verify("검색 다중 복사 → 탐색창 Shift+Insert 실제 붙여넣기",true);
+    }
     report.passed = true;
   } catch (e) {
     report.errors.push(String(e));

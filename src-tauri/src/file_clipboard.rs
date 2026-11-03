@@ -227,6 +227,13 @@ pub(crate) fn open_windows_clipboard(owner: windows_sys::Win32::Foundation::HWND
     false
 }
 
+// macOS가 돌려준 분리형(NFD) 한글 경로를 조합형(NFC)으로 바꾼다. APFS는 두 형태를 같은 파일로 찾는다.
+#[cfg(target_os = "macos")]
+pub(crate) fn nfc_path(path: &str) -> PathBuf {
+    use unicode_normalization::UnicodeNormalization;
+    PathBuf::from(path.nfc().collect::<String>())
+}
+
 // Finder가 기록한 파일 URL 목록을 읽고 일반 텍스트는 파일로 해석하지 않는다.
 #[cfg(target_os = "macos")]
 pub fn read_files(_owner: isize) -> Result<Vec<PathBuf>, String> {
@@ -241,7 +248,7 @@ pub fn read_files(_owner: isize) -> Result<Vec<PathBuf>, String> {
                     if let Some(url) = NSURL::URLWithString(&value) {
                         if url.isFileURL() {
                             if let Some(path) = url.path() {
-                                paths.push(PathBuf::from(path.to_string()));
+                                paths.push(nfc_path(&path.to_string()));
                             }
                         }
                     }
@@ -296,6 +303,14 @@ pub fn read_files(_owner: isize) -> Result<Vec<PathBuf>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // macOS 붙여넣기 보드의 분리형 한글 경로를 조합형으로 바꿔 이름 비교·검색이 맞게 한다.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_pasteboard_paths_become_composed_hangul() {
+        let decomposed = "/tmp/\u{110B}\u{1165}\u{11B8}\u{1106}\u{116E} \u{1107}\u{1169}\u{1100}\u{1169}\u{1109}\u{1165}.txt";
+        assert_eq!(nfc_path(decomposed), PathBuf::from("/tmp/업무 보고서.txt"));
+    }
 
     // 경로의 드라이브·UNC 구분과 한글·구분자를 그대로 보존한다.
     #[test]

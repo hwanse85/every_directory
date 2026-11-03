@@ -434,6 +434,9 @@ async fn import_files(
     if window.label() != "main" {
         return Err("파일 가져오기는 메인 탐색창에서 실행해 주세요.".into());
     }
+    // Finder에서 끌어온 경로는 분리형 한글일 수 있어 조합형 이름으로 가져온다.
+    #[cfg(target_os = "macos")]
+    let paths: Vec<std::path::PathBuf> = paths.iter().map(|path| file_clipboard::nfc_path(&path.to_string_lossy())).collect();
     let engine = engine.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         engine.wait_ready()?;
@@ -661,7 +664,7 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("ux") {
                 let _ = webview.eval(include_str!("../../scripts/ux-e2e.js"));
             }
-            #[cfg(all(windows, feature="smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label()=="main"&&payload.event()==tauri::webview::PageLoadEvent::Finished&&std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref()==Ok("history"){
                 let restart=std::env::var_os("EVERY_DIRECTORY_HISTORY_RESTART").is_some();
                 let _=webview.eval(&format!("window.__historyRestart={restart};"));
@@ -683,7 +686,7 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("shell-new") {
                 let _ = webview.eval(include_str!("../../scripts/shell-new-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("explorer") {
                 let _ = webview.eval(include_str!("../../scripts/explorer-e2e.js"));
             }
@@ -691,35 +694,35 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("audit") {
                 let _ = webview.eval(include_str!("../../scripts/audit-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("tree") {
                 let _ = webview.eval(include_str!("../../scripts/tree-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("columns") {
                 let _ = webview.eval(include_str!("../../scripts/columns-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("layout") {
                 let _ = webview.eval(include_str!("../../scripts/layout-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("transfer") {
                 let _ = webview.eval(include_str!("../../scripts/transfer-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("drag") {
                 let _ = webview.eval(include_str!("../../scripts/drag-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("grid") {
                 let _ = webview.eval(include_str!("../../scripts/grid-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("clipboard") {
                 let _ = webview.eval(include_str!("../../scripts/clipboard-e2e.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("actions") {
                 let _ = webview.eval(include_str!("../../scripts/actions-e2e.js"));
             }
@@ -728,7 +731,7 @@ pub fn run() {
                 let _ = webview.eval("window.__edE2E=true;");
                 let _ = webview.eval(include_str!("../../scripts/desktop-smoke.js"));
             }
-            #[cfg(all(windows, feature = "smoke-test"))]
+            #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("search") {
                 let _ = webview.eval(include_str!("../../scripts/search-e2e.js"));
             }

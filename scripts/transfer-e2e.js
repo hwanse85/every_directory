@@ -7,7 +7,7 @@
     while(Date.now()<end) {const result=await check();if(result)return result;await new Promise(r=>setTimeout(r,40));}
     throw new Error(`시간 초과: ${label}`);
   }
-  const row=(p,name)=>[...p.querySelectorAll(".file-row")].find(x=>x.title.endsWith(`\\${name}`));
+  const row=(p,name)=>[...p.querySelectorAll(".file-row")].find(x=>x.title.split(/[\\/]/).pop()===name);
   function verify(name,condition,extra={}) {if(!condition)throw new Error(name);report.tests.push({name,passed:true,...extra});}
   async function transfer(name,move=false) {
     const file=await until(()=>row(pane(1),name),"원본 목록");file.click();file.focus();

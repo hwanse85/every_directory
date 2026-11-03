@@ -211,12 +211,17 @@ pub fn user_excluded(root:&Root,path:&Path)->bool {
     })
 }
 
+// 운영체제의 숨김 표시를 읽는다. Windows는 숨김 속성, macOS는 점(.) 이름과 Finder 숨김 플래그(UF_HIDDEN)를 본다.
+pub(crate) fn native_hidden(name:&str,metadata:&fs::Metadata)->bool{
+    #[cfg(windows)]{use std::os::windows::fs::MetadataExt;let _=name;metadata.file_attributes()&2!=0}
+    #[cfg(target_os="macos")]{use std::os::macos::fs::MetadataExt;name.starts_with('.')||metadata.st_flags()&0x8000!=0}
+    #[cfg(not(any(windows,target_os="macos")))]{let _=metadata;name.starts_with('.')}
+}
 pub(crate) fn entry_metadata(root:&Root,path:&Path,metadata:&fs::Metadata)->Option<Entry>{
     let relative=path.strip_prefix(&root.absolute_path).ok()?.to_string_lossy().replace('\\',"/");
     let name=path.file_name()?.to_string_lossy().into_owned();let directory=metadata.is_dir();
     let timestamp=|time:Result<SystemTime,std::io::Error>|time.ok().and_then(|time|time.duration_since(UNIX_EPOCH).ok()).map(|time|time.as_millis() as u64);
-    #[cfg(windows)] let hidden={use std::os::windows::fs::MetadataExt;metadata.file_attributes()&2!=0};
-    #[cfg(not(windows))] let hidden=name.starts_with('.');
+    let hidden=native_hidden(&name,metadata);
     Some(Entry{id:format!("{}:{relative}",root.id),root_id:root.id.clone(),name,parent:relative.rsplit_once('/').map_or("",|(parent,_)|parent).into(),path:relative,kind:if directory{"directory"}else{"file"}.into(),extension:if directory{String::new()}else{path.extension().map_or(String::new(),|ext|ext.to_string_lossy().to_lowercase())},size:if directory{None}else{Some(metadata.len())},modified:timestamp(metadata.modified()).unwrap_or(0),created:timestamp(metadata.created()),accessed:timestamp(metadata.accessed()),readonly:metadata.permissions().readonly(),hidden})
 }
 // 임시 파일을 완성한 뒤 교체해 저장 중 손상을 방지한다.
@@ -493,13 +498,7 @@ impl Engine {
             let name = item.file_name().to_string_lossy().to_string();
             let parent = relative.rsplit_once('/').map_or("", |(p, _)| p).to_string();
             let directory = item.file_type().is_dir();
-            #[cfg(windows)]
-            let hidden = {
-                use std::os::windows::fs::MetadataExt;
-                metadata.file_attributes() & 2 != 0
-            };
-            #[cfg(not(windows))]
-            let hidden = name.starts_with('.');
+            let hidden = native_hidden(&name, &metadata);
             entries.push(Entry {
                 id: format!("{}:{}", root.id, relative),
                 root_id: root.id.clone(),
@@ -1070,5 +1069,25 @@ impl Engine {
                 .then_with(|| normalize(&a.name).cmp(&normalize(&b.name)))
         });
         Ok(entries)
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_hidden_tests {
+    use super::*;
+
+    // Finder에서 숨긴 파일(chflags hidden)과 점 이름 파일을 숨김으로 읽는다.
+    #[test]
+    fn finder_hidden_flag_and_dot_names_are_hidden() {
+        let dir = std::env::temp_dir().join(format!("ed-hidden-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (plain, flagged, dotted) = (dir.join("보이는.txt"), dir.join("숨긴.txt"), dir.join(".점.txt"));
+        for file in [&plain, &flagged, &dotted] { fs::write(file, "x").unwrap(); }
+        assert!(std::process::Command::new("chflags").arg("hidden").arg(&flagged).status().unwrap().success());
+        let hidden = |path: &Path| native_hidden(&path.file_name().unwrap().to_string_lossy(), &fs::metadata(path).unwrap());
+        assert!(!hidden(&plain));
+        assert!(hidden(&flagged));
+        assert!(hidden(&dotted));
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

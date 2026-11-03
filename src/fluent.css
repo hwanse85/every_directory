@@ -789,3 +789,167 @@
 :root .network-connect input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--fl-stroke-control); border-bottom-color: var(--fl-stroke-strong); background: var(--fl-input); color: var(--fl-text); }
 :root .network-connect input:focus { outline: none; border-bottom: 2px solid var(--fl-accent); }
 :root .network-connect .button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* 검색 영역 켜기·끄기 단추. 도구 막대 맨 앞에 두고, 켜짐(강조색 채움)과 꺼짐(테두리만)을 스위치 모양으로 구분한다. */
+:root .app-header .search-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  min-width: 92px;
+  padding: 0 10px 0 11px;
+  flex-shrink: 0;
+  border: 1px solid var(--fl-stroke-control);
+  border-radius: 16px;
+  background: var(--fl-input);
+  color: var(--fl-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+:root .app-header .search-toggle:hover { background: var(--fl-hover-strong); border-color: var(--fl-stroke-strong); }
+:root .app-header .search-toggle:active { background: var(--fl-pressed); }
+:root .app-header .search-toggle:focus-visible { outline: 2px solid var(--fl-focus); outline-offset: 2px; }
+:root .app-header .search-toggle.on {
+  border-color: color-mix(in srgb, var(--fl-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--fl-accent) 12%, var(--fl-surface));
+  color: var(--fl-accent-pressed);
+}
+:root[data-theme="dark"] .app-header .search-toggle.on { color: var(--fl-accent); }
+:root .app-header .search-toggle.on:hover { background: color-mix(in srgb, var(--fl-accent) 20%, var(--fl-surface)); }
+:root .app-header .search-toggle-label { white-space: nowrap; }
+:root .app-header .search-toggle-switch {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  margin-left: auto;
+  border: 1px solid var(--fl-stroke-strong);
+  border-radius: 7px;
+  background: transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+:root .app-header .search-toggle-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fl-text-2);
+  transition: transform 0.12s, background 0.12s;
+}
+:root .app-header .search-toggle.on .search-toggle-switch { background: var(--fl-accent); border-color: var(--fl-accent); }
+:root .app-header .search-toggle.on .search-toggle-switch i { transform: translateX(12px); background: var(--fl-on-accent); }
+:root .app-header .toolbar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  flex-shrink: 0;
+  background: var(--fl-stroke-control);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .app-header .search-toggle,
+  :root .app-header .search-toggle-switch,
+  :root .app-header .search-toggle-switch i { transition: none; }
+}
+
+/* 검색 입력 줄 오른쪽의 숨기기 단추 */
+:root .search-input-row { display: flex; align-items: stretch; gap: 6px; min-width: 0; }
+:root .search-input-row > .search-input-wrap { flex: 1; min-width: 0; }
+:root .search-input-row > .search-hide-button {
+  width: 36px;
+  min-width: 36px;
+  height: auto;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--fl-radius);
+  color: var(--fl-text-2);
+}
+:root .search-input-row > .search-hide-button:hover { background: var(--fl-hover-strong); color: var(--fl-text); }
+
+/* 검색 영역을 숨기면 탐색창이 자리를 모두 쓰고, 검색이 있던 가장자리에 다시 여는 띠를 남긴다. */
+:root .app-shell .workspace-split.search-hidden > .search-panel { display: none !important; }
+:root .app-shell .workspace-split.search-hidden { grid-template-columns: 44px 8px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+:root .app-shell .workspace-split.search-hidden.placement-right { grid-template-columns: minmax(0, 1fr) 8px 44px; }
+:root .app-shell .workspace-split.search-hidden.placement-top { grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 8px minmax(0, 1fr); }
+:root .app-shell .workspace-split.search-hidden.placement-bottom { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 8px 40px; }
+:root .workspace-split > .search-rail { grid-column: 1; grid-row: 1; }
+:root .workspace-split.placement-right > .search-rail { grid-column: 3; }
+:root .workspace-split.placement-bottom > .search-rail { grid-row: 3; }
+:root .search-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 0;
+  border: 1px solid color-mix(in srgb, var(--fl-accent) 40%, var(--fl-stroke));
+  border-radius: var(--fl-radius-lg);
+  background: color-mix(in srgb, var(--fl-accent) 7%, var(--fl-surface));
+  color: var(--fl-accent-pressed);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+:root[data-theme="dark"] .search-rail { color: var(--fl-accent); }
+:root .search-rail:hover { background: color-mix(in srgb, var(--fl-accent) 15%, var(--fl-surface)); border-color: var(--fl-accent); }
+:root .search-rail:focus-visible { outline: 2px solid var(--fl-focus); outline-offset: 2px; }
+:root .search-rail-label { writing-mode: vertical-rl; letter-spacing: 2px; }
+:root .search-rail-badge {
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--fl-accent);
+  color: var(--fl-on-accent);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+:root .search-rail kbd {
+  margin-top: auto;
+  writing-mode: vertical-rl;
+  border: 0;
+  background: transparent;
+  color: var(--fl-text-3);
+  font-size: 10px;
+  font-weight: 400;
+}
+:root .workspace-split.placement-top > .search-rail,
+:root .workspace-split.placement-bottom > .search-rail { flex-direction: row; padding: 0 14px; }
+:root .workspace-split.placement-top > .search-rail .search-rail-label,
+:root .workspace-split.placement-bottom > .search-rail .search-rail-label,
+:root .workspace-split.placement-top > .search-rail kbd,
+:root .workspace-split.placement-bottom > .search-rail kbd { writing-mode: horizontal-tb; letter-spacing: 0; }
+:root .workspace-split.placement-top > .search-rail kbd,
+:root .workspace-split.placement-bottom > .search-rail kbd { margin: 0 0 0 auto; }
+
+/* 레이아웃 메뉴의 검색 영역 표시 스위치 */
+:root .layout-popover .layout-search-visible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--fl-stroke);
+  border-radius: var(--fl-radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root .layout-popover .layout-search-visible small { margin-left: 8px; color: var(--fl-text-3); font-size: 11px; font-weight: 400; }
+
+@media (max-width: 820px) {
+  :root .app-shell .workspace-split.search-hidden { min-height: 0; flex: 1; }
+  :root .app-shell .workspace-split.search-hidden > .search-rail { flex: none; height: 40px; flex-direction: row; padding: 0 14px; }
+  :root .app-shell .workspace-split.search-hidden > .search-rail .search-rail-label,
+  :root .app-shell .workspace-split.search-hidden > .search-rail kbd { writing-mode: horizontal-tb; letter-spacing: 0; }
+  :root .app-shell .workspace-split.search-hidden > .search-rail kbd { margin: 0 0 0 auto; }
+  :root .app-shell .workspace-split.search-hidden > .explorers-section { flex: 1; height: auto; min-height: 600px; }
+}

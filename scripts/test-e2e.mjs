@@ -10,8 +10,8 @@ import path from "node:path";
 import os from "node:os";
 import { prepare } from "./e2e-fixtures.mjs";
 const suite = process.argv[2] ?? "search";
-// macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. 나머지는 Windows 경로·셸 동작을 검증한다.
-const macSuites = ["ux", "quick", "empty", "desktop", "audit", "portable"];
+// macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. shell-new·history-monitor·windows는 Windows 셸·클립보드 감시를 검증한다.
+const macSuites = ["ux", "quick", "empty", "desktop", "audit", "portable", "search", "explorer", "history", "layout", "columns", "tree", "actions", "grid", "clipboard", "drag", "transfer"];
 if (process.platform !== "win32" && !(process.platform === "darwin" && macSuites.includes(suite)))
   throw new Error(`Windows WebView2에서 실행하세요. macOS에서는 ${macSuites.join(", ")} 스위트를 지원합니다.`);
 const mac = process.platform === "darwin";

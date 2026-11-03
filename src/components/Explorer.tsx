@@ -419,7 +419,7 @@ export function Explorer({
       if(modifier&&event.shiftKey&&event.key.toLowerCase()==="t"){
         event.preventDefault();reopenTab();return;
       }
-      if (modifier && !event.altKey && event.key.toLowerCase() === "f") {
+      if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         filterRef.current?.focus();
         filterRef.current?.select();

@@ -8,7 +8,7 @@
   const key=(target,key,props={})=>target.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...props}));
   const pane=n=>document.querySelectorAll('.explorer-pane')[n-1];
   const rows=()=>[...pane(1).querySelectorAll('.file-row')];
-  const find=name=>rows().find(row=>row.title.endsWith('\\'+name));
+  const find=name=>rows().find(row=>row.title.split(/[\\/]/).pop()===name);
   const treeWidth=n=>pane(n).querySelector('.folder-tree').getBoundingClientRect().width;
   const close=()=>document.querySelector('dialog[open] [aria-label="닫기"]').click();
   try{

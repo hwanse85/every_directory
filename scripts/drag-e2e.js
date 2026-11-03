@@ -10,7 +10,7 @@
   }
   function verify(name, condition) { if (!condition) throw new Error(name); report.tests.push({name, passed:true}); }
   const pane = n => document.querySelector(`.explorer-pane[aria-label="탐색창 ${n}"]`);
-  const row = (p, name) => [...p.querySelectorAll(".file-row")].find(x => x.title.endsWith(`\\${name}`));
+  const row = (p, name) => [...p.querySelectorAll(".file-row")].find(x => x.title.split(/[\\/]/).pop()===name);
   const point = el => { const r = el.getBoundingClientRect(); return {clientX:r.left+r.width/2, clientY:r.top+r.height/2}; };
   async function ready() {
     const settled = () => [pane(1),pane(2)].every(p => {
@@ -60,7 +60,8 @@
     await new Promise(requestAnimationFrame);
     const p = point(destination);
     await until(() => destination.contains(document.elementFromPoint(p.clientX,p.clientY)),"화면에 보이는 외부 드롭 대상");
-    const paths = [root.absolutePath.replace(/[\\/][^\\/]+$/, "") + "\\외부 드롭.txt"];
+    const separator = root.absolutePath.includes("\\") ? "\\" : "/";
+    const paths = [root.absolutePath.replace(/[\\/][^\\/]+$/, "") + separator + "외부 드롭.txt"];
     await invoke("plugin:event|emit_to", {target:{kind:"Webview",label:"main"},event:"tauri://drag-drop",payload:{paths,position:{x:p.clientX*devicePixelRatio,y:p.clientY*devicePixelRatio}}});
     await confirm();
     verify("외부 파일 드롭 → 네이티브 가져오기 → 폴더 목적지", (await list("문서")).some(x => x.name === "외부 드롭.txt"));

@@ -11,8 +11,10 @@ export interface Preferences {
 }
 export const defaultPreferences:Preferences={showHidden:false,showTemporary:false,showRecycleBin:false,highlightMatches:true,fontScale:100,activePaneAccent:"blue",defaultExplorerView:"list",searchDelay:80,searchPageSize:1000,quickFullPath:true,followSearchSelection:false,clipboardEnabled:true,clipboardDays:10,clipboardKeyword:"clip",clipboardText:true,clipboardImages:true,clipboardFiles:true,clipboardMaxMb:16,clipboardExcludedApps:"1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe"};
 export function normalizePreferences(input:unknown):Preferences{
- const value={...defaultPreferences,...(input&&typeof input==="object"?input:{})} as Preferences;
- for(const key of Object.keys(defaultPreferences) as (keyof Preferences)[])if(typeof value[key]!==typeof defaultPreferences[key])Object.assign(value,{[key]:defaultPreferences[key]});
+ // 알려진 설정 항목만 남긴다(백엔드가 덧붙인 preferencesWarning 같은 값이 설정 비교를 흔들지 않게).
+ const source=(input&&typeof input==="object"?input:{}) as Record<string,unknown>;
+ const value={...defaultPreferences} as Preferences;
+ for(const key of Object.keys(defaultPreferences) as (keyof Preferences)[])if(typeof source[key]===typeof defaultPreferences[key])Object.assign(value,{[key]:source[key]});
  const bounds={fontScale:[90,140],searchDelay:[40,500],searchPageSize:[100,1000],clipboardDays:[1,60],clipboardMaxMb:[1,64]};
  for(const [key,[min,max]]of Object.entries(bounds)){const k=key as keyof typeof bounds;value[k]=Math.max(min,Math.min(max,Math.round(Number(value[k]))||defaultPreferences[k]));}
  if(!/^[\p{L}\p{N}_-]{1,32}$/u.test(value.clipboardKeyword))value.clipboardKeyword="clip";

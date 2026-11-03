@@ -647,7 +647,7 @@ pub async fn clipboard_control(
     }
     let history = app.state::<Arc<ClipboardHistory>>().inner().clone();
     let p = app.state::<PreferenceStore>().value.lock().unwrap().clone();
-    #[cfg(all(windows, feature = "smoke-test"))]
+    #[cfg(feature = "smoke-test")]
     if action == "testImage" {
         app.clipboard()
             .write_image(&tauri::image::Image::new_owned(
@@ -697,6 +697,21 @@ pub async fn clipboard_control(
             if !ok {
                 return Err("검증용 보호 형식을 기록하지 못했습니다.".into());
             }
+        }
+        return Ok(serde_json::Value::Null);
+    }
+    // macOS 검증: 비밀번호 관리자처럼 숨김 형식(org.nspasteboard.ConcealedType)을 붙인 텍스트를 기록한다.
+    #[cfg(all(target_os = "macos", feature = "smoke-test"))]
+    if action == "testProtected" {
+        use objc2_foundation::NSString;
+        let ok = objc2::rc::autoreleasepool(|_| unsafe {
+            let board = objc2_app_kit::NSPasteboard::generalPasteboard();
+            board.clearContents();
+            board.setString_forType(&NSString::from_str("protected test clipboard"), objc2_app_kit::NSPasteboardTypeString)
+                && board.setString_forType(&NSString::from_str("1"), &NSString::from_str("org.nspasteboard.ConcealedType"))
+        });
+        if !ok {
+            return Err("검증용 보호 형식을 기록하지 못했습니다.".into());
         }
         return Ok(serde_json::Value::Null);
     }

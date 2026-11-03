@@ -33,3 +33,8 @@ test("search selection leaves the active pane alone by default and keeps a saved
  assert.equal(normalizePreferences({followSearchSelection:true}).followSearchSelection,true);
  assert.equal(normalizePreferences({followSearchSelection:"yes"}).followSearchSelection,false);
 });
+test("normalized preferences keep only known keys so backend extras do not change comparisons",()=>{
+ const withWarning=normalizePreferences({...defaultPreferences,preferencesWarning:null,unknown:1});
+ assert.deepEqual(Object.keys(withWarning).sort(),Object.keys(defaultPreferences).sort());
+ assert.equal(JSON.stringify(withWarning),JSON.stringify(normalizePreferences(defaultPreferences)));
+});

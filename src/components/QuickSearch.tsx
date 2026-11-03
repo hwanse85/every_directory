@@ -208,6 +208,7 @@ export default function QuickSearch() {
     void quickControl(clipboardView ? "expand" : "restore").catch(() => undefined);
   }, [clipboardView]);
 
+  // 검색어·범위·클립보드 키워드 일치가 바뀌거나, 검색 결과에 영향을 주는 설정이 바뀔 때만 다시 검색한다(다른 설정 변경으로 고른 줄이 바뀌지 않게).
   useEffect(() => {
     const version = ++requestVersion.current;
     const searchKey = JSON.stringify([query, scope, category,clipboardTrigger]);
@@ -300,7 +301,7 @@ export default function QuickSearch() {
       clearTimeout(timer);
       requestVersion.current += 1;
     };
-  }, [client, query, scope, category, revision, defaultMode,preferences]);
+  }, [client, query, scope, category, revision, defaultMode, clipboardTrigger, preferences.quickFullPath, preferences.showHidden, preferences.showTemporary, preferences.showRecycleBin]);
 
   useEffect(() => {
     document

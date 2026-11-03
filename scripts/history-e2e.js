@@ -40,7 +40,7 @@
    await clip("testImage");await clip("capture");s=await clip("list");verify("이미지·화면 캡처 PNG 저장",s.items[0].kind==="image"&&(await clip("read",s.items[0].id)).png.slice(0,4).join(",")==="137,80,78,71");const image=s.items[0];
    await clip("copy",first.id);await clip("capture");verify("이력 텍스트를 시스템 클립보드로 복원",(await clip("list")).items[0].preview==="first clip");
    await clip("copy",image.id);await clip("capture");verify("이력 이미지를 시스템 이미지로 복원",(await clip("list")).items[0].kind==="image");
-   const count=(await clip("list")).items.length;await clip("testProtected");await clip("capture");verify("Windows 기록 금지 표시가 있는 내용은 저장하지 않음",(await clip("list")).items.length===count);
+   const count=(await clip("list")).items.length;await clip("testProtected");await clip("capture");verify("기록 금지 표시(Windows 제외 형식·macOS 숨김 형식)가 있는 내용은 저장하지 않음",(await clip("list")).items.length===count);
    await clip("save",first.id,{destination:root.absolutePath+"/history-export.txt"});verify("텍스트 이력을 파일로 사본 저장",(await invoke("ed_request",{kind:"list",payload:{rootId:root.id,path:""}})).some(e=>e.name==="history-export.txt"));
    rejected=false;try{await clip("save",first.id,{destination:root.absolutePath+"/history-export.txt"});}catch{rejected=true;}verify("이력 저장 시 기존 파일 덮어쓰기 방지",rejected);
    document.querySelector('[aria-label="도구 열기"]').click();await wait(()=>button("클립보드"),"도구 탭");verify("도구 안에 파일 도구·클립보드 별도 탭",!!button("파일 도구")&&!!button("클립보드"));button("클립보드").click();await wait(()=>document.querySelector('.clipboard-list [role="option"]'),"이력 화면");verify("클립보드 전용 화면에서 목록과 미리보기 제공",!!document.querySelector('.clipboard-preview'));
