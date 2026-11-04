@@ -159,7 +159,7 @@ export function FileContextMenu({
         },
         {
           action: many ? "batchRename" : "rename",
-          label: many ? "일괄 이름 변경…" : "이름 변경…",
+          label: many ? "일괄 이름 변경…" : "이름 변경",
           icon: Pencil,
           shortcut: many ? undefined : "F2",
           disabled: !count,
@@ -341,11 +341,11 @@ export function FileContextMenu({
         ...(onWindowsNew?[{action:"nativeNew" as const,label:"Windows 새로 만들기…",icon:FilePlus2}]:[]),
         {
           action: "mkdir",
-          label: "새 폴더…",
+          label: "새 폴더",
           icon: FolderPlus,
           shortcut: `${mod}⇧N`,
         },
-        { action: "mkfile", label: "새 텍스트 파일…", icon: FilePlus2 },
+        { action: "mkfile", label: "새 텍스트 파일", icon: FilePlus2 },
       ],
     },
     view: {

@@ -704,15 +704,17 @@
     document.querySelector('.file-context-menu [data-group="create"]').dispatchEvent(new PointerEvent("pointerover",{bubbles:true,pointerType:"mouse"}));
     await until(()=>document.querySelector('.context-submenu'),"간단한 새로 만들기 하위 메뉴");
     await menuItem("새 텍스트 파일");
+    // 새 파일은 기본 이름으로 바로 만들고 목록 행 안에서 이름을 받는다.
     let input = await until(
-      () => document.querySelector('[aria-label="작업 이름"]'),
+      () => document.querySelector(".explorer-pane.active .rename-field input"),
       "새 파일 이름",
     );
     setValue(input, "메뉴 검증.txt");
-    document.querySelector("dialog[open] form").requestSubmit();
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await until(
       () =>
         !document.querySelector("dialog[open]") &&
+        !document.querySelector(".explorer-pane.active .rename-field") &&
         [...document.querySelectorAll(".explorer-pane.active .file-row")].some(
           (row) => row.textContent.includes("메뉴 검증.txt"),
         ),

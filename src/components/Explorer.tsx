@@ -140,7 +140,10 @@ export function Explorer({
   const previousLocation = useRef(location);
   const selectedRef = useRef<FileEntry | undefined>(undefined);
   const entriesRef = useRef<FileEntry[]>([]);
-  const createdName = useRef<{ name: string; at: number } | undefined>(undefined);
+  const createdName = useRef<{ name: string; at: number; rename?: boolean } | undefined>(undefined);
+  // 목록 안에서 이름을 고치고 있는 항목. 새로 만든 폴더·파일도 만든 직후 여기로 들어온다.
+  const [renaming, setRenaming] = useState<{ id: string; token: number }>();
+  const renameItem = (id: string) => setRenaming({ id, token: performance.now() });
   const revealRef = useRef(revealEntry);
   revealRef.current = revealEntry;
   const [filter, setFilter] = useState("");
@@ -153,6 +156,20 @@ export function Explorer({
   const [closedTabs,setClosedTabs]=useState<ExplorerTab[]>(()=>restoreClosedTabs(readPreference(`closedTabs:${pane.id}`,[])));
   const [tabMenu,setTabMenu]=useState<{id:string;x:number;y:number}>();
   const [renamingTab,setRenamingTab]=useState<{id:string;name:string}>();
+  // 탭 머리글 안에서 고친 이름을 저장한다. 비우면 폴더 이름으로 돌아간다.
+  const tabRenameClosed=useRef(false);
+  function saveTabName(refocus=false){
+    if(!renamingTab||tabRenameClosed.current)return;
+    tabRenameClosed.current=true;
+    const {id,name}=renamingTab;
+    setRenamingTab(undefined);
+    onChange({...pane,tabs:pane.tabs.map(item=>item.id===id?{...item,title:name.trim()||undefined}:item)});
+    if(refocus)focusTab(id);
+  }
+  // 이름 입력을 마친 탭 단추로 키보드 초점을 돌린다.
+  function focusTab(id:string){
+    requestAnimationFrame(()=>paneRef.current?.querySelector<HTMLElement>(`[data-tab-id="${id}"] [role="tab"]`)?.focus());
+  }
   const tabDrag=useTabReorder((id,target,after)=>onChange({...pane,tabs:moveTab(pane.tabs,id,target,after)}));
   const closeTabMenu=useCallback(()=>setTabMenu(undefined),[]);
   useEffect(()=>{savePreference(`closedTabs:${pane.id}`,closedTabs);},[closedTabs,pane.id]);
@@ -204,6 +221,25 @@ export function Explorer({
       window.removeEventListener("resize", close);
     };
   }, [flyout]);
+  // 선택한 항목 하나를 목록 안에서 바로 이름 바꾸기 상태로 둔다.
+  function startRename(entry: FileEntry) {
+    if (!visibleEntries.some((item) => item.id === entry.id)) return;
+    setSelected(entry);
+    setSelection([entry]);
+    renameItem(entry.id);
+  }
+  // 이름을 실제로 바꾸고, 목록을 다시 읽으면 새 이름의 항목을 선택하게 한다.
+  async function renameEntry(entry: FileEntry, name: string) {
+    await client.request("operation", { action: "rename", entries: [{ rootId: entry.rootId, path: entry.path }], name });
+    createdName.current = { name, at: performance.now() };
+    onChanged();
+    onMessage(`이름을 ‘${name}’(으)로 바꿨습니다.`);
+  }
+  // 다른 폴더로 가거나 고치던 항목이 사라지면 이름 바꾸기를 끝낸다.
+  useEffect(() => setRenaming(undefined), [location.rootId, location.path]);
+  useEffect(() => {
+    if (renaming && !loading && !entries.some((entry) => entry.id === renaming.id)) setRenaming(undefined);
+  }, [entries, loading, renaming]);
   const [context, setContext] = useState<{ x: number; y: number }>();
   const [localTool, setLocalTool] = useState<ToolRequest>();
   const [transfer, setTransfer] = useState<Location[]>();
@@ -230,10 +266,15 @@ export function Explorer({
         if (stillCurrent() && created.length) {
           setSelection(created);
           setSelected(created[0]);
+          // 하나만 만들었으면 Windows 탐색기처럼 바로 이름을 입력하게 한다. 목록이 아직이면 도착할 때 연다.
+          if (created.length === 1) {
+            if (entriesRef.current.some((entry) => entry.id === created[0].id)) renameItem(created[0].id);
+            else createdName.current = { name: created[0].name, at: performance.now(), rename: true };
+          }
         }
       }
       onMessage(result.created.length
-        ? `${result.created.length}개 항목을 Windows에서 만들었습니다. F2로 이름을 변경할 수 있습니다.`
+        ? `${result.created.length}개 항목을 Windows에서 만들었습니다. ${result.created.length === 1 ? "이름을 바로 입력할 수 있습니다." : "F2로 이름을 변경할 수 있습니다."}`
         : "Windows 새로 만들기를 실행했습니다. 생성이 끝나면 목록에 표시됩니다.");
     } catch (cause) {
       onChanged();
@@ -539,8 +580,11 @@ export function Explorer({
               if (child || focus) setCursor({ token: performance.now(), id: child?.id, focus, select: !!child });
             } else if (createdName.current && performance.now() - createdName.current.at < 5000 && result.some((entry) => entry.parent === location.path && entry.name === createdName.current?.name)) {
               const created = result.find((entry) => entry.parent === location.path && entry.name === createdName.current?.name);
+              const rename = createdName.current.rename;
               createdName.current = undefined;
-              setCursor({ token: performance.now(), id: created?.id, focus: active && keyboardInList() });
+              // 바로 이름을 고칠 항목은 선택만 하고 초점은 입력칸에 둔다.
+              if (rename && created) renameItem(created.id);
+              setCursor({ token: performance.now(), id: created?.id, focus: !rename && active && keyboardInList() });
             } else if (before && !result.some((entry) => entry.id === before.id)) {
               // 삭제·이동은 같은 자리의 다음 항목을, 이름 변경은 새 이름의 항목을 선택한다.
               const added = result.filter((entry) => !previousEntries.some((item) => item.id === entry.id));
@@ -804,17 +848,24 @@ export function Explorer({
                     : undefined
                 }
               >
+                {renamingTab?.id===t.id?<input className="tab-rename" aria-label="탭 이름" autoFocus maxLength={64} placeholder="비우면 폴더 이름" value={renamingTab.name}
+                  onPointerDown={event=>event.stopPropagation()}
+                  onFocus={event=>{tabRenameClosed.current=false;event.currentTarget.select();}}
+                  onChange={event=>setRenamingTab({...renamingTab,name:event.target.value})}
+                  onBlur={()=>{if(document.hasFocus())saveTabName();}}
+                  onKeyDown={event=>{event.stopPropagation();if(event.nativeEvent.isComposing||event.keyCode===229)return;if(event.key==="Enter"){event.preventDefault();saveTabName(true);}else if(event.key==="Escape"){event.preventDefault();tabRenameClosed.current=true;setRenamingTab(undefined);focusTab(t.id);}}}/>:
                 <button
                   role="tab"
                   aria-selected={t.id === tab.id}
-                  title={`${locationPath(roots.find(root=>root.id===loc.rootId),loc.path)}${t.locked?" · 고정됨":""}`}
+                  title={`${locationPath(roots.find(root=>root.id===loc.rootId),loc.path)} · 두 번 눌러 이름 변경${t.locked?" · 고정됨":""}`}
                   onClick={() => {if(!tabDrag.suppressClick(t.id))onChange({ ...pane, activeTab: t.id });}}
+                  onDoubleClick={()=>setRenamingTab({id:t.id,name:t.title??""})}
                   onAuxClick={event=>{if(event.button===1){event.preventDefault();closeTab(t.id);}}}
                 >
                   <Folder size={14} />
                   <span>{name}</span>
                   {t.locked&&<Pin size={11} aria-label="고정된 탭"/>}
-                </button>
+                </button>}
                 <label
                   className={`tab-color-control ${color ? "has-color" : "no-color"}`}
                   title={color ? "탭 색상 변경" : "색상 미지정 · 탭 색상 선택"}
@@ -1088,7 +1139,8 @@ export function Explorer({
           setSelection(visibleEntries);
           setSelected(visibleEntries[0]);
         }}
-        onCreated={(name) => { createdName.current = { name, at: performance.now() }; }}
+        onCreated={(name, rename) => { createdName.current = { name, at: performance.now(), rename }; }}
+        onRename={root && !root.demo ? startRename : undefined}
         extra={<div className="explorer-view-controls" ref={flyoutRef} aria-label={`탐색창 ${number} 보기 설정`}>
           <button className={`tree-toggle ${tree ? "chosen" : ""}`} aria-label="폴더 트리 표시" aria-pressed={tree} title="폴더 트리(탐색 창) 표시" onClick={() => setTree(!tree)}><FolderTreeIcon size={14} /><span>트리</span></button>
           <div className="command-flyout">
@@ -1162,6 +1214,9 @@ export function Explorer({
           onSortChange={sort=>onChange({...pane,sort:sort??{key:"name",descending:false}})}
           onSelect={setSelected}
           cursor={cursor}
+          renaming={renaming}
+          onRename={renameEntry}
+          onRenameEnd={() => setRenaming(undefined)}
           onOpen={openEntry}
           onContextMenu={
             root && !root.demo
@@ -1355,17 +1410,13 @@ export function Explorer({
       )}
       {tabMenu&&(()=>{const target=pane.tabs.find(tab=>tab.id===tabMenu.id);if(!target)return null;return <TabMenu x={tabMenu.x} y={tabMenu.y} onClose={closeTabMenu} items={[
         {label:"탭 복제",run:()=>{const next=duplicateTab(target);onChange({...pane,tabs:[...pane.tabs,next],activeTab:next.id});}},
-        {label:"탭 이름 변경…",run:()=>setRenamingTab({id:target.id,name:target.title??""})},
+        {label:"탭 이름 변경",run:()=>setRenamingTab({id:target.id,name:target.title??""})},
         {label:target.locked?"탭 고정 해제":"탭 고정",run:()=>onChange({...pane,tabs:pane.tabs.map(tab=>tab.id===target.id?{...tab,locked:!tab.locked}:tab)})},
         {label:"다른 탭 닫기",disabled:!pane.tabs.some(tab=>tab.id!==target.id&&!tab.locked),run:()=>closeOtherTabs(target.id)},
         {label:"오른쪽 탭 닫기",disabled:!pane.tabs.slice(pane.tabs.indexOf(target)+1).some(tab=>!tab.locked),run:()=>closeOtherTabs(target.id,true)},
         {label:"닫은 탭 다시 열기 · Ctrl+Shift+T",disabled:!closedTabs.length,run:reopenTab},
         {label:"탭 닫기",disabled:target.locked||pane.tabs.length<=1,run:()=>closeTab(target.id)},
       ]}/>;})()}
-      {renamingTab&&<Modal title="탭 이름 변경" onClose={()=>setRenamingTab(undefined)}><form className="modal-content" onSubmit={event=>{event.preventDefault();onChange({...pane,tabs:pane.tabs.map(tab=>tab.id===renamingTab.id?{...tab,title:renamingTab.name.trim()||undefined}:tab)});setRenamingTab(undefined);}}>
-        <label>탭 이름<input aria-label="탭 이름" autoFocus maxLength={64} placeholder="비우면 폴더 이름 사용" value={renamingTab.name} onChange={event=>setRenamingTab({...renamingTab,name:event.target.value})}/></label>
-        <button className="button primary" type="submit">저장</button>
-      </form></Modal>}
     </section>
   );
 }

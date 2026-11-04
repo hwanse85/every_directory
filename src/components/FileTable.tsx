@@ -1,6 +1,6 @@
 import {Highlight} from "./Highlight";
 import {usePreferences} from "../preferences";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpRight, Columns3, SearchX } from "lucide-react";
 import { FileIcon, formatSize } from "./FileIcon";
@@ -8,6 +8,7 @@ import { fileCollator, choseong, categoryOf } from "../search";
 import type { ConnectedRoot, ExplorerView, FileEntry, TableSort, SearchSortKey } from "../types";
 import {defaultExplorerColumns,groupedEntries} from "../explorerView";
 import { locationPath } from "../paths";
+import { validateName } from "../rename";
 import { isDesktop } from "../client";
 import { startFileDrag } from "../fileDrag";
 import { ColumnResizeHandle } from "./ColumnResizeHandle";
@@ -55,11 +56,93 @@ interface Props {
   onSortChange?: (sort:TableSort|undefined)=>void;
   onColumnsChange?:(columns:SearchColumn[])=>void;
   cursor?: FileCursor;
+  // 목록 안에서 이름을 고치는 항목. token이 바뀌면 같은 항목이라도 새로 편집을 시작한다.
+  renaming?: { id: string; token: number };
+  onRename?: (entry: FileEntry, name: string) => Promise<void>;
+  onRenameEnd?: () => void;
 }
 
 // 목록이 바뀐 뒤 선택·초점을 둘 항목을 요청한다. id가 없으면 사라진 항목 자리나 첫 항목을 고른다.
 // select가 false면 탐색기처럼 초점만 두고 선택(체크)하지 않는다.
 export interface FileCursor { token: number; id?: string; replaced?: string; focus: boolean; select?: boolean }
+
+// 목록 행 안에서 이름을 바로 고치는 입력칸. Enter·Tab·바깥 클릭은 적용, Esc는 취소한다.
+function RenameField({ entry, onRename, onEnd }: { entry: FileEntry; onRename: (entry: FileEntry, name: string) => Promise<void>; onEnd: () => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState(entry.name);
+  const [error, setError] = useState("");
+  const [errorAt, setErrorAt] = useState<CSSProperties>();
+  const [busy, setBusy] = useState(false);
+  const finished = useRef(false);
+  // 칸이 잘려도 보이도록 오류는 입력칸 바로 아래 화면 기준 위치에 띄운다.
+  function fail(message: string) {
+    const bounds = input.current?.getBoundingClientRect();
+    setErrorAt(bounds ? { left: Math.max(8, Math.min(bounds.left, innerWidth - 328)), top: Math.min(bounds.bottom + 4, innerHeight - 64) } : undefined);
+    setError(message);
+  }
+  useLayoutEffect(() => {
+    const node = input.current;
+    if (!node) return;
+    node.focus({ preventScroll: true });
+    // 파일은 확장자 앞까지만 골라 이름만 바로 덮어쓰게 한다(Windows 탐색기와 같음).
+    const dot = entry.kind === "file" ? entry.name.lastIndexOf(".") : -1;
+    node.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
+  }, []);
+  // 편집을 끝낸다. 키보드로 끝냈으면 초점을 행으로 돌려 방향키·단축키를 바로 이어 쓰게 한다.
+  function finish(refocus: boolean) {
+    finished.current = true;
+    if (refocus) input.current?.closest<HTMLElement>(".file-row")?.focus({ preventScroll: true });
+    onEnd();
+  }
+  // 바뀐 이름을 적용하고, 실패하면 입력칸에 남아 이유를 보여 준다.
+  async function commit(refocus: boolean) {
+    if (busy || finished.current) return;
+    const name = value.trim();
+    if (!name || name === entry.name) return finish(refocus);
+    try {
+      validateName(name);
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : String(cause));
+      input.current?.focus();
+      return;
+    }
+    setBusy(true);
+    try {
+      await onRename(entry, name);
+      finish(refocus && document.activeElement === input.current);
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : String(cause));
+      requestAnimationFrame(() => input.current?.focus());
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="rename-field" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onContextMenu={event => event.stopPropagation()}>
+      <input
+        ref={input}
+        aria-label={`${entry.name} 새 이름`}
+        aria-invalid={!!error}
+        value={value}
+        readOnly={busy}
+        spellCheck={false}
+        maxLength={240}
+        onChange={event => { setValue(event.target.value); setError(""); }}
+        onBlur={() => {
+          // 다른 앱으로 잠시 옮겨 가 이름을 복사해 오는 동안에는 편집을 유지한다.
+          if (document.hasFocus()) void commit(false);
+        }}
+        onKeyDown={event => {
+          event.stopPropagation();
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Enter" || event.key === "Tab") { event.preventDefault(); void commit(true); }
+          else if (event.key === "Escape") { event.preventDefault(); finish(true); }
+        }}
+      />
+      {error && <span className="rename-error" role="alert" style={errorAt}>{error}</span>}
+    </span>
+  );
+}
 
 // 화면에 보이는 행만 렌더링하는 파일 목록과 격자 보기를 제공한다.
 export function FileTable({
@@ -87,7 +170,11 @@ export function FileTable({
   onSortChange,
   onColumnsChange,
   cursor,
+  renaming,
+  onRename,
+  onRenameEnd,
 }: Props) {
+  const renamingId = renaming?.id;
   const {preferences}=usePreferences();
   const highlightQuery=preferences.highlightMatches?query:"";
   const anchor = useRef<string | undefined>(undefined);
@@ -533,7 +620,7 @@ export function FileTable({
                     }
                   }
                 }}
-                draggable={!isDesktop}
+                draggable={!isDesktop && renamingId !== entry.id}
                 onPointerDown={isDesktop ? (event) => {
                   const dragged = selectedIds?.includes(entry.id)
                     ? entries.filter((item) => selectedIds.includes(item.id)) : [entry];
@@ -574,9 +661,13 @@ export function FileTable({
                     />
                   )}
                   <FileIcon entry={entry} large={grid} pixels={iconPixels} />
-                  <span>
-                    <Highlight text={entry.name} query={highlightQuery} mode={searchMode} caseSensitive={caseSensitive} />
-                  </span>
+                  {renamingId === entry.id && onRename ? (
+                    <RenameField key={renaming?.token} entry={entry} onRename={onRename} onEnd={() => onRenameEnd?.()} />
+                  ) : (
+                    <span>
+                      <Highlight text={entry.name} query={highlightQuery} mode={searchMode} caseSensitive={caseSensitive} />
+                    </span>
+                  )}
                   {grid && (
                     <small>
                       {entry.kind === "directory"

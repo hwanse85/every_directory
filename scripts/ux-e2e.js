@@ -52,14 +52,14 @@
     await until(()=>!row('사 삭제용.txt')&&focused()==='아 이름변경.txt','삭제 후 다음 항목 초점',20000);
     verify('삭제하면 같은 자리의 다음 항목을 선택하고 초점 유지',row('아 이름변경.txt').classList.contains('selected'));
     await ready();const renameTarget=row('아 이름변경.txt');renameTarget.focus();key(renameTarget,'F2');
-    const name=await until(()=>document.querySelector('dialog[open] [aria-label="작업 이름"]'),'이름 바꾸기 대화상자');
-    set(name,'아 바뀐 이름.txt');document.querySelector('dialog[open] .button.primary').click();
+    const name=await until(()=>pane(1).querySelector('.rename-field input'),'목록 안 이름 입력칸');
+    set(name,'아 바뀐 이름.txt');key(name,'Enter');
     await until(()=>focused()==='아 바뀐 이름.txt','이름 변경 후 초점',20000);
     verify('이름을 바꾸면 새 이름 항목을 선택하고 초점 유지',row('아 바뀐 이름.txt').classList.contains('selected'));
 
     await ready();key(row('아 바뀐 이름.txt'),'n',{ctrlKey:true,metaKey:true,shiftKey:true});
-    const folderName=await until(()=>document.querySelector('dialog[open] [aria-label="작업 이름"]'),'새 폴더 대화상자');
-    set(folderName,'차 새 폴더');document.querySelector('dialog[open] .button.primary').click();
+    const folderName=await until(()=>pane(1).querySelector('.rename-field input'),'새 폴더 이름 입력칸');
+    set(folderName,'차 새 폴더');key(folderName,'Enter');
     await until(()=>focused()==='차 새 폴더','새 폴더 선택',20000);
     verify('새 폴더를 만들면 목록에서 새 폴더를 선택하고 초점',row('차 새 폴더').classList.contains('selected'));
 

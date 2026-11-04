@@ -27,7 +27,7 @@
   await until(()=>[...pane(1).querySelectorAll('.file-row.selected')].some(row=>row.title.endsWith('\\'+created.name)),'생성 파일 선택');
   verify('생성한 파일 자동 선택과 목록 갱신',true);
   pane(1).querySelector('.file-row.selected').focus();pane(1).querySelector('.file-row.selected').dispatchEvent(new KeyboardEvent('keydown',{key:'F2',bubbles:true,cancelable:true}));
-  await until(()=>document.querySelector('dialog[open] [aria-label="작업 이름"]'),'이름 변경');verify('생성 파일은 F2로 이름 변경 가능',document.querySelector('[aria-label="작업 이름"]').value===created.name);document.querySelector('dialog[open] [aria-label="닫기"]').click();await pause();
+  const renameInput=await until(()=>pane(1).querySelector('.rename-field input'),'이름 변경');verify('생성 파일은 F2로 목록 안에서 이름 변경 가능',renameInput.value===created.name&&!document.querySelector('dialog[open]'));renameInput.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await pause();
   const afterFirst=await list('');await choose(1,'.txt');await until(async()=> (await list('')).length===afterFirst.length+1,'번호 사본');
   verify('동일 형식 반복 생성은 Windows 번호 이름과 기존 파일 보존',(await list('')).some(entry=>entry.id===created.id));
   const beforeFolder=await list('');await choose(1,'NewFolder');await until(async()=> (await list('')).some(entry=>entry.kind==='directory'&&!beforeFolder.some(old=>old.id===entry.id)),'Windows 폴더 생성');verify('네이티브 새 폴더 생성',true);

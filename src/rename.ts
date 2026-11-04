@@ -76,3 +76,16 @@ export function renamePreview(
     );
   return names;
 }
+
+// 같은 폴더에 겹치지 않는 이름을 고른다. 파일은 확장자 앞에 " (2)"처럼 번호를 붙인다.
+export function uniqueName(base: string, taken: Iterable<string>, folder = false): string {
+  const names = new Set([...taken].map((name) => name.toLocaleLowerCase()));
+  if (!names.has(base.toLocaleLowerCase())) return base;
+  const dot = folder ? -1 : base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const extension = dot > 0 ? base.slice(dot) : "";
+  for (let number = 2; ; number++) {
+    const name = `${stem} (${number})${extension}`;
+    if (!names.has(name.toLocaleLowerCase())) return name;
+  }
+}

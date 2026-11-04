@@ -953,3 +953,20 @@
   :root .app-shell .workspace-split.search-hidden > .search-rail kbd { margin: 0 0 0 auto; }
   :root .app-shell .workspace-split.search-hidden > .explorers-section { flex: 1; height: auto; min-height: 600px; }
 }
+
+/* 목록 안에서 바로 이름 바꾸기 */
+.file-table .file-name > .rename-field { flex: 1 1 auto; min-width: 0; overflow: visible; display: flex; align-items: center; height: 100%; }
+.file-grid .file-name > .rename-field { width: 100%; padding: 0 4px; box-sizing: border-box; }
+.rename-field input {
+  width: 100%; min-width: 0; height: 22px; box-sizing: border-box; margin: 0; padding: 0 5px;
+  font: inherit; color: var(--fl-text); background: var(--fl-surface);
+  border: 1px solid var(--fl-accent); border-radius: 3px; outline: none;
+  box-shadow: 0 0 0 1px var(--fl-accent);
+}
+.rename-field input[aria-invalid="true"] { border-color: #c42b1c; box-shadow: 0 0 0 1px #c42b1c; }
+.rename-field input:read-only { opacity: 0.7; }
+.rename-error {
+  position: fixed; z-index: 1000; max-width: 320px; padding: 6px 9px; border-radius: var(--fl-radius);
+  font-size: 12px; line-height: 1.4; white-space: normal; color: #fff; background: #c42b1c; box-shadow: var(--fl-shadow-flyout);
+}
+.explorer-tab .tab-rename { width: 120px; min-width: 60px; height: 22px; margin: 0 4px; padding: 0 5px; box-sizing: border-box; font: inherit; color: var(--fl-text); background: var(--fl-surface); border: 1px solid var(--fl-accent); border-radius: 3px; outline: none; }

@@ -99,59 +99,50 @@
       await new Promise((r) => setTimeout(r, 60));
     }
   }
-  async function applyName(name) {
-    const input = await until(
-      () => document.querySelector('[aria-label="작업 이름"]'),
-      "작업 이름",
-    );
+  // 대화상자 없이 목록 행 안에 뜬 이름 입력칸에 이름을 넣고 Enter로 적용한다.
+  async function inlineName(name, label = "목록 안 이름 입력칸") {
+    const input = await until(() => pane().querySelector(".rename-field input"), label);
+    if (document.querySelector("dialog[open]")) throw new Error("이름 입력이 대화상자로 열림");
+    const initial = input.value;
     value(input, name);
     await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
-    const submit = await until(() => {
-      const button = document.querySelector("dialog[open] .button.primary");
-      return button && !button.disabled ? button : undefined;
-    }, "이름 입력과 작업 준비");
-    submit.click();
-    await until(() => !document.querySelector("dialog[open]"), `작업 ${name}`);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await until(() => !pane().querySelector(".rename-field"), `이름 적용 ${name}`);
+    return initial;
   }
   try {
     await until(() => pane()?.querySelector(".file-row"), "초기 목록");
     root = (await invoke("ed_request", { kind: "init", payload: {} }))[0];
     await select("업무 보고서.txt");
     await menu("새로 만들기", "새 폴더");
-    await applyName("E2E 새 폴더");
+    const folderDefault = await inlineName("E2E 새 폴더", "새 폴더 이름 입력칸");
     verify(
-      "새 폴더 UI와 실제 디렉터리 생성",
-      (await list("")).some((x) => x.name === "E2E 새 폴더"),
+      "새 폴더는 기본 이름으로 바로 만들고 목록 안에서 이름 입력",
+      folderDefault.startsWith("새 폴더") && (await list("")).some((x) => x.name === "E2E 새 폴더") && !(await list("")).some((x) => x.name === folderDefault),
     );
     await menu("새로 만들기", "새 텍스트 파일");
-    await applyName("E2E 새 파일.txt");
+    const fileDefault = await inlineName("E2E 새 파일.txt", "새 파일 이름 입력칸");
+    verify("새 텍스트 파일도 목록 안에서 이름 입력", fileDefault.startsWith("새 파일") && fileDefault.endsWith(".txt"));
     await select("E2E 새 파일.txt");
     await menu("이름 변경");
-    await applyName("E2E 이름 변경.txt");
+    await inlineName("E2E 이름 변경.txt");
     verify(
       "파일 생성·단일 이름 변경",
       (await list("")).some((x) => x.name === "E2E 이름 변경.txt"),
     );
     await select("E2E 이름 변경.txt");
     await menu("이름 변경");
-    value(document.querySelector('[aria-label="작업 이름"]'), "CON.txt");
+    const invalid = await until(() => pane().querySelector(".rename-field input"), "예약 이름 입력칸");
+    value(invalid, "CON.txt");
     await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
-    const invalidSubmit = await until(() => {
-      const button=document.querySelector("dialog[open] .button.primary");
-      return button && !button.disabled ? button : undefined;
-    },"예약 이름 입력 반영");
-    invalidSubmit.click();
-    await until(
-      () => document.querySelector('dialog[open] [role="alert"]'),
-      "예약 이름 오류",
-    );
+    invalid.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await until(() => pane().querySelector(".rename-error"), "예약 이름 오류");
     verify(
-      "잘못된 이름은 안내하고 원본 보존",
-      document.querySelector('dialog[open] [role="alert"]')?.textContent.includes("예약") && (await list("")).some((x) => x.name === "E2E 이름 변경.txt"),
+      "잘못된 이름은 입력칸에 남아 안내하고 원본 보존",
+      pane().querySelector(".rename-error")?.textContent.includes("예약") && pane().querySelector(".rename-field input")?.getAttribute("aria-invalid") === "true" && (await list("")).some((x) => x.name === "E2E 이름 변경.txt"),
     );
-    await close();
+    pane().querySelector(".rename-field input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await until(() => !pane().querySelector(".rename-field"), "이름 입력 취소");
     await select("E2E 이름 변경.txt");
     await menu("파일 도구", "일괄 이름 변경");
     value(document.querySelector('[aria-label="이름 접두사"]'), "일괄_");
@@ -168,10 +159,12 @@
     verify("일괄 이름 미리보기와 실제 적용", !!renamed);
     await select("업무 보고서.txt");
     await menu("파일 도구", "ZIP 압축…");
-    await applyName("E2E 압축.zip");
+    const zipDefault = await inlineName("E2E 압축.zip", "ZIP 이름 입력칸");
+    verify("ZIP 압축은 원본 이름으로 바로 만들고 목록 안에서 이름 입력", zipDefault === "업무 보고서.zip");
     await select("E2E 압축.zip");
     await menu("파일 도구", "ZIP 압축 풀기");
-    await applyName("E2E 압축 해제");
+    const unzipDefault = await inlineName("E2E 압축 해제", "압축 해제 폴더 이름 입력칸");
+    verify("압축 풀기는 ZIP 이름 폴더에 바로 풀고 목록 안에서 이름 입력", unzipDefault === "E2E 압축");
     verify(
       "ZIP 압축·해제 UI와 한글 파일",
       (await list("E2E 압축 해제")).some((x) => x.name === "업무 보고서.txt"),

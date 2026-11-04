@@ -109,14 +109,44 @@
     await until(() => !document.querySelector("dialog[open]"), "속성 닫기");
     clickRow(pane(1), "업무 보고서.txt");
     await ready(pane(1));
-    key(document.activeElement, "F2", { ctrlKey: false });
-    const nameInput = await until(() => document.querySelector('[aria-label="작업 이름"]'), "F2 이름 변경");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(nameInput, "단축키 변경.txt");
+    // 목록을 다시 읽는 중에도 F2가 먹어야 한다. 예전에는 무시되어 이어 누른 Ctrl+V가 파일 붙여넣기로 갔다.
+    const beforeRows = pane(1).querySelectorAll(".file-row").length;
+    // Ctrl+R로 목록을 다시 읽게 하고, 파일 작업이 잠긴 순간에 F2를 누른다(빨리 끝나면 다시 시도).
+    let pressedWhileLoading = false;
+    const rowBeforeRefresh = document.activeElement;
+    for (let attempt = 0; attempt < 8 && !pressedWhileLoading; attempt++) {
+      key(rowBeforeRefresh, "r");
+      const end = performance.now() + 500;
+      while (performance.now() < end) {
+        if (pane(1).querySelector('[title="붙여넣기 · Ctrl/⌘ V"]')?.disabled) {
+          key(document.activeElement, "F2", { ctrlKey: false });
+          pressedWhileLoading = true;
+          break;
+        }
+        await new Promise(r => setTimeout(r, 0));
+      }
+      await ready(pane(1));
+    }
+    if (!pressedWhileLoading) throw new Error("목록 새로 고침 중 상태를 만들지 못함");
+    const nameInput = await until(() => pane(1).querySelector(".rename-field input"), "새로 고침 중 F2 이름 변경");
+    verify("F2는 대화상자 없이 목록 안에서 이름 입력(새로 고침 중에도)", !document.querySelector("dialog[open]") && document.activeElement === nameInput);
+    verify("F2는 확장자 앞까지만 선택", nameInput.value.slice(nameInput.selectionStart, nameInput.selectionEnd) === "업무 보고서");
+    key(nameInput, "v");
+    await new Promise(r => setTimeout(r, 400));
+    verify("이름 입력 중 Ctrl+V는 파일을 붙여넣지 않음", pane(1).querySelectorAll(".file-row").length === beforeRows && !(await list("문서")).some(x => x.name.startsWith("업무 보고서 (")) && !!pane(1).querySelector(".rename-field input"));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(nameInput, "취소될 이름.txt");
     nameInput.dispatchEvent(new Event("input", {bubbles:true}));
+    key(nameInput, "Escape", { ctrlKey: false });
+    await until(() => !pane(1).querySelector(".rename-field"), "Esc 이름 변경 취소");
+    verify("Esc는 이름을 바꾸지 않고 행으로 초점 복귀", (await list("문서")).some(x => x.name === "업무 보고서.txt") && document.activeElement?.classList.contains("file-row"));
+    key(document.activeElement, "F2", { ctrlKey: false });
+    const renameInput = await until(() => pane(1).querySelector(".rename-field input"), "F2 이름 변경");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(renameInput, "단축키 변경.txt");
+    renameInput.dispatchEvent(new Event("input", {bubbles:true}));
     await new Promise(r => setTimeout(r, 80));
-    document.querySelector("dialog[open] .button.primary").click();
+    key(renameInput, "Enter", { ctrlKey: false });
     await until(async () => (await list("문서")).some(x => x.name === "단축키 변경.txt"), "이름 변경 실제 반영");
-    await until(() => !document.querySelector("dialog[open]"), "이름 변경 닫기");
+    await until(() => !pane(1).querySelector(".rename-field"), "이름 입력 닫기");
     verify("F2 이름 변경", true);
     await until(() => [...pane(1).querySelectorAll(".file-row")].some(x => x.title.split(/[\\/]/).pop()==="단축키 변경.txt"), "변경 목록");
     clickRow(pane(1), "단축키 변경.txt");
@@ -130,14 +160,15 @@
     await ready(pane(1));
     pane(1).querySelector('[role="tab"]').focus();
     key(document.activeElement, "n", { shiftKey:true });
-    const folderInput = await until(() => document.querySelector('[aria-label="작업 이름"]'), "Ctrl+Shift+N");
+    const folderInput = await until(() => pane(1).querySelector(".rename-field input"), "Ctrl+Shift+N");
+    verify("Ctrl+Shift+N은 '새 폴더'를 바로 만들고 이름 입력", !document.querySelector("dialog[open]") && folderInput.value.startsWith("새 폴더") && (await list("문서")).some(x => x.name === folderInput.value));
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(folderInput, "단축키 새 폴더");
     folderInput.dispatchEvent(new Event("input", { bubbles:true }));
     await new Promise(r => setTimeout(r, 80));
-    document.querySelector("dialog[open] .button.primary").click();
+    key(folderInput, "Enter", { ctrlKey: false });
     await until(async () => (await list("문서")).some(x => x.name === "단축키 새 폴더"), "새 폴더 실제 반영");
     verify("Ctrl+Shift+N 새 폴더", true);
-    await until(()=>!document.querySelector('dialog[open]'),"새 폴더 대화상자 닫기");
+    await until(()=>!pane(1).querySelector('.rename-field'),"새 폴더 이름 입력 닫기");
     const searchInput=document.querySelector('[aria-label="파일 검색"]');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(searchInput,"쏠리 | README");
     searchInput.dispatchEvent(new Event("input",{bubbles:true}));

@@ -304,6 +304,9 @@ export default function App() {
   });
   const [searchSelection,setSearchSelection]=useState<FileEntry[]>([]);
   const [searchCursor,setSearchCursor]=useState<FileCursor>();
+  // 검색 결과 목록 안에서 이름을 고치는 항목과, 바꾼 뒤 다시 검색했을 때 고를 새 경로.
+  const [searchRenaming,setSearchRenaming]=useState<{id:string;token:number}>();
+  const renamedResult=useRef<{rootId:string;path:string;at:number}|undefined>(undefined);
   const [searchTool,setSearchTool]=useState<ToolRequest>();
   const [searchTransfer,setSearchTransfer]=useState<{action:"copy"|"move";paneId:string}>();
   const [searchTransferBusy,setSearchTransferBusy]=useState(false);
@@ -650,7 +653,16 @@ export default function App() {
           setResult(previous=>searchOffset>0?{...data,entries:[...new Map([...previous.entries,...data.entries].map(entry=>[entry.id,entry])).values()]}:data);
           if(searchOffset===0){
             if(lastSearchCondition.current!==searchConditionKey){setSelected(undefined);setSearchSelection([]);}
-            else {const current=new Map(data.entries.map(entry=>[entry.id,entry]));setSelected(previous=>previous?current.get(previous.id):undefined);setSearchSelection(previous=>previous.flatMap(entry=>{const updated=current.get(entry.id);return updated?[updated]:[];}));}
+            else {
+              const current=new Map(data.entries.map(entry=>[entry.id,entry]));
+              const renamed=renamedResult.current&&performance.now()-renamedResult.current.at<5000?data.entries.find(entry=>entry.rootId===renamedResult.current?.rootId&&entry.path===renamedResult.current?.path):undefined;
+              if(renamed){
+                // 이름을 바꾼 결과를 다시 고르고, 목록에서 작업 중이었다면 초점도 돌려준다.
+                renamedResult.current=undefined;setSelected(renamed);setSearchSelection([renamed]);
+                const focused=document.activeElement;
+                setSearchCursor({token:performance.now(),id:renamed.id,focus:!focused||focused===document.body||!!focused.closest(".search-table")});
+              }else{setSelected(previous=>previous?current.get(previous.id):undefined);setSearchSelection(previous=>previous.flatMap(entry=>{const updated=current.get(entry.id);return updated?[updated]:[];}));}
+            }
           }
           lastSearchCondition.current=searchConditionKey;
           setSearching(false);
@@ -747,6 +759,8 @@ export default function App() {
       if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229) return;
       if (document.querySelector('dialog[open],[role="menu"]')) return;
       const target = event.target instanceof HTMLElement ? event.target : undefined;
+      // 목록 안 이름 입력칸의 Tab은 이름 적용에 쓴다.
+      if (target?.closest(".rename-field")) return;
       const lists = [...document.querySelectorAll<HTMLElement>(".explorer-pane .file-scroll")];
       const inSearch = !!target && (target === searchInput.current || !!target.closest(".search-table .file-scroll"));
       const paneIndex = lists.findIndex((list) => !!target && list.contains(target));
@@ -2027,6 +2041,13 @@ export default function App() {
                 caseSensitive={caseSensitive}
                 onSelect={selectResult}
                 cursor={searchCursor}
+                renaming={searchRenaming}
+                onRename={async(entry,name)=>{
+                  await client.request("operation",{action:"rename",entries:[{rootId:entry.rootId,path:entry.path}],name});
+                  renamedResult.current={rootId:entry.rootId,path:entry.parent?`${entry.parent}/${name}`:name,at:performance.now()};
+                  setRevision(value=>value+1);notify(`이름을 ‘${name}’(으)로 바꿨습니다.`);
+                }}
+                onRenameEnd={()=>setSearchRenaming(undefined)}
                 onOpen={(entry) => void openResult(entry)}
                 onQuickPreview={setPreview}
                 compact={density === "compact"}
@@ -2035,7 +2056,8 @@ export default function App() {
               <FileActions client={client} entries={searchSelection} location={{rootId:searchSelection[0]?.rootId??"",path:searchSelection[0]?.parent??""}}
                 disabled={!ready||demo} active scope="search" selectionOnly clipboard={clipboard} onClipboard={setClipboard}
                 onChanged={()=>setRevision(value=>value+1)} onMessage={notify} onPreview={setPreview} onSelectAll={()=>setSearchSelection(result.entries)}
-                toolRequest={searchTool} onMore={(x,y)=>{if(searchSelection[0])setSearchContext({entry:searchSelection[0],x,y});}} />
+                toolRequest={searchTool} onMore={(x,y)=>{if(searchSelection[0])setSearchContext({entry:searchSelection[0],x,y});}}
+                onRename={!demo?entry=>{setSelected(entry);setSearchSelection([entry]);setSearchRenaming({id:entry.id,token:performance.now()});}:undefined} />
               {searchSelection.length>0 && (
                 <div className="search-selection">
                   <span title={searchSelection[0]?.name}>{searchSelection.length>1?`${searchSelection.length.toLocaleString()}개 선택`:searchSelection[0]?.name}</span>
@@ -2838,8 +2860,8 @@ export default function App() {
                 탐색창에 붙여넣기
               </p>
               <p>
-                <code>F2 · Delete · Space</code> 이름 변경·휴지통 이동·빠른
-                미리보기
+                <code>F2 · Delete · Space</code> 목록 안에서 이름 바꾸기(Enter
+                적용·Esc 취소)·휴지통 이동·빠른 미리보기
               </p>
               <p>
                 <code>Ctrl/⌘ A · Shift 클릭</code> 전체 선택·범위 선택 (최대

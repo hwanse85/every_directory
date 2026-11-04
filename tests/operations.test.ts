@@ -17,7 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { LocalFiles, within } from "../server/service";
 import { operate, listTrash, nativeCommand } from "../server/operations";
 import { safeZipPath } from "../server/archive";
-import { renamePreview, validateName } from "../src/rename";
+import { renamePreview, uniqueName, validateName } from "../src/rename";
 import type { FileProperties, Location, RenameRule } from "../src/types";
 
 const rule: RenameRule = {
@@ -92,6 +92,14 @@ test("portable filenames and ZIP names reject Windows reserved names and path es
     command: "open",
     args: ["/Users/me/a b.txt"],
   });
+});
+
+test("unique names number before the extension and ignore case", () => {
+  assert.equal(uniqueName("새 폴더", ["보고서.txt"], true), "새 폴더");
+  assert.equal(uniqueName("새 폴더", ["새 폴더", "새 폴더 (2)"], true), "새 폴더 (3)");
+  assert.equal(uniqueName("새 파일.txt", ["새 파일.TXT"]), "새 파일 (2).txt");
+  assert.equal(uniqueName("v1.2", ["v1.2"], true), "v1.2 (2)");
+  assert.equal(uniqueName(".env", [".env"]), ".env (2)");
 });
 
 test("rename preview preserves extensions, supports captures, and detects duplicate results", () => {

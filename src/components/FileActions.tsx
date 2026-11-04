@@ -28,7 +28,7 @@ import type {
   TrashItem,
   ToolRequest,
 } from "../types";
-import { renamePreview } from "../rename";
+import { renamePreview, uniqueName } from "../rename";
 import { formatSize } from "./FileIcon";
 import { Modal } from "./Modal";
 import { ImageTools } from "./ImageTools";
@@ -75,6 +75,7 @@ export function FileActions({
   selectionOnly = false,
   extra,
   onCreated,
+  onRename,
 }: {
   client: IndexClient;
   entries: FileEntry[];
@@ -92,7 +93,9 @@ export function FileActions({
   scope?: "explorer" | "search";
   selectionOnly?: boolean;
   extra?: ReactNode;
-  onCreated?: (name: string) => void;
+  onCreated?: (name: string, rename?: boolean) => void;
+  // 주면 이름 바꾸기와 새 폴더·파일·압축을 대화상자 없이 목록 안에서 처리한다.
+  onRename?: (entry: FileEntry) => void;
 }) {
   const [imageTool, setImageTool] = useState<"resizeImages" | "ocr">();
   const handledTool = useRef<number | undefined>(undefined);
@@ -235,9 +238,18 @@ export function FileActions({
     }
   }
 
-  // 작업별 입력값을 준비하고 대화상자를 연다.
+  // 작업별 입력값을 준비하고 대화상자를 연다. 목록 안 편집을 쓰면 이름을 묻지 않고 바로 처리한다.
   function show(next: ActionDialog): void {
+    if (onRename && next === "rename") {
+      if (entries.length === 1 && !busy) onRename(entries[0]);
+      return;
+    }
     if (disabled || busy) return;
+    // 검색 결과는 만든 항목이 목록에 나오지 않으므로 이름을 묻는 대화상자를 그대로 쓴다.
+    if (onRename && !selectionOnly && (next === "mkdir" || next === "mkfile" || next === "zip" || next === "unzip")) {
+      void createNamed(next);
+      return;
+    }
     setError("");
     setProperties(undefined);
     setDialog(next);
@@ -257,6 +269,32 @@ export function FileActions({
     if (next === "properties" || next === "trashList") void loadDetails(next);
   }
 
+  // Windows 탐색기처럼 겹치지 않는 기본 이름으로 바로 만들고, 만든 항목의 이름을 목록에서 고치게 한다.
+  async function createNamed(action: "mkdir" | "mkfile" | "zip" | "unzip"): Promise<void> {
+    if ((action === "zip" || action === "unzip") && !entries.length) return;
+    const base =
+      action === "mkdir"
+        ? "새 폴더"
+        : action === "mkfile"
+          ? "새 파일.txt"
+          : action === "zip"
+            ? (entries.length === 1 ? entries[0].name.replace(/\.[^.]+$/, "") : "압축파일") + ".zip"
+            : entries[0].name.replace(/\.zip$/i, "") || "압축해제";
+    setBusy(true);
+    let taken: string[] = [];
+    try {
+      taken = (await client.request<FileEntry[]>("list", location)).map((entry) => entry.name);
+    } catch {
+      // 목록을 못 읽으면 기본 이름으로 시도하고, 겹치면 서버가 알려 준다.
+    } finally {
+      setBusy(false);
+    }
+    const next = uniqueName(base, taken, action === "mkdir" || action === "unzip");
+    const messages = { mkdir: "새 폴더를 만들었습니다.", mkfile: "새 텍스트 파일을 만들었습니다.", zip: "ZIP 파일로 압축했습니다.", unzip: "압축을 풀었습니다." };
+    if (await perform({ action, entries: selected, destination: location, name: next, rule }, `${messages[action]} 이름을 바로 입력할 수 있습니다.`))
+      onCreated?.(next, true);
+  }
+
   useEffect(() => {
     if (!toolRequest || handledTool.current === toolRequest.id) return;
     const key = JSON.stringify(location);
@@ -264,6 +302,13 @@ export function FileActions({
       pendingTool.current = { id: toolRequest.id, location: key };
     if (pendingTool.current.location !== key) {
       handledTool.current = toolRequest.id;
+      return;
+    }
+    // 목록 안 이름 바꾸기는 목록을 다시 읽는 중에도 바로 시작한다.
+    if (onRename && toolRequest.action === "rename") {
+      handledTool.current = toolRequest.id;
+      if (entries.length === 1) onRename(entries[0]);
+      else onMessage("이름을 바꿀 항목 하나를 선택해 주세요.", true);
       return;
     }
     // 인덱스 갱신 중 들어온 메뉴 요청을 소비하지 않고 같은 위치의 목록이 준비되면 실행한다.
@@ -361,8 +406,6 @@ export function FileActions({
         (scope==="search"?!target?.closest(".search-panel"):!!target?.closest(".search-panel")) ||
         !!target?.closest('[role="menu"]') ||
         !active ||
-        disabled ||
-        busy ||
         document.querySelector("dialog[open]") ||
         target?.closest(
           'input:not([type="checkbox"]),textarea,select,[contenteditable=true]',
@@ -372,6 +415,13 @@ export function FileActions({
       if (event.key === " " && target?.matches('input[type="checkbox"]'))
         return;
       const modifier = event.metaKey || event.ctrlKey;
+      // 목록을 다시 읽는 중에도 F2는 받는다. 무시되면 이어서 누른 Ctrl+V가 파일 붙여넣기로 가 버린다.
+      if (event.key === "F2" && !modifier && !event.altKey && onRename && entries.length === 1 && !busy) {
+        event.preventDefault();
+        onRename(entries[0]);
+        return;
+      }
+      if (disabled || busy) return;
       const key = event.key.toLowerCase();
       if (event.altKey && event.key === "Enter" && entries.length) {
         event.preventDefault();
@@ -422,7 +472,7 @@ export function FileActions({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [active, disabled, busy, entries, clipboard, location,scope,selectionOnly]);
+  }, [active, disabled, busy, entries, clipboard, location,scope,selectionOnly,onRename]);
 
   // 현재 입력을 실제 서버 파일 작업으로 적용한다.
   async function submit(): Promise<void> {
@@ -491,7 +541,7 @@ export function FileActions({
           <span>붙여넣기</span>
         </button>
         <button
-          disabled={blocked || entries.length !== 1}
+          disabled={(onRename ? busy : blocked) || entries.length !== 1}
           onClick={() => show("rename")}
           title={`${isMac ? "이름 변경" : "이름 바꾸기"} · F2`}
         >
