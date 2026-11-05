@@ -40,6 +40,7 @@ import {
   pathCandidates,
   pathSearchText,
   quickSearchMode,
+  isClipboardKeyword,
 } from "../quickSearch";
 import { useSearchInput } from "../useSearchInput";
 import { SearchTextInput } from "./SearchTextInput";
@@ -75,7 +76,7 @@ export default function QuickSearch() {
   const {preferences}=usePreferences();
   const client = useMemo(() => new IndexClient(false), []);
   const [query, setQuery] = useState("");
-  const clipboardTrigger=query.trim().toLocaleLowerCase()===preferences.clipboardKeyword.toLocaleLowerCase();
+  const clipboardTrigger=isClipboardKeyword(query,preferences.clipboardKeyword);
   const [defaultMode, setDefaultMode] = useState<SearchMode>("initials");
   const [roots, setRoots] = useState<ConnectedRoot[]>([]);
   const [scope, setScope] = useState("");
@@ -103,7 +104,7 @@ export default function QuickSearch() {
     requestVersion.current+=1;
     selectedId.current=undefined;
     setQuery(text);
-    setSelected(text.trim().toLocaleLowerCase()===preferences.clipboardKeyword.toLocaleLowerCase()?-1:0);
+    setSelected(isClipboardKeyword(text,preferences.clipboardKeyword)?-1:0);
   });
   const composing = searchEditing.composing;
   const busyRef = useRef(false);

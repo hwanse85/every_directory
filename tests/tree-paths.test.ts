@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {onTreePath,restoreTreeExpansion,treeAncestors,treeKey} from "../src/treePaths";
+import {onTreePath,restoreTreeExpansion,treeAncestors,treeIndent,treeKey} from "../src/treePaths";
 
 test("tree follows only whole path segments inside the current root",()=>{
   assert.equal(onTreePath({rootId:"a",path:"문서"},{rootId:"a",path:"문서/2026/분기"}),true);
@@ -16,4 +16,9 @@ test("tab expansion restores valid saved branches and always reveals its current
   const restored=restoreTreeExpansion([other,"invalid",null,'[1,2]'],{rootId:"a",path:"문서"});
   assert.deepEqual([...restored],[other,treeKey({rootId:"a",path:""}),treeKey({rootId:"a",path:"문서"})]);
   assert.notEqual(treeKey({rootId:"a:b",path:"c"}),treeKey({rootId:"a",path:"b:c"}));
+});
+test("tree indent narrows at deep levels and always leaves room for the name",()=>{
+  assert.deepEqual([0,1,2,3,5,6,8].map(depth=>treeIndent(depth,400)),[0,12,24,32,48,52,60]);
+  for(let depth=0;depth<30;depth++)assert.ok(treeIndent(depth,165)<=165-96);
+  assert.equal(treeIndent(4,60),0);
 });

@@ -110,6 +110,7 @@ import { exportEntries } from "./export";
 import {IndexExclusions} from "./components/IndexExclusions";
 import { FileContextMenu } from "./components/FileContextMenu";
 import { FileActions } from "./components/FileActions";
+import { HelpCenter } from "./components/HelpCenter";
 import { locationPath, fileUri } from "./paths";
 import { shortcutLabel } from "./quickSearch";
 import { fileDragErrorEvent } from "./fileDrag";
@@ -201,6 +202,14 @@ const toolCards = [
   },
 ] as const;
 const demoEntries = createDemoEntries();
+// 검색 방식 옆 도움말 툴팁에 보여 줄 짧은 사용법. 자세한 설명은 도움말의 section 절에 있다.
+const searchModeHelp: Record<SearchMode, { title: string; summary: string; examples: [string, string][]; section: string }> = {
+  initials: { title: "초성 + 일반", summary: "한글 초성이나 이름 일부로 찾습니다. 공백은 AND입니다.", examples: [["ㅂㄱㅅ", "보고서"], ["ㅇㅁ 보고", "업무 보고.pdf"], ["보고ㅅ", "초성과 글자 섞기"]], section: "help-mode-initials" },
+  normal: { title: "일반", summary: "글자가 이름에 들어 있으면 찾습니다. 연산자를 함께 씁니다.", examples: [["업무 보고서", "두 단어 모두"], ["보고서|계획서", "둘 중 하나(OR)"], ["업무 !초안", "초안 제외"], ["ext:pdf size:>10mb", "확장자·크기"]], section: "help-search-operators" },
+  wildcard: { title: "와일드카드", summary: "이름 전체를 모양으로 비교합니다. *는 여러 글자, ?는 정확히 한 글자.", examples: [["*보고서*.pdf", "보고서가 든 PDF"], ["IMG_????.jpg", "IMG_0042.jpg"], ["보고서", "이름이 정확히 '보고서'일 때만"]], section: "help-mode-wildcard" },
+  regex: { title: "정규식", summary: "입력 전체를 정규식으로 해석합니다. 전후방 탐색·역참조는 지원하지 않습니다.", examples: [["^IMG_\\d{4}\\.jpg$", "IMG_ 뒤 숫자 4자리"], ["(보고서|계획서)\\.", "‘보고서.’나 ‘계획서.’가 든 이름"], ["\\d{4}-\\d{2}", "2026-03 같은 날짜"]], section: "help-mode-regex" },
+  fuzzy: { title: "퍼지 · 오타 허용", summary: "3~5글자는 오타 1자, 6글자 이상은 2자까지 허용합니다. 정확한 결과가 먼저 나옵니다.", examples: [["redme", "README.md"], ["configuratoin", "configuration.json"], ["회의룩", "회의록_2026-03.docx"]], section: "help-mode-fuzzy" },
+};
 const sampleRoots = demoRoots.map((r) => ({
   ...r,
   count: demoEntries.filter((e) => e.rootId === r.id).length,
@@ -357,6 +366,8 @@ export default function App() {
     | "saveWorkspace"
     | null
   >(null);
+  // 도움말을 열 때 바로 보여 줄 절(예: 검색 방식).
+  const [helpSection, setHelpSection] = useState<string>();
   // 설정 창 닫기 요청. 사용자 설정 편집기가 저장하지 않은 변경을 확인한 뒤 닫는다.
   const settingsClose = useRef<() => void>(() => setModal(null));
   const [toolRequest, setToolRequest] = useState<
@@ -1888,6 +1899,7 @@ export default function App() {
                     검색 방식
                     <select
                       aria-label="검색 방식"
+                      title={searchModeHelp[mode].summary}
                       value={mode}
                       onChange={(event) =>
                         setMode(event.target.value as SearchMode)
@@ -1911,6 +1923,18 @@ export default function App() {
                     />
                     대소문자
                   </label>
+                  <span className="search-mode-help">
+                    <button type="button" aria-label="검색 방식 사용법" aria-describedby="search-mode-tooltip"
+                      onClick={() => { setHelpSection(searchModeHelp[mode].section); setModal("help"); }}>
+                      <CircleHelp size={14} />
+                    </button>
+                    <span role="tooltip" id="search-mode-tooltip">
+                      <strong>{searchModeHelp[mode].title}</strong>
+                      <span>{searchModeHelp[mode].summary}</span>
+                      <ul>{searchModeHelp[mode].examples.map(([example, meaning]) => <li key={example}><code>{example}</code> {meaning}</li>)}</ul>
+                      <small>눌러서 도움말의 자세한 설명 보기 · F1</small>
+                    </span>
+                  </span>
                 </div>
                 <div className="search-scope">
                   <label>
@@ -2738,149 +2762,7 @@ export default function App() {
           </form>
         </Modal>
       )}
-      {modal === "help" && (
-        <Modal
-          title="더 빠르게, 더 편하게"
-          subtitle="Every Directory 사용 안내"
-          onClose={() => setModal(null)}
-        >
-          <div className="modal-content">
-            <div className="help-intro">
-              <span className="panel-icon">
-                <Zap size={22} />
-              </span>
-              <div>
-                <strong>검색에서 작업까지, 한 번에</strong>
-                <p>
-                  검색 결과 클릭 → 활성 탐색창에 위치 표시 · 더블 클릭 → 기본 앱
-                  실행
-                </p>
-              </div>
-            </div>
-            <div className="shortcut-list">
-              <div>
-                <span>빠른 명령 검색</span>
-                <kbd>⌘ / Ctrl + Shift + P</kbd>
-              </div>
-              <div>
-                <span>검색창으로 이동</span>
-                <kbd>⌘ / Ctrl + K</kbd>
-              </div>
-              <div>
-                <span>활성 탐색창에 새 탭</span>
-                <kbd>⌘ / Ctrl + T</kbd>
-              </div>
-              <div>
-                <span>현재 탭 닫기</span>
-                <kbd>⌘ / Ctrl + W</kbd>
-              </div>
-              <div><span>탭 순환 / 역순</span><kbd>Ctrl + Tab / Ctrl + Shift + Tab</kbd></div>
-              <div><span>닫은 탭 다시 열기</span><kbd>Ctrl + Shift + T</kbd></div>
-              <div><span>칼럼 전체 내용 맞춤</span><kbd>Ctrl + +</kbd></div>
-              <div><span>검색 영역 보이기 / 숨기기</span><kbd>⌘ / Ctrl + Shift + F</kbd></div>
-              <div><span>검색창 / 도움말 / 전체 화면</span><kbd>F3 / F1 / F11</kbd></div>
-              <div><span>복사 / 붙여넣기 (추가 단축키)</span><kbd>Ctrl + Insert / Shift + Insert</kbd></div>
-              <div><span>현재 폴더에서 필터 / 해제</span><kbd>Ctrl + F / Esc</kbd></div>
-              <div><span>새 폴더 / 파일 속성</span><kbd>Ctrl + Shift + N / Alt + Enter</kbd></div>
-              <div>
-                <span>폴더 주소 입력</span>
-                <kbd>⌘ / Ctrl + L · Alt + D · F4</kbd>
-              </div>
-              <div>
-                <span>뒤로 / 앞으로 / 상위 폴더</span>
-                <kbd>Alt + ← / → / ↑</kbd>
-              </div>
-              <div>
-                <span>탐색창 새로고침</span>
-                <kbd>Ctrl + R · Windows F5</kbd>
-              </div>
-              <div>
-                <span>활성 탐색창 전환</span>
-                <kbd>F6 · Shift + F6</kbd>
-              </div>
-              <div>
-                <span>선택 항목 열기</span>
-                <kbd>Enter</kbd>
-              </div>
-              <div>
-                <span>대화상자 닫기 / 검색어 지우기</span>
-                <kbd>Esc</kbd>
-              </div>
-            </div>
-            <div className="help-search">
-              <h3>검색 팁</h3>
-              <p>
-                <code>*보고서*.pdf</code> 와일드카드: *는 여러 글자, ?는 한
-                글자입니다.
-              </p>
-              <p>
-                <code>{"^보고서.*\\.pdf$"}</code> 정규식: 전후방 탐색과 역참조는
-                제외합니다. 정규식 모드에서는 전체 입력을 패턴으로 해석합니다.
-              </p>
-              <p>
-                <code>raedme</code> 퍼지: readme 같은 오타를 찾고 정확한 결과를
-                먼저 보여 줍니다.
-              </p>
-              <p>
-                <code>ㅂㄱㅅ</code> 초성: 보고서를 찾습니다.
-              </p>
-              <p>
-                <code>기획서</code> 파일명에 포함된 글자를 검색합니다.
-              </p>
-              <p>
-                <code>프로젝트 기획</code> 두 단어를 모두 포함한 파일을
-                찾습니다.
-              </p>
-              <p>
-                <code>ext:pdf,docx</code> 확장자를 지정할 수 있습니다.
-              </p>
-              {isDesktop && (
-                <>
-                  <p>
-                    <code>보고서|계획 !초안 ext:pdf</code> OR와 제외를 함께
-                    사용합니다. OR를 AND보다 먼저 계산하며{" "}
-                    <code>{"<보고서 계획>|회의록"}</code>처럼 그룹을 지정할 수
-                    있습니다.
-                  </p>
-                  <p>
-                    <code>file: size:1mb..10mb dm:&gt;=2026-01-01</code> 파일
-                    크기와 현지 수정일로 필터링합니다. <code>folder:</code>,{" "}
-                    <code>path:문서</code>, <code>dm:today</code>,{" "}
-                    <code>dm:yesterday</code>도 지원합니다.
-                  </p>
-                </>
-              )}
-              <p>
-                검색 조건과 탐색창·탭 조합은 사이드바의 + 버튼으로 저장할 수
-                있습니다. 파일을 더블클릭하면 기본 앱으로 열고 Space는
-                미리보기를 엽니다.
-              </p>
-              <p>
-                <code>Ctrl/⌘ C · X · V</code> 선택 항목 복사·잘라내기·현재
-                탐색창에 붙여넣기
-              </p>
-              <p>
-                <code>F2 · Delete · Space</code> 목록 안에서 이름 바꾸기(Enter
-                적용·Esc 취소)·휴지통 이동·빠른 미리보기
-              </p>
-              <p>
-                <code>Ctrl/⌘ A · Shift 클릭</code> 전체 선택·범위 선택 (최대
-                {isDesktop ? "200" : "500"}개 작업)
-              </p>
-              <p>
-                <code>"업무 계획"</code> 띄어쓰기를 포함해 그대로 찾습니다.
-              </p>
-            </div>
-            <div className="info-note">
-              <LayoutPanelLeft size={17} />
-              <span>
-                경계선을 드래그하거나 방향키로 크기를 조절하세요. 레이아웃
-                메뉴에서 검색 위치와 탐색창 배치를 바꿀 수 있습니다.
-              </span>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {modal === "help" && <HelpCenter section={helpSection} onClose={() => { setModal(null); setHelpSection(undefined); }} />}
       {preview && roots.find((r) => r.id === preview.rootId) && (
         <Preview
           entry={preview}

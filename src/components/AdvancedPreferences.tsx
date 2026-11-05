@@ -29,7 +29,7 @@ export function AdvancedPreferences({children,closeRequest,onClose}:{children?:R
  <h3>클립보드 이력</h3>
  {toggle("clipboardEnabled","클립보드 이력 기록","앱이 실행 중일 때 복사한 내용을 이 PC에 기록합니다. Windows는 사용자 계정 키로 암호화하고, macOS는 현재 사용자만 읽을 수 있는 파일로 보관합니다.")}
  {range("clipboardDays","클립보드 보관 기간",1,60,"일")}
- <label className="setting-row"><span><strong>빠른 검색 클립보드 키워드</strong><p>기본값 clip. 입력하면 파일 검색 결과 위에 ‘클립보드 보기’가 표시됩니다.</p></span><input aria-label="빠른 검색 클립보드 키워드" maxLength={32} value={draft.clipboardKeyword} onChange={e=>set("clipboardKeyword",e.target.value)}/></label>
+ <label className="setting-row"><span><strong>빠른 검색 클립보드 키워드</strong><p>기본값 clip. 이 키워드나 clip·클립·클립보드를 입력하면 파일 검색 결과 위에 ‘클립보드 보기’가 표시됩니다.</p></span><input aria-label="빠른 검색 클립보드 키워드" maxLength={32} value={draft.clipboardKeyword} onChange={e=>set("clipboardKeyword",e.target.value)}/></label>
  {toggle("clipboardText","텍스트 기록","일반 텍스트를 저장합니다. 앱 전용 서식이나 비밀번호 저장소는 복제하지 않습니다.")}
  {toggle("clipboardImages","이미지·화면 캡처 기록","이미지를 PNG로 저장합니다. 최대 1,677만 픽셀까지 지원합니다.")}
  {toggle("clipboardFiles","파일·폴더 기록","원본 위치를 기록합니다. 원본을 이동·삭제하면 파일 복원이 불가능할 수 있습니다.")}

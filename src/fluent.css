@@ -970,3 +970,85 @@
   font-size: 12px; line-height: 1.4; white-space: normal; color: #fff; background: #c42b1c; box-shadow: var(--fl-shadow-flyout);
 }
 .explorer-tab .tab-rename { width: 120px; min-width: 60px; height: 22px; margin: 0 4px; padding: 0 5px; box-sizing: border-box; font: inherit; color: var(--fl-text); background: var(--fl-surface); border: 1px solid var(--fl-accent); border-radius: 3px; outline: none; }
+
+/* 검색 방식 옆 사용법 툴팁: 마우스를 올리거나 키보드 초점을 두면 보인다. */
+.search-mode-help { position: relative; display: inline-flex; }
+.search-mode-help > button { display: inline-flex; padding: 3px; border-radius: var(--fl-radius); color: var(--fl-text-3); }
+.search-mode-help > button:hover, .search-mode-help > button:focus-visible { color: var(--fl-accent); background: var(--fl-hover); }
+.search-mode-help [role="tooltip"] {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  width: 290px; padding: 10px 12px; display: none; flex-direction: column; gap: 6px;
+  font-size: 12px; line-height: 1.45; color: var(--fl-text); background: var(--fl-surface);
+  border: 1px solid var(--fl-stroke); border-radius: var(--fl-radius-lg); box-shadow: var(--fl-shadow-flyout); text-align: left; white-space: normal;
+}
+.search-mode-help:hover [role="tooltip"], .search-mode-help:focus-within [role="tooltip"] { display: flex; }
+.search-mode-help [role="tooltip"] ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.search-mode-help [role="tooltip"] code { font-size: 11.5px; padding: 1px 5px; border-radius: 3px; background: var(--fl-surface-2); border: 1px solid var(--fl-stroke); color: var(--fl-accent); }
+.search-mode-help [role="tooltip"] small { color: var(--fl-text-3); }
+
+/* 내장 도움말: 왼쪽 목차·찾기, 오른쪽 문서 */
+.modal.help-center { width: 1040px; max-width: calc(100vw - 30px); height: min(820px, 88svh); max-height: 88svh; display: flex; flex-direction: column; overflow: hidden; }
+.help-center .modal-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--fl-stroke); }
+.help-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.help-toc { border-right: 1px solid var(--fl-stroke); padding: 12px 10px; overflow: auto; background: var(--fl-surface-2); }
+.help-find { display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 30px; margin-bottom: 10px; border: 1px solid var(--fl-stroke-control); border-radius: var(--fl-radius); background: var(--fl-surface); color: var(--fl-text-3); }
+.help-find input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; color: var(--fl-text); }
+.help-toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.help-toc a { display: block; padding: 6px 10px; border-radius: var(--fl-radius); color: var(--fl-text-2); text-decoration: none; font-size: 12.5px; }
+.help-toc a:hover { background: var(--fl-hover); color: var(--fl-text); }
+.help-toc a[aria-current="true"] { background: var(--fl-selected); color: var(--fl-text); font-weight: 600; box-shadow: inset 3px 0 var(--fl-accent); }
+.help-find-status { margin: 10px 4px 0; font-size: 11.5px; color: var(--fl-text-3); }
+.help-document { overflow: auto; padding: 4px 32px 48px; font-size: 13px; line-height: 1.7; color: var(--fl-text); outline: none; scroll-padding-top: 12px; }
+.help-document section { padding: 20px 0 8px; border-bottom: 1px solid var(--fl-stroke); }
+.help-document section:last-child { border-bottom: 0; }
+.help-document h2 { margin: 0 0 10px; font-size: 19px; line-height: 1.35; }
+.help-document h3 { margin: 18px 0 6px; font-size: 14.5px; }
+.help-document p, .help-document ul, .help-document ol { margin: 6px 0 10px; }
+.help-document ul, .help-document ol { padding-left: 20px; }
+.help-document li { margin: 3px 0; }
+.help-document .lead { font-size: 14px; color: var(--fl-text-2); }
+.help-document a { color: var(--fl-accent); }
+.help-document code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--fl-surface-2); border: 1px solid var(--fl-stroke); color: var(--fl-accent); white-space: nowrap; }
+.help-document kbd { display: inline-block; min-width: 18px; padding: 0 6px; font: 600 11.5px/20px inherit; text-align: center; border: 1px solid var(--fl-stroke-control); border-bottom-width: 2px; border-radius: 4px; background: var(--fl-surface); color: var(--fl-text); }
+.help-document kbd.mod::before { content: "Ctrl"; }
+:root[data-platform="mac"] .help-document kbd.mod::before { content: "⌘"; }
+:root[data-platform="mac"] .help-document .win-only,
+:root:not([data-platform="mac"]) .help-document .mac-only { display: none; }
+.help-document table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 12.5px; }
+.help-document caption { text-align: left; font-weight: 700; padding: 0 0 6px; }
+.help-document th, .help-document td { padding: 7px 10px; border: 1px solid var(--fl-stroke); vertical-align: top; text-align: left; }
+.help-document thead th { background: var(--fl-surface-2); font-weight: 600; }
+.help-document tbody th { width: 150px; background: var(--fl-surface-2); font-weight: 600; white-space: nowrap; }
+.help-document td small { color: var(--fl-text-3); }
+.help-document .steps { counter-reset: step; list-style: none; padding-left: 0; }
+.help-document .steps > li { counter-increment: step; position: relative; padding: 2px 0 2px 34px; margin: 8px 0; }
+.help-document .steps > li::before { content: counter(step); position: absolute; left: 0; top: 2px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--fl-on-accent); background: var(--fl-accent); }
+.help-document .tip { margin: 12px 0; padding: 10px 14px; border-radius: var(--fl-radius-lg); border: 1px solid var(--fl-selected-border); background: var(--fl-row-hover); }
+.help-document .tip strong { margin-right: 6px; }
+.help-document .chip { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--fl-stroke-control); font-size: 11px; font-weight: 700; }
+.help-document dl.parts { display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; margin: 10px 0; }
+.help-document dl.parts dt { font-weight: 700; }
+.help-document dl.parts dd { margin: 0; }
+.help-document dl.faq dt { font-weight: 700; margin-top: 12px; }
+.help-document dl.faq dd { margin: 4px 0 0; color: var(--fl-text-2); }
+.help-document .shortcut-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+.help-document .shortcut-columns table { margin: 0; }
+.help-document .shortcut-columns td:last-child { white-space: nowrap; }
+:root[data-theme="dark"] .help-document .tip { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.35); }
+@media (max-width: 760px) {
+  .help-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .help-toc { border-right: 0; border-bottom: 1px solid var(--fl-stroke); max-height: 150px; }
+  .help-document { padding: 4px 16px 32px; }
+}
+
+/* 폴더 트리: 좁은 들여쓰기와 단계 안내선 */
+:root { --tree-guide: rgba(0, 0, 0, 0.09); }
+:root[data-theme="dark"] { --tree-guide: rgba(255, 255, 255, 0.12); }
+:root .folder-tree { padding: 4px 2px; }
+:root .folder-tree .tree-folder { height: 26px; }
+:root .folder-tree .tree-toggle { padding: 4px 2px; flex: 0 0 auto; }
+:root .folder-tree .tree-name { gap: 4px; padding-right: 4px; }
+:root .folder-tree .tree-name svg { flex: 0 0 auto; }
+:root .folder-tree .tree-folder.current { background-color: var(--fl-selected); }
+:root .help-find input[type="search"] { height: 100%; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+:root .help-find:focus-within { border-color: var(--fl-accent); box-shadow: 0 0 0 1px var(--fl-accent); }

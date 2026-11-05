@@ -197,6 +197,44 @@
     document.querySelector('[aria-label="클립보드 이력 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
     await until(()=>document.querySelector("#quick-clipboard-trigger"),"Esc로 파일 검색 복귀");
     verify("클립보드 화면 Esc는 파일 검색으로 복귀",true);
+    // 설정 키워드 말고도 clip·클립·클립보드로 클립보드를 연다.
+    for(const word of ["clip","클립","클립보드"]){
+      search(word);
+      await until(()=>document.querySelector("#quick-results")?.firstElementChild?.id==="quick-clipboard-trigger","클립보드 키워드 "+word);
+    }
+    verify("빠른 검색에서 clip·클립·클립보드 모두 클립보드 보기를 최상단 표시",true);
+    // 클립보드 창의 이미지·파일 이력을 실제 화면에서 고르고 복사한다. 복사 결과는 시스템 클립보드를 다시 기록해 확인한다.
+    const clip=(action,id)=>invoke("clipboard_control",{action,id:id??null,destination:null,query:null});
+    await clip("testImage");await clip("capture");
+    await invoke("copy_files",{locations:[{rootId:roots[0].id,path:"업무 보고서.txt"}],cut:false});await clip("capture");
+    await invoke("plugin:clipboard-manager|write_text",{text:"quick clipboard reset"});await clip("capture");
+    document.querySelector('[aria-label="파일·폴더 빠른 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));
+    await until(()=>document.querySelector('.clipboard-types [data-type="image"]'),"클립보드 종류 탭");
+    const tab=type=>document.querySelector(`.clipboard-types [data-type="${type}"]`);
+    const copyButton=()=>[...document.querySelectorAll('.clipboard-actions button')].find(b=>b.textContent.includes("클립보드로 복사"));
+    const plainButton=()=>[...document.querySelectorAll('.clipboard-actions button')].find(b=>b.textContent.includes("텍스트로 복사"));
+    const top=async()=>{await clip("capture");return (await clip("list")).items[0];};
+    tab("image").click();
+    await until(()=>document.querySelector('.clipboard-preview img')?.naturalWidth>0&&document.querySelector('.clipboard-list [role="option"][data-kind="image"]'),"이미지 탭 미리보기");
+    verify("클립보드 창 이미지 탭은 이미지 이력만 보이고 그림을 미리보기",[...document.querySelectorAll('.clipboard-list [role="option"]')].every(o=>o.dataset.kind==="image")&&document.querySelector('.clipboard-preview img').naturalWidth>0);
+    verify("이미지는 텍스트로 복사를 막음",plainButton().disabled);
+    copyButton().click();
+    await until(()=>document.querySelector('.clipboard-history>p[role="status"]')?.textContent.includes("복사했습니다"),"이미지 복사 안내");
+    verify("클립보드 창에서 이미지 이력을 시스템 클립보드에 이미지로 복사",(await top()).kind==="image");
+    tab("files").click();
+    await until(()=>document.querySelector('.clipboard-preview pre')?.textContent.includes("업무 보고서.txt")&&document.querySelector('.clipboard-list [role="option"][data-kind="files"]'),"파일 탭 미리보기");
+    verify("클립보드 창 파일 탭은 파일 이력만 보이고 원본 경로를 미리보기",[...document.querySelectorAll('.clipboard-list [role="option"]')].every(o=>o.dataset.kind==="files"));
+    await until(()=>!copyButton().disabled,"파일 복사 준비");
+    copyButton().click();
+    await new Promise(r=>setTimeout(r,300));
+    const copiedFiles=await top();
+    verify("클립보드 창에서 파일 이력을 시스템 파일 클립보드로 복사(붙여넣기 가능)",copiedFiles.kind==="files"&&(await clip("read",copiedFiles.id)).paths[0].endsWith("업무 보고서.txt"));
+    plainButton().click();await new Promise(r=>setTimeout(r,300));
+    const copiedText=await top();
+    verify("파일 이력의 텍스트로 복사는 경로 글자를 복사",copiedText.kind==="text"&&copiedText.preview.endsWith("업무 보고서.txt"));
+    tab("all").click();
+    document.querySelector('[aria-label="클립보드 이력 검색"]').dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
+    await until(()=>document.querySelector("#quick-clipboard-trigger"),"Esc로 파일 검색 복귀");
     // 절대 경로·연결 폴더 이름으로 시작하는 경로를 입력하면 그 위치를 경로 일치 항목으로 맨 위에 보여 준다.
     const base=roots[0].absolutePath.replace(/^\\\\\?\\(UNC\\)?/,(_,unc)=>unc?"\\\\":""),separator=/^[a-z]:\\|^\\\\/i.test(base)?"\\":"/";
     search(base+separator+"대상"+separator);

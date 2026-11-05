@@ -67,7 +67,7 @@ export async function prepare(root, suite) {
     return;
   }
   if(suite==="tree"){
-    for(const folder of ["문서/2026/분기","문서함/개인","대상/보관",".숨김/내부"])
+    for(const folder of ["문서/2026/분기","깊은 폴더/설계 검토/기계 계통/배관 해석/최종 보고서/첨부 자료/도면 원본","문서함/개인","대상/보관",".숨김/내부"])
       await mkdir(path.join(root,folder),{recursive:true});
     await writeFile(path.join(root,"문서/2026/분기/업무 보고서.txt"),"트리 검증용 예시");
   }
@@ -102,6 +102,10 @@ export async function prepare(root, suite) {
     await writeFile(path.join(root, "README.md"), "# readme");
     await writeFile(path.join(root, "문서", "메모.txt"), "메모");
     if (suite === "quick") await writeFile(path.join(root, "문서", "YK5 정산표.xlsx"), "xlsx placeholder");
+    // 검색 방식(와일드카드·정규식·퍼지·연산자) 검증용 이름
+    if (suite === "search")
+      for (const name of ["IMG_0042.jpg", "IMG_12.jpg", "회의록_2026-03.docx", "Invoice_2025.PDF", "프로젝트 계획서.hwp", "configuration.json", "업무 계획.txt"])
+        await writeFile(path.join(root, "문서", name), "search fixture");
     if (suite === "actions")
       await sharp({
         create: { width: 320, height: 180, channels: 3, background: "#6389c6" },

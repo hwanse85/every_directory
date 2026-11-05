@@ -5,12 +5,19 @@ import type { IndexClient } from "../client";
 import type { ConnectedRoot, FileEntry, Location } from "../types";
 import { fileCollator } from "../search";
 import { readPreference, savePreference } from "../storage";
-import { onTreePath, restoreTreeExpansion, treeAncestors, treeKey } from "../treePaths";
+import { onTreePath, restoreTreeExpansion, treeAncestors, treeIndent, treeKey } from "../treePaths";
 
 interface TreeContext {
   current: Location; client: IndexClient; revision: number; showHidden: boolean;preferences:Preferences;
-  expanded: Set<string>; toggle: (key:string) => void;
+  expanded: Set<string>; toggle: (key:string) => void; width: number;
   onNavigate: (location:Location,newTab?:boolean) => void;
+}
+
+// 상위 단계마다 펼침 단추 가운데에 가는 세로선을 그려, 들여쓰기가 좁아도 단계를 구분하게 한다.
+function guides(depth:number,width:number){
+  if(!depth)return {};
+  const lines=Array.from({length:depth},(_,level)=>treeIndent(level,width)+8);
+  return {backgroundImage:lines.map(()=> "linear-gradient(var(--tree-guide),var(--tree-guide))").join(","),backgroundSize:lines.map(()=>"1px 100%").join(","),backgroundPosition:lines.map(x=>`${x}px 0`).join(","),backgroundRepeat:"no-repeat"};
 }
 
 // Only load expanded branches. Reveal ancestors without moving keyboard focus.
@@ -42,12 +49,12 @@ function Branch({name,location,context,depth=0}:{name:string;location:Location;c
   return <div ref={item} className="tree-node" role="treeitem" tabIndex={-1} aria-label={name} aria-level={depth+1}
     aria-selected={selected} aria-expanded={expandable?open:undefined} aria-busy={loading||undefined}
     data-tree-key={key} data-tree-location={JSON.stringify(location)}>
-    <div className={`tree-folder ${selected?"current":""}`} style={{paddingLeft:depth*12}} data-drop-location={JSON.stringify(location)}>
+    <div className={`tree-folder ${selected?"current":""}`} style={{paddingLeft:treeIndent(depth,context.width),...guides(depth,context.width)}} data-drop-location={JSON.stringify(location)}>
       <button className="tree-toggle" tabIndex={-1} aria-label={`${name} ${open?"접기":"펼치기"}`}
         disabled={!expandable} onClick={()=>{context.toggle(key);item.current?.focus({preventScroll:true});}}>
         {loading?<LoaderCircle size={12} className="spin"/>:!expandable?<span className="tree-leaf-spacer"/>:open?<ChevronDown size={12}/>:<ChevronRight size={12}/>}
       </button>
-      <button className="tree-name" tabIndex={-1} title={`${name} · Ctrl+클릭으로 새 탭`}
+      <button className="tree-name" tabIndex={-1} title={`${location.path||name} · Ctrl+클릭으로 새 탭`}
         onClick={event=>{item.current?.focus({preventScroll:true});context.onNavigate(location,event.ctrlKey||event.metaKey);}}
         onAuxClick={event=>{if(event.button===1){event.preventDefault();context.onNavigate(location,true);}}}>
         <Folder size={13}/><span>{name}</span>
@@ -70,7 +77,7 @@ export function FolderTree({roots,location,client,revision,onNavigate,storageKey
   useEffect(()=>{savePreference(storageKey,[...expanded].slice(-512));},[expanded,storageKey]);
   const toggle=(key:string)=>setExpanded(previous=>{const next=new Set(previous);if(next.has(key))next.delete(key);else next.add(key);return next;});
   const {preferences}=usePreferences();
-  const context:TreeContext={current:location,client,revision,showHidden,preferences,expanded,toggle,onNavigate};
+  const context:TreeContext={current:location,client,revision,showHidden,preferences,expanded,toggle,onNavigate,width};
   return <aside ref={tree} style={{width}} className="folder-tree" role="tree" aria-label={label} tabIndex={0}
     onFocus={event=>{if(event.target===event.currentTarget)tree.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({preventScroll:true});}}
     onKeyDown={event=>{

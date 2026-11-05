@@ -120,3 +120,10 @@ export function pathSearchText(query: string, roots: ConnectedRoot[], scope = ""
   const text = first ? first.path : query.trim().replace(/^"(.*)"$/, "$1").replaceAll("\\", "/");
   return text.replace(/^[a-z]:/i, "").replace(/^\/+|\/+$/g, "");
 }
+
+// 빠른 검색에서 클립보드 이력을 여는 입력인지 확인한다. 설정한 키워드와 clip·클립·클립보드를 모두 받는다.
+export const clipboardAliases = ["clip", "클립", "클립보드"];
+export function isClipboardKeyword(text: string, keyword: string): boolean {
+  const value = text.trim().normalize("NFC").toLocaleLowerCase();
+  return !!value && [keyword, ...clipboardAliases].some((word) => word.normalize("NFC").toLocaleLowerCase() === value);
+}

@@ -5,6 +5,7 @@ import {
   quickSearchMode,
   shortcutLabel,
   normalizeSearchInput,
+  isClipboardKeyword,
 } from "../src/quickSearch";
 
 // 업무 문서의 한글 초성과 와일드카드를 자동 구분한다.
@@ -77,4 +78,10 @@ test("quick search resolves absolute, root-name and relative paths inside connec
   assert.deepEqual(pathCandidates("프로젝트/보고서", roots, "w"), [{ rootId: "w", path: "프로젝트/보고서" }]);
   assert.equal(pathSearchText("C:\\Data\\업무 자료\\프로젝트\\보고서", roots), "프로젝트/보고서");
   assert.equal(pathSearchText("업무 자료/프로젝트", roots), "프로젝트");
+});
+
+// 설정 키워드와 clip·클립·클립보드 모두 클립보드 이력을 연다.
+test("quick search opens the clipboard for clip, 클립 and 클립보드", () => {
+  for (const text of ["clip", " CLIP ", "클립", "클립보드", "클립보드".normalize("NFD"), "내키워드"]) assert.equal(isClipboardKeyword(text, "내키워드"), true, text);
+  for (const text of ["", "clips", "클립보드 이력", "보드"]) assert.equal(isClipboardKeyword(text, "clip"), false, text);
 });

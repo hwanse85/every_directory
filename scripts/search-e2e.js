@@ -161,6 +161,61 @@
     ]) {
       await test(`${mode} 검색`, () => search(query, mode, expected));
     }
+    // 검색 엔진에 직접 물어 결과가 정확히 맞는지(빠져야 할 항목이 없는지) 확인한다.
+    const root = (await invoke("ed_request", { kind: "init", payload: {} }))[0];
+    const engine = async (query, mode, caseSensitive = false) => (await invoke("ed_request", { kind: "search", payload: { query, mode, caseSensitive, rootId: root.id, category: "all", fullPath: false } })).entries.map((entry) => entry.name);
+    const cases = [
+      // [이름, 검색어, 방식, 들어가야 할 이름, 빠져야 할 이름, 대소문자]
+      ["일반: 공백은 AND", "업무 보고서", "normal", ["업무 보고서.txt"], ["업무 계획.txt"]],
+      ["일반: | 는 OR", "보고서 | 계획서", "normal", ["업무 보고서.txt", "프로젝트 계획서.hwp"], ["업무 계획.txt"]],
+      ["일반: ! 는 제외", "업무 !보고서", "normal", ["업무 계획.txt"], ["업무 보고서.txt"]],
+      ["일반: ext: 확장자", "ext:jpg", "normal", ["IMG_0042.jpg", "IMG_12.jpg"], ["README.md"]],
+      ["일반: 따옴표 구문", "\"업무 계획\"", "normal", ["업무 계획.txt"], ["업무 보고서.txt"]],
+      ["와일드카드: * 여러 글자", "*보고서*", "wildcard", ["업무 보고서.txt"], ["업무 계획.txt"]],
+      ["와일드카드: ? 는 정확히 한 글자", "IMG_????.jpg", "wildcard", ["IMG_0042.jpg"], ["IMG_12.jpg"]],
+      ["와일드카드: 전체 이름과 비교", "보고서", "wildcard", [], ["업무 보고서.txt"]],
+      ["와일드카드: 대소문자 무시", "*.pdf", "wildcard", ["Invoice_2025.PDF"], []],
+      ["와일드카드: 대소문자 구분", "*.pdf", "wildcard", [], ["Invoice_2025.PDF"], true],
+      ["정규식: 시작·끝 고정", "^IMG_\\d{4}\\.jpg$", "regex", ["IMG_0042.jpg"], ["IMG_12.jpg"]],
+      ["정규식: 묶음과 OR", "(보고서|계획서)\\.", "regex", ["업무 보고서.txt", "프로젝트 계획서.hwp"], ["업무 계획.txt"]],
+      ["정규식: 날짜 형식", "\\d{4}-\\d{2}", "regex", ["회의록_2026-03.docx"], ["Invoice_2025.PDF"]],
+      ["정규식: 대소문자 무시", "invoice", "regex", ["Invoice_2025.PDF"], []],
+      ["정규식: 대소문자 구분", "invoice", "regex", [], ["Invoice_2025.PDF"], true],
+      ["퍼지: 3~5글자는 오타 1자 허용", "redme", "fuzzy", ["README.md"], []],
+      ["퍼지: 6글자 이상 오타 2자", "configuratoin", "fuzzy", ["configuration.json"], []],
+      ["퍼지: 3~5글자는 오타 2자 불허", "rdme", "fuzzy", [], ["README.md"]],
+      ["퍼지: 한글 오타", "회의룩", "fuzzy", ["회의록_2026-03.docx"], []],
+      ["퍼지: 2글자 이하는 정확히 포함할 때만", "계휙", "fuzzy", [], ["업무 계획.txt"]],
+    ];
+    for (const [label, query, mode, include, exclude, sensitive] of cases) {
+      await test(`검색 방식 ${label}`, async () => {
+        const names = await engine(query, mode, !!sensitive);
+        const missing = include.filter((name) => !names.includes(name));
+        const extra = exclude.filter((name) => names.includes(name));
+        if (missing.length || extra.length) throw new Error(`${query}(${mode}) 누락 ${missing.join(",")} · 잘못 포함 ${extra.join(",")} · 결과 ${names.join(",")}`);
+      });
+    }
+    await test("정규식 전후방 탐색은 지원하지 않음을 안내", async () => {
+      let message = "";
+      try { await engine("보고(?=서)", "regex"); } catch (cause) { message = String(cause); }
+      if (!message.includes("전후방 탐색")) throw new Error(`안내 없음: ${message}`);
+    });
+    await test("검색 방식 도움말 툴팁은 현재 방식의 사용법을 표시", async () => {
+      for (const [mode, text] of [["regex", "^"], ["wildcard", "?"], ["fuzzy", "오타"], ["normal", "|"], ["initials", "ㅂㄱㅅ"]]) {
+        value(document.querySelector('[aria-label="검색 방식"]'), mode);
+        await until(() => document.querySelector(".search-mode-help [role=tooltip]")?.textContent.includes(text), `${mode} 툴팁`);
+      }
+      if (!document.querySelector('[aria-label="검색 방식"]').title) throw new Error("검색 방식 선택에 title 없음");
+      document.querySelector(".search-mode-help button").click();
+      await until(() => document.querySelector('dialog[open] .help-document #help-search-modes'), "도움말 검색 방식 절로 이동");
+      document.querySelector('dialog[open] [aria-label="닫기"]').click();
+      await until(() => !document.querySelector("dialog[open]"), "도움말 닫기");
+    });
+    await test("화면에서도 정규식·와일드카드·퍼지 결과 표시", async () => {
+      await search("^IMG_\\d{4}\\.jpg$", "regex", "IMG_0042.jpg");
+      await search("IMG_????.jpg", "wildcard", "IMG_0042.jpg");
+      await search("configuratoin", "fuzzy", "configuration.json");
+    });
     await test("잘못된 정규식 오류 후 복구", async () => {
       value(document.querySelector('[aria-label="검색 방식"]'), "regex");
       value(document.querySelector('[aria-label="파일 검색"]'), "[");

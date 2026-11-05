@@ -35,6 +35,12 @@
       await navigate(first,"문서/2026/분기");
       verify("주소로 깊은 폴더 이동 시 전체 상위 가지 자동 펼침",["","문서","문서/2026"].every(path=>node(first,path)?.getAttribute("aria-expanded")==="true"));
       verify("현재 폴더 하나만 선택 표시",first.querySelectorAll('.folder-tree [aria-selected="true"]').length===1);
+      // 깊은 단계에서도 들여쓰기를 줄여 현재 폴더 이름이 트리 폭 안에 다 보여야 한다.
+      await navigate(first,"깊은 폴더/설계 검토/기계 계통/배관 해석/최종 보고서/첨부 자료/도면 원본");
+      const deep=first.querySelector('.folder-tree [aria-selected="true"] > .tree-folder'),tree=first.querySelector('.folder-tree').getBoundingClientRect(),label=deep.querySelector('.tree-name span');
+      verify("깊은 폴더(8단계)도 이름 전체가 트리 안에 보임",label.scrollWidth<=label.clientWidth+1&&label.getBoundingClientRect().right<=tree.right+1&&parseFloat(deep.style.paddingLeft)<=tree.width-96);
+      verify("깊은 단계는 들여쓰기 안내선 표시",(deep.style.backgroundImage.match(/linear-gradient/g)??[]).length===7);
+      first.querySelector('[aria-label="뒤로"]').click();await until(()=>currentPath(first)==="문서/2026/분기","깊은 폴더에서 뒤로");
       verify("다른 탐색창 트리는 독립 유지",currentPath(second)==="");
       first.click();
       verify("숨김 폴더는 기본 트리에서 제외",!node(first,".숨김"));

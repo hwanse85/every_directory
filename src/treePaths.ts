@@ -16,3 +16,10 @@ export function restoreTreeExpansion(value: unknown, current: Location): Set<str
   }).slice(-512):[];
   return new Set([...saved,...treeAncestors(current)]);
 }
+
+// 트리 들여쓰기(px). 얕은 단계는 넉넉히, 깊어질수록 간격을 줄이고, 이름이 보일 자리(약 90px)는 늘 남긴다.
+export function treeIndent(depth: number, width: number): number {
+  let offset = 0;
+  for (let level = 0; level < depth; level++) offset += level < 2 ? 12 : level < 5 ? 8 : 4;
+  return Math.max(0, Math.min(offset, width - 96));
+}
