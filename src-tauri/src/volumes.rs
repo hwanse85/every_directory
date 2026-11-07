@@ -331,3 +331,74 @@ mod tests {
         assert_eq!(real_path(temp.path()).unwrap(), temp.path().canonicalize().unwrap());
     }
 }
+
+/// 탐색 전용 위치의 id 앞머리. 색인·검색 대상이 아니다.
+pub const PLACE_PREFIX: &str = "pc:";
+
+// 탐색 전용 위치 하나를 만든다. 열 수 없는 위치(빈 CD 드라이브 등)는 None.
+fn place_root(key: &str, name: String, path: &Path) -> Option<crate::model::Root> {
+    let absolute = real_path(path).ok().filter(|path| path.is_dir())?;
+    Some(crate::model::Root {
+        id: format!("{PLACE_PREFIX}{key}"),
+        name,
+        absolute_path: absolute.to_string_lossy().to_string(),
+        count: 0,
+        last_indexed: 0,
+        skipped: 0,
+        watch_error: None,
+        excluded_paths: vec![],
+        volume: kind(&absolute).into(),
+        refresh_minutes: None,
+        browse: true,
+    })
+}
+
+// id 하나로 탐색 위치를 바로 만든다. 경로를 열 때마다 모든 드라이브를 훑지 않기 위해서다.
+pub fn place(id: &str) -> Option<crate::model::Root> {
+    let key = id.strip_prefix(PLACE_PREFIX)?;
+    if key == "home" {
+        return place_root(key, "홈".into(), &dirs::home_dir()?);
+    }
+    #[cfg(windows)]
+    {
+        let letter = key.strip_suffix(':').filter(|letter| letter.len() == 1 && letter.chars().all(|c| c.is_ascii_uppercase()))?;
+        place_root(key, format!("{letter}: 드라이브"), Path::new(&format!("{letter}:\\")))
+    }
+    #[cfg(not(windows))]
+    {
+        if key == "/" {
+            return place_root(key, "이 Mac (/)".into(), Path::new("/"));
+        }
+        let path = Path::new(key);
+        let inside = path.parent() == Some(Path::new("/Volumes")) && path.components().all(|part| matches!(part, std::path::Component::RootDir | std::path::Component::Normal(_)));
+        if !inside || real_path(path).is_ok_and(|real| real == Path::new("/")) {
+            return None;
+        }
+        place_root(key, path.file_name()?.to_string_lossy().to_string(), path)
+    }
+}
+
+// 색인 없이 탐색창에서 열 수 있는 위치(홈 폴더와 모든 드라이브·볼륨)를 돌려준다.
+pub fn places() -> Vec<crate::model::Root> {
+    let mut ids = vec![format!("{PLACE_PREFIX}home")];
+    #[cfg(windows)]
+    {
+        let mask = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
+        for (index, letter) in ('A'..='Z').enumerate() {
+            if mask & (1 << index) != 0 {
+                ids.push(format!("{PLACE_PREFIX}{letter}:"));
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        ids.push(format!("{PLACE_PREFIX}/"));
+        // /Volumes에는 시동 디스크(/를 가리키는 링크)와 외장·네트워크 볼륨이 함께 있다.
+        if let Ok(items) = std::fs::read_dir("/Volumes") {
+            let mut volumes: Vec<_> = items.flatten().map(|item| item.path().to_string_lossy().to_string()).collect();
+            volumes.sort();
+            ids.extend(volumes.into_iter().map(|path| format!("{PLACE_PREFIX}{path}")));
+        }
+    }
+    ids.iter().filter_map(|id| place(id)).collect()
+}

@@ -594,6 +594,7 @@ impl Engine {
             excluded_paths,
             volume: crate::volumes::kind(&absolute).into(),
             refresh_minutes: None,
+            browse: false,
         };
         if crate::volumes::is_remote(&root.volume) {
             root.refresh_minutes = Some(crate::volumes::NETWORK_REFRESH_MINUTES);
@@ -637,8 +638,37 @@ impl Engine {
         Ok(())
     }
 
-    // 연결 폴더 안의 등록된 항목만 실제 경로로 변환한다.
+    // 연결 폴더 또는 탐색 전용 위치를 id로 찾는다.
+    pub fn root_by_id(&self, id: &str) -> Option<Root> {
+        if id.starts_with(crate::volumes::PLACE_PREFIX) {
+            return crate::volumes::place(id);
+        }
+        self.roots().into_iter().find(|root| root.id == id)
+    }
+
+    // 탐색 전용 위치(드라이브·볼륨·홈)의 경로는 색인 확인 없이 디스크에서 바로 확인한다.
+    fn resolve_place(&self, location: &Location) -> Result<PathBuf, String> {
+        let root = crate::volumes::place(&location.root_id).ok_or("열 수 없는 위치입니다. 드라이브가 분리되었는지 확인해 주세요.")?;
+        let relative = Path::new(&location.path);
+        if relative.is_absolute()
+            || location.path.contains('\\')
+            || relative.components().any(|c| !matches!(c, Component::Normal(_)))
+            || location.path.split('/').any(|p| p == "." || p == ".." || p == ".every-directory-trash" || p.starts_with(".ed-work-"))
+        {
+            return Err("올바른 경로가 필요합니다.".into());
+        }
+        // 드라이브 전체를 보는 위치이므로 /var·/tmp 같은 링크 경로도 입력한 표기 그대로 따라간다.
+        // 실제 경로로 바꾸지 않아야 목록 항목의 경로가 주소 표기와 어긋나지 않는다.
+        let absolute = PathBuf::from(&root.absolute_path).join(relative);
+        fs::metadata(&absolute).map_err(|e| e.to_string())?;
+        Ok(absolute)
+    }
+
+    // 연결 폴더 안의 등록된 항목만 실제 경로로 변환한다. 탐색 전용 위치는 resolve_place로 넘긴다.
     pub fn resolve(&self, location: &Location) -> Result<PathBuf, String> {
+        if location.root_id.starts_with(crate::volumes::PLACE_PREFIX) {
+            return self.resolve_place(location);
+        }
         let store = self.store.lock().unwrap();
         let snapshot = store
             .snapshots
@@ -1016,6 +1046,13 @@ impl Engine {
 
     // Windows 주소 입력은 대소문자가 달라도 인덱스에 저장된 실제 표기로 복원한다.
     pub fn directory_location(&self, location: &Location) -> Result<Location, String> {
+        // 탐색 전용 위치는 색인이 없으므로 디스크에 폴더가 있는지만 확인한다.
+        if location.root_id.starts_with(crate::volumes::PLACE_PREFIX) {
+            if !self.resolve(location)?.is_dir() {
+                return Err("폴더가 아닙니다.".into());
+            }
+            return Ok(location.clone());
+        }
         let path = if location.path.is_empty() {
             String::new()
         } else {
@@ -1054,11 +1091,12 @@ impl Engine {
     // 폴더의 직접 자식만 정렬해 탐색창에 전달한다.
     pub fn list(&self, location: &Location) -> Result<Vec<Entry>, String> {
         let directory=self.resolve(location)?;
-        let root=self.roots().into_iter().find(|root|root.id==location.root_id).ok_or("연결되지 않은 폴더입니다.")?;
+        let root=self.root_by_id(&location.root_id).ok_or("연결되지 않은 폴더입니다.")?;
         let mut entries=vec![];
         for item in fs::read_dir(directory).map_err(|error|error.to_string())?{
             let Ok(item)=item else{continue};let path=item.path();
-            if excluded(&path,&self.data){continue;}
+            // 탐색 전용 위치는 .git·node_modules도 그대로 보여 주고 앱 데이터 폴더만 감춘다.
+            if if root.browse{path.starts_with(&self.data)}else{excluded(&path,&self.data)}{continue;}
             let Ok(metadata)=fs::symlink_metadata(&path) else{continue};
             if metadata.file_type().is_symlink()||(!metadata.is_file()&&!metadata.is_dir()){continue;}
             if let Some(entry)=entry_metadata(&root,&path,&metadata){entries.push(entry);}

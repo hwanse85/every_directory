@@ -78,6 +78,19 @@ export async function copyFiles(
   await invoke("copy_files", { locations, cut });
 }
 
+// 백그라운드 uuencode·uudecode 작업의 진행 상황(ed-job 이벤트).
+export interface CodecJob { id: number; kind: "uuencode" | "uudecode"; name: string; done: number; total: number; state: "running" | "done" | "error" | "cancelled"; message?: string; output?: string }
+
+// uuencode·uudecode를 백그라운드에서 시작한다. 결과 파일은 원본과 같은 폴더에 name으로 만든다.
+export function startCodec(action: "uuencode" | "uudecode", source: Location, name: string): Promise<number> {
+  return invoke<number>("codec_job", { action, source, name });
+}
+
+// 실행 중인 인코딩·디코딩 작업을 취소한다.
+export function cancelCodec(id: number): Promise<void> {
+  return invoke("codec_cancel", { id });
+}
+
 // Finder·탐색기와 앱이 공유하는 파일 클립보드를 현재 폴더에 붙여넣는다.
 export async function pasteFiles(
   destination: Location,

@@ -169,6 +169,39 @@
       "ZIP 압축·해제 UI와 한글 파일",
       (await list("E2E 압축 해제")).some((x) => x.name === "업무 보고서.txt"),
     );
+    // UU 인코딩·디코딩: 만들 파일 이름을 받고 백그라운드에서 실행하며, 창 아래 상태 막대에 진행·완료를 보여 준다.
+    async function codec(label, name, state = "done") {
+      await menu("파일 도구", label);
+      const input = await until(() => document.querySelector('dialog[open] [aria-label="작업 이름"]'), `${label} 이름 입력`);
+      const initial = input.value;
+      value(input, name);
+      await new Promise(requestAnimationFrame);
+      await clickReady("dialog[open] .button.primary", `${label} 시작 단추`);
+      await until(() => !document.querySelector("dialog[open]"), `${label} 창 닫힘`);
+      await until(() => [...document.querySelectorAll(`.job-item.job-${state}`)].some((item) => item.textContent.includes(name)), `${label} 상태 막대 ${state}`);
+      return initial;
+    }
+    const sha = async (path) => (await invoke("ed_request", { kind: "operation", payload: { action: "hash", entries: [{ rootId: root.id, path }] } })).sha256;
+    await select("이미지.png");
+    verify("UU 인코딩 기본 이름은 원본 이름.uue", (await codec("UU 인코딩", "이미지.png.uue")) === "이미지.png.uue");
+    const files = await list("");
+    verify("UU 인코딩 결과는 원본보다 큰 텍스트 파일", files.find((x) => x.name === "이미지.png.uue")?.size > files.find((x) => x.name === "이미지.png").size * 1.3);
+    await select("이미지.png.uue");
+    verify("UU 디코딩 기본 이름은 .uue를 뗀 이름", (await codec("UU 디코딩", "이미지 복원.png")) === "이미지.png");
+    verify("UU 디코딩 결과가 원본과 바이트 단위로 같음(SHA-256)", (await sha("이미지 복원.png")) === (await sha("이미지.png")));
+    // 폴더는 검색 결과를 누르면 그 안으로 들어가므로 탐색창 목록에서 직접 고른다.
+    const folderRow = await until(() => [...pane().querySelectorAll(".file-row")].find((row) => row.title.split(/[\\/]/).pop() === "문서"), "탐색창의 문서 폴더");
+    folderRow.click();
+    await until(() => pane().querySelector(".file-row.selected")?.title.split(/[\\/]/).pop() === "문서", "문서 폴더 선택");
+    verify("폴더 UU 인코딩 기본 이름은 폴더.zip.uue", (await codec("UU 인코딩", "문서.zip.uue")) === "문서.zip.uue");
+    await select("문서.zip.uue");
+    await codec("UU 디코딩", "문서 복원.zip");
+    await invoke("ed_request", { kind: "operation", payload: { action: "unzip", entries: [{ rootId: root.id, path: "문서 복원.zip" }], destination: { rootId: root.id, path: "" }, name: "문서 복원" } });
+    verify("폴더는 ZIP으로 묶여 인코딩되고 디코딩한 ZIP에 원래 파일이 들어 있음", (await list("문서 복원/문서")).some((x) => x.name === "메모.txt"));
+    await select("README.md");
+    await codec("UU 디코딩", "잘못된 결과.bin", "error");
+    verify("uuencode가 아닌 파일 디코딩은 상태 막대에 이유를 표시하고 파일을 만들지 않음", [...document.querySelectorAll(".job-item.job-error")].some((item) => item.textContent.includes("begin")) && !(await list("")).some((x) => x.name === "잘못된 결과.bin" || x.name.startsWith(".ed-work-")));
+    document.querySelectorAll(".job-item .job-close").forEach((button) => button.click());
     await select(renamed.name);
     await menu("앱 휴지통으로");
     await clickReady("dialog[open] .button.danger");

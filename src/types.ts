@@ -34,6 +34,8 @@ export interface ConnectedRoot {
   volume?: string;
   /** 네트워크 드라이브를 다시 확인하는 간격(분) */
   refreshMinutes?: number;
+  /** 색인하지 않고 탐색만 하는 위치(홈·드라이브·볼륨) */
+  browse?: boolean;
 }
 
 export interface Location {
@@ -205,7 +207,9 @@ export interface ToolRequest {
     | "stats"
     | "duplicates"
     | "compare"
-    | "exportList";
+    | "exportList"
+    | "uuencode"
+    | "uudecode";
 }
 
 export type FileAction =

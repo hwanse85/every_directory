@@ -16,6 +16,15 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Home,
+  ClipboardList,
+  Binary,
+  FileOutput,
+  Eye,
+  Copy,
+  PieChart,
+  SquareTerminal,
+  Trash2,
   Command,
   Database,
   Download,
@@ -76,6 +85,7 @@ import {
   writeClipboard,
   connectLocation,
   type DesktopStatus,
+  type CodecJob,
 } from "./client";
 import { demoRoots, createDemoEntries } from "./demo";
 import { readPreference, savePreference } from "./storage";
@@ -111,7 +121,9 @@ import {IndexExclusions} from "./components/IndexExclusions";
 import { FileContextMenu } from "./components/FileContextMenu";
 import { FileActions } from "./components/FileActions";
 import { HelpCenter } from "./components/HelpCenter";
-import { locationPath, fileUri } from "./paths";
+import { JobBar } from "./components/JobBar";
+import { QuickToolbar, normalizeToolbar, type ToolbarAction } from "./components/QuickToolbar";
+import { locationPath, fileUri, displayPath } from "./paths";
 import { shortcutLabel } from "./quickSearch";
 import { fileDragErrorEvent } from "./fileDrag";
 import { useSearchInput } from "./useSearchInput";
@@ -202,6 +214,11 @@ const toolCards = [
   },
 ] as const;
 const demoEntries = createDemoEntries();
+// 상단 편의 아이콘의 기본 구성과 고를 수 있는 전체 항목.
+const defaultToolbarItems = ["newTab", "newFolder", "refresh", "clipboard", "uuencode", "uudecode"];
+const knownToolbarItems = ["newTab", "newFolder", "refresh", "clipboard", "uuencode", "uudecode", "home", "hidden", "copyOtherPane", "compare", "stats", "duplicates", "batchRename", "terminal", "trashList", "quickSearch", "palette"];
+// 색인 없이 탐색만 하는 위치(홈·드라이브·볼륨)의 id인지 확인한다.
+const isPlace = (id: string) => id.startsWith("pc:");
 // 검색 방식 옆 도움말 툴팁에 보여 줄 짧은 사용법. 자세한 설명은 도움말의 section 절에 있다.
 const searchModeHelp: Record<SearchMode, { title: string; summary: string; examples: [string, string][]; section: string }> = {
   initials: { title: "초성 + 일반", summary: "한글 초성이나 이름 일부로 찾습니다. 공백은 AND입니다.", examples: [["ㅂㄱㅅ", "보고서"], ["ㅇㅁ 보고", "업무 보고.pdf"], ["보고ㅅ", "초성과 글자 섞기"]], section: "help-mode-initials" },
@@ -290,6 +307,8 @@ export default function App() {
   const [scope, setScope] = useState("");
   const {preferences}=usePreferences();
   const [toolsTab,setToolsTab]=useState<"files"|"clipboard">("files");
+  // 상단 편의 아이콘의 표시 항목과 순서. 알 수 없는 항목은 불러올 때 버린다.
+  const [toolbarItems,setToolbarItems]=useState<string[]>(()=>normalizeToolbar(readPreference<unknown>("toolbarItems",null),knownToolbarItems,defaultToolbarItems));
   const [fullPath, setFullPath] = useState(readPreference("fullPath", false));
   const [searchColumns, setSearchColumns] = useState(() =>
     normalizeSearchColumns(readPreference("searchColumns", null)),
@@ -313,6 +332,16 @@ export default function App() {
   });
   const [searchSelection,setSearchSelection]=useState<FileEntry[]>([]);
   const [searchCursor,setSearchCursor]=useState<FileCursor>();
+  // 탐색 전용 위치. 탐색창·트리·주소 입력에는 연결 폴더와 함께 쓰고, 검색에는 쓰지 않는다.
+  const [places,setPlaces]=useState<ConnectedRoot[]>([]);
+  const allRoots=useMemo(()=>[...roots,...places],[roots,places]);
+  useEffect(()=>{
+    if(!isDesktop)return;
+    // 드라이브를 꽂거나 빼면 창으로 돌아올 때 목록을 다시 읽는다.
+    const load=()=>void client.request<ConnectedRoot[]>("places").then(setPlaces).catch(()=>undefined);
+    load();window.addEventListener("focus",load);
+    return()=>window.removeEventListener("focus",load);
+  },[client]);
   // 검색 결과 목록 안에서 이름을 고치는 항목과, 바꾼 뒤 다시 검색했을 때 고를 새 경로.
   const [searchRenaming,setSearchRenaming]=useState<{id:string;token:number}>();
   const renamedResult=useRef<{rootId:string;path:string;at:number}|undefined>(undefined);
@@ -542,7 +571,7 @@ export default function App() {
             tabs: p.tabs.map((t) => ({
               ...t,
               history: t.history.map((loc) =>
-                current.some((r) => r.id === loc.rootId)
+                current.some((r) => r.id === loc.rootId) || isPlace(loc.rootId)
                   ? loc
                   : { rootId: current[0]?.id ?? "", path: "" },
               ),
@@ -1004,7 +1033,7 @@ export default function App() {
               ...location,
               name:
                 location.path.split("/").pop() ||
-                roots.find((r) => r.id === location.rootId)?.name ||
+                allRoots.find((r) => r.id === location.rootId)?.name ||
                 "폴더",
             },
           ],
@@ -1130,10 +1159,16 @@ export default function App() {
     });
   }
 
+  // 백그라운드 인코딩·디코딩이 끝나면 목록을 다시 읽어 결과 파일을 보여 준다.
+  const finishJob=useCallback((job:CodecJob)=>{
+    if(job.state==="done"){setRevision(value=>value+1);notify(`UU ${job.kind==="uuencode"?"인코딩":"디코딩"} 완료: ${job.name}`);}
+    else if(job.state==="error")notify(job.message??"작업에 실패했습니다.",true);
+  },[]);
+
   function runSearchTool(action:ToolRequest["action"]):void {
     if(action==="selectAll"){setSearchSelection(result.entries);return;}
     if(action==="invertSelection"){const ids=new Set(searchSelection.map(entry=>entry.id));setSearchSelection(result.entries.filter(entry=>!ids.has(entry.id)));return;}
-    if(["copy","cut","paste","rename","batchRename","trash","duplicate","zip","unzip","properties","hash","preview","resizeImages","ocr","reveal","open"].includes(action)){
+    if(["copy","cut","paste","rename","batchRename","trash","duplicate","zip","unzip","properties","hash","preview","resizeImages","ocr","reveal","open","uuencode","uudecode"].includes(action)){
       setSearchTool({action,id:performance.now()});return;
     }
     if(action==="copyOtherPane"||action==="moveOtherPane"){
@@ -1219,7 +1254,7 @@ export default function App() {
       tabs: pane.tabs.map((tab) => ({
         ...tab,
         history: tab.history.map((location) =>
-          roots.some((root) => root.id === location.rootId)
+          roots.some((root) => root.id === location.rootId) || isPlace(location.rootId)
             ? location
             : { rootId: roots[0]?.id ?? "", path: "" },
         ),
@@ -1313,6 +1348,26 @@ export default function App() {
       })),
   ];
 
+  // 상단 편의 아이콘으로 고를 수 있는 기능. 활성 탐색창(선택 항목)을 기준으로 실행한다.
+  const toolbarActions: ToolbarAction[] = [
+    { id: "newTab", label: "새 탭", icon: Plus, detail: "활성 탐색창 · Ctrl/⌘ T", run: () => { const pane = panes.find((p) => p.id === activePane) ?? panes[0]; const tab = pane.tabs.find((t) => t.id === pane.activeTab) ?? pane.tabs[0]; navigate(tab.history[tab.cursor], pane.id, true); } },
+    { id: "newFolder", label: "새 폴더", icon: FolderPlus, detail: "Ctrl/⌘ Shift N", run: () => runTool("mkdir") },
+    { id: "refresh", label: "새로 고침", icon: RefreshCw, detail: "활성 탐색창 목록", run: () => runTool("refresh") },
+    { id: "clipboard", label: "클립보드 이력", icon: ClipboardList, run: () => { setToolsTab("clipboard"); setModal("tools"); } },
+    { id: "uuencode", label: "UU 인코딩", icon: Binary, detail: "선택한 파일·폴더 → .uue", run: () => runTool("uuencode") },
+    { id: "uudecode", label: "UU 디코딩", icon: FileOutput, detail: "선택한 .uue → 원래 파일", run: () => runTool("uudecode") },
+    ...(isDesktop ? [{ id: "home", label: "홈 폴더 열기", icon: Home, detail: "색인 없이 탐색", run: () => navigate({ rootId: "pc:home", path: "" }) }] : []),
+    { id: "hidden", label: "숨김 파일 표시 전환", icon: Eye, detail: "Ctrl/⌘ Shift .", run: () => runTool("toggleHidden") },
+    { id: "copyOtherPane", label: "다른 탐색창으로 복사", icon: Copy, detail: "선택 항목", run: () => runTool("copyOtherPane") },
+    { id: "compare", label: "두 탐색창 폴더 비교", icon: GitCompareArrows, run: () => runTool("compare") },
+    { id: "stats", label: "폴더 용량 분석", icon: PieChart, run: () => runTool("stats") },
+    { id: "duplicates", label: "중복 파일 찾기", icon: Files, run: () => runTool("duplicates") },
+    { id: "batchRename", label: "일괄 이름 변경", icon: TextCursorInput, detail: "선택 항목", run: () => runTool("batchRename") },
+    { id: "terminal", label: "터미널 열기", icon: SquareTerminal, detail: "현재 폴더", run: () => runTool("terminal") },
+    { id: "trashList", label: "앱 휴지통·복원", icon: Trash2, run: () => runTool("trashList") },
+    ...(isDesktop ? [{ id: "quickSearch", label: "빠른 검색 창", icon: ScanSearch, run: () => void desktopControl("quick").catch((cause) => notify(String(cause), true)) }] : []),
+    { id: "palette", label: "명령 찾기", icon: Command, detail: "Ctrl/⌘ Shift P", run: () => setModal("commands") },
+  ];
   const workspaceStyle = { "--search-size": `${ratio}%` } as CSSProperties;
   const searchToggleKey = /Mac/.test(navigator.platform) ? "⌘⇧F" : "Ctrl+Shift+F";
   const SearchCloseIcon = { left: PanelLeftClose, right: PanelRightClose, top: PanelTopClose, bottom: PanelBottomClose }[placement];
@@ -1476,6 +1531,8 @@ export default function App() {
             </select>
             <ChevronDown size={12} />
           </label>
+          <QuickToolbar actions={toolbarActions} items={toolbarItems} defaults={defaultToolbarItems}
+            onChange={(items) => { setToolbarItems(items); savePreference("toolbarItems", items); }} />
           <button
             className="button primary connect-folder-button"
             aria-label="폴더 연결" title={!ready ? "검색 엔진 준비 중" : scanning ? "인덱싱 중" : "폴더 연결"}
@@ -1587,7 +1644,7 @@ export default function App() {
           </div>
           <div className="favorite-list">
             {favorites
-              .filter((f) => roots.some((r) => r.id === f.rootId))
+              .filter((f) => allRoots.some((r) => r.id === f.rootId))
               .map((f) => (
                 <button
                   key={`${f.rootId}:${f.path}`}
@@ -1607,7 +1664,7 @@ export default function App() {
                   <ChevronRight size={11} />
                 </button>
               ))}
-            {!favorites.some((f) => roots.some((r) => r.id === f.rootId)) && (
+            {!favorites.some((f) => allRoots.some((r) => r.id === f.rootId)) && (
               <p className="sidebar-empty">
                 탐색창의 ☆ 버튼으로
                 <br />
@@ -1648,6 +1705,24 @@ export default function App() {
             <Plus size={13} />
             폴더 연결하기
           </button>
+          {places.length > 0 && (
+            <>
+              <div className="sidebar-section-title">
+                <span title="색인하지 않고 탐색창에서 바로 여는 위치입니다. 검색 대상은 아닙니다.">이 PC</span>
+              </div>
+              {places.map((place) => (
+                <button
+                  key={place.id}
+                  className="sidebar-folder place-folder"
+                  title={`${displayPath(place.absolutePath ?? "")} · 탐색만(검색 제외)`}
+                  onClick={() => navigate({ rootId: place.id, path: "" })}
+                >
+                  {place.id === "pc:home" ? <Home size={15} /> : <HardDrive size={15} />}
+                  <span>{place.name}</span>
+                </button>
+              ))}
+            </>
+          )}
 
           {recent.length > 0 && (
             <>
@@ -2151,7 +2226,7 @@ export default function App() {
                                 const location = tab.history[tab.cursor];
                                 return {
                                   location,
-                                  label: `탐색창 ${((i + 1) % panes.length) + 1} · ${roots.find((root) => root.id === location.rootId)?.name ?? ""}/${location.path}`,
+                                  label: `탐색창 ${((i + 1) % panes.length) + 1} · ${allRoots.find((root) => root.id === location.rootId)?.name ?? ""}/${location.path}`,
                                 };
                               })()
                             : undefined
@@ -2176,7 +2251,7 @@ export default function App() {
                         onMessage={notify}
                         onChanged={() => setRevision((value) => value + 1)}
                         revealEntry={revealTargets[pane.id]}
-                        roots={roots}
+                        roots={allRoots}
                         client={client}
                         active={activePane === pane.id}
                         revision={revision}
@@ -2219,7 +2294,7 @@ export default function App() {
           </div>
         </main>
       </div>
-
+      <JobBar onFinished={finishJob} />
 
       {modal === "commands" && (
         <CommandPalette
@@ -2260,7 +2335,7 @@ export default function App() {
       {searchTransfer&&<Modal title={searchTransfer.action==="copy"?"검색 결과를 다른 탐색창으로 복사":"검색 결과를 다른 탐색창으로 이동"} onClose={()=>{if(!searchTransferBusy)setSearchTransfer(undefined);}}>
         <div className="modal-content"><p>{searchSelection.length.toLocaleString()}개 항목을 전송할 탐색창을 선택하세요.</p>
           <select aria-label="검색 결과 전송 대상" value={searchTransfer.paneId} disabled={searchTransferBusy} onChange={event=>setSearchTransfer({...searchTransfer,paneId:event.target.value})}>
-            {panes.map(pane=>{const tab=pane.tabs.find(tab=>tab.id===pane.activeTab)??pane.tabs[0],location=tab.history[tab.cursor];return <option key={pane.id} value={pane.id}>탐색창 {panes.indexOf(pane)+1} · {locationPath(roots.find(root=>root.id===location.rootId),location.path)}</option>;})}
+            {panes.map(pane=>{const tab=pane.tabs.find(tab=>tab.id===pane.activeTab)??pane.tabs[0],location=tab.history[tab.cursor];return <option key={pane.id} value={pane.id}>탐색창 {panes.indexOf(pane)+1} · {locationPath(allRoots.find(root=>root.id===location.rootId),location.path)}</option>;})}
           </select>
           <button className="button primary" disabled={searchTransferBusy||!searchSelection.length} onClick={async()=>{
             const pane=panes.find(pane=>pane.id===searchTransfer.paneId);if(!pane)return;
@@ -2763,10 +2838,10 @@ export default function App() {
         </Modal>
       )}
       {modal === "help" && <HelpCenter section={helpSection} onClose={() => { setModal(null); setHelpSection(undefined); }} />}
-      {preview && roots.find((r) => r.id === preview.rootId) && (
+      {preview && allRoots.find((r) => r.id === preview.rootId) && (
         <Preview
           entry={preview}
-          root={roots.find((r) => r.id === preview.rootId)!}
+          root={allRoots.find((r) => r.id === preview.rootId)!}
           onClose={() => setPreview(undefined)}
         />
       )}

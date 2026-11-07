@@ -60,6 +60,35 @@
       const result=await invoke('ed_request',{kind:'search',payload:{query:'제외 검증',limit:1000}});verify('제외 폴더는 검색 결과에서 제거',result.total===0);
       const top=await invoke('ed_request',{kind:'list',payload:{rootId:root.id,path:''}});verify('제외 폴더는 탐색에서 유지',top.some(entry=>entry.name==='비공개'));
       const contents=await invoke('ed_request',{kind:'list',payload:{rootId:root.id,path:'비공개/하위'}});verify('제외 폴더 안의 파일은 탐색 가능',contents.some(entry=>entry.name==='제외 검증.txt'));
+      // 색인하지 않은 위치(이 PC): 연결 폴더 밖의 경로도 탐색창에서 열고 다룬다.
+      set(group,'none');set(view,'list');await pause();
+      const places=await invoke('ed_request',{kind:'places',payload:{}});
+      verify('이 PC 위치에 홈과 드라이브·볼륨 제공',places.some(place=>place.id==='pc:home')&&places.some(place=>/^pc:([A-Z]:|\/)$/.test(place.id))&&places.every(place=>place.browse));
+      verify('사이드바에 이 PC 위치 표시',document.querySelectorAll('.sidebar .place-folder').length===places.length);
+      const plain=text=>text.replace(/^\\\\\?\\(UNC\\)?/,(_,unc)=>unc?'\\\\':'');
+      const separator=plain(root.absolutePath).includes('\\')?'\\':'/';
+      const outside=plain(root.absolutePath).split(separator).slice(0,-1).join(separator)+separator+'색인 밖 폴더';
+      pane(1).querySelector('.breadcrumbs').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+      const address=await until(()=>pane(1).querySelector('.address-form input'),'주소 입력');set(address,outside);await pause();pane(1).querySelector('.address-form').requestSubmit();
+      let toastText='';const toastWatch=setInterval(()=>{const toast=document.querySelector('.toast');if(toast)toastText=toast.textContent;},50);
+      try{await until(()=>find('바깥 파일.txt')&&find('하위'),'연결 폴더 밖 경로 열기');}catch(error){throw new Error(`${error.message} · 주소 ${outside} · 알림 ${toastText}`);}finally{clearInterval(toastWatch);}
+      verify('색인하지 않은 경로도 주소 입력으로 열고 파일 표시',true);
+      const unindexed=await invoke('ed_request',{kind:'search',payload:{query:'바깥 파일',limit:100}});verify('이 PC 위치는 검색 대상이 아님',unindexed.total===0);
+      const savedPane=JSON.parse(sessionStorage.getItem('ed:panes'))[0],savedTab=savedPane.tabs.find(tab=>tab.id===savedPane.activeTab),placeLocation=savedTab.history[savedTab.cursor];
+      verify('연결 폴더 밖 경로는 이 PC 위치로 열림',placeLocation.rootId.startsWith('pc:'));
+      const outsideFile=find('바깥 파일.txt');outsideFile.click();outsideFile.focus();await pause();key(outsideFile,'F2');
+      const placeName=await until(()=>pane(1).querySelector('.rename-field input'),'이 PC 이름 입력');set(placeName,'바깥 이름변경.txt');key(placeName,'Enter');
+      await until(()=>find('바깥 이름변경.txt'),'이 PC 위치 이름 바꾸기');verify('이 PC 위치에서도 목록 안 이름 바꾸기',!find('바깥 파일.txt'));
+      await invoke('ed_request',{kind:'operation',payload:{action:'copy',entries:[{rootId:placeLocation.rootId,path:placeLocation.path+'/바깥 이름변경.txt'}],destination:{rootId:root.id,path:''}}});
+      verify('이 PC 위치의 파일을 연결 폴더로 복사',(await invoke('ed_request',{kind:'list',payload:{rootId:root.id,path:''}})).some(entry=>entry.name==='바깥 이름변경.txt'));
+      const victim=find('바깥 이름변경.txt');victim.click();victim.focus();await pause();key(victim,'Delete');
+      const confirm=await until(()=>document.querySelector('dialog[open] .button.danger'),'이 PC 삭제 확인');
+      verify('이 PC 위치 삭제는 운영체제 휴지통으로 안내',document.querySelector('dialog[open]').textContent.includes('운영체제 휴지통'));
+      confirm.click();await until(()=>!find('바깥 이름변경.txt'),'이 PC 위치 휴지통 이동');
+      verify('이 PC 위치의 파일을 운영체제 휴지통으로 이동',!(await invoke('ed_request',{kind:'list',payload:placeLocation})).some(entry=>entry.name==='바깥 이름변경.txt'));
+      let blocked=false;try{await invoke('ed_request',{kind:'operation',payload:{action:'trash',entries:[{rootId:'pc:home',path:''}]}});}catch{blocked=true;}
+      verify('이 PC 위치 자체(홈·드라이브)는 지울 수 없음',blocked);
+      pane(1).querySelector('[aria-label="뒤로"]').click();await until(()=>find('문서'),'연결 폴더로 돌아가기');
       set(view,'content');set(group,'type');await pause();report.treeWidth=treeWidth(1);sessionStorage.setItem(checkpoint,JSON.stringify(report));location.reload();return;
     }
   }catch(error){report.errors.push(String(error));report.screen=document.body.innerText.slice(-5000);sessionStorage.removeItem(checkpoint);}

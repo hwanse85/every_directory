@@ -314,11 +314,12 @@ fn move_prepared(
     }
     crate::windows_file_ops::transfer(&cross_volume, true)
 }
-// 등록된 루트와 다른 연결 폴더의 상위 항목을 보호한다.
+// 등록된 루트·탐색 위치(드라이브·홈)와 그 상위 항목을 보호한다.
 fn protect(engine: &Engine, path: &Path) -> Result<(), String> {
     if engine
         .roots()
         .iter()
+        .chain(crate::volumes::places().iter())
         .any(|r| Path::new(&r.absolute_path).starts_with(path))
     {
         return Err("연결 폴더 자체와 다른 연결 폴더의 상위 항목은 변경할 수 없습니다.".into());
@@ -366,6 +367,39 @@ fn trash(engine: &Engine, location: &Location, source: &Path) -> Result<TrashIte
     }
     Ok(item)
 }
+// 파일을 운영체제 휴지통으로 옮긴다. 휴지통에서 직접 되살릴 수 있다.
+fn system_trash(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSFileManager, NSString, NSURL};
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        return NSFileManager::defaultManager()
+            .trashItemAtURL_resultingItemURL_error(&url, None)
+            .map_err(|error| format!("휴지통으로 옮기지 못했습니다: {}", error.localizedDescription()));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::Shell::{SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE, SHFILEOPSTRUCTW};
+        // \\?\ 접두사는 셸 작업이 받지 않으므로 떼고, 목록 끝을 두 번의 0으로 표시한다.
+        let text = path.to_string_lossy();
+        let plain = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        let mut wide: Vec<u16> = std::ffi::OsStr::new(plain).encode_wide().collect();
+        wide.extend([0, 0]);
+        let mut operation: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+        operation.wFunc = FO_DELETE;
+        operation.pFrom = wide.as_ptr();
+        operation.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as u16;
+        let result = unsafe { SHFileOperationW(&mut operation) };
+        if result != 0 || operation.fAnyOperationsAborted != 0 {
+            return Err(format!("휴지통으로 옮기지 못했습니다(오류 {result})."));
+        }
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(format!("이 운영체제에서는 휴지통을 쓸 수 없습니다: {}", path.display()))
+}
+
 // 복구할 수 있는 앱 휴지통 항목만 반환한다.
 pub fn list_trash(engine: &Engine) -> Result<Vec<TrashItem>, String> {
     let mut result = vec![];
@@ -528,7 +562,7 @@ fn batch_rename(sources: &[PathBuf], names: &[String]) -> Result<(), String> {
     Ok(())
 }
 // ZIP을 생성하면서 링크와 특수 파일을 거부한다.
-fn zip_sources(sources: &[PathBuf], output: &Path) -> Result<(), String> {
+pub(crate) fn zip_sources(sources: &[PathBuf], output: &Path) -> Result<(), String> {
     let mut writer = ZipWriter::new(File::create(output).map_err(|e| e.to_string())?);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut names = HashSet::new();
@@ -1145,7 +1179,13 @@ pub fn operate(engine: &Arc<Engine>, request: Operation) -> Result<Value, String
         if request.action == "trash" {
             let mut records = vec![];
             for (location, source) in locations.iter().zip(&sources) {
-                records.push(trash(engine, location, source)?);
+                // 탐색 전용 위치에는 앱 휴지통 폴더를 만들지 않고 운영체제 휴지통(Windows 휴지통·macOS 휴지통)으로 보낸다.
+                if location.root_id.starts_with(crate::volumes::PLACE_PREFIX) {
+                    protect(engine, source)?;
+                    system_trash(source)?;
+                } else {
+                    records.push(trash(engine, location, source)?);
+                }
                 changed.push(source.clone());
             }
             return Ok(json!({"count":records.len(),"records":records}));

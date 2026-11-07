@@ -51,6 +51,9 @@ pub struct Root {
     /// 실시간 감시 대신(또는 함께) 다시 확인하는 간격(분).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_minutes: Option<u32>,
+    /// 색인하지 않고 탐색창에서 보기만 하는 위치(드라이브·볼륨·홈 폴더).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub browse: bool,
 }
 
 // 등록된 폴더 안의 상대 경로만 파일 작업에 사용한다.

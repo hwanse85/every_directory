@@ -6,6 +6,7 @@ pub mod file_icons;
 pub mod preferences;
 pub mod visibility;
 pub mod volumes;
+pub mod codec;
 pub mod clipboard_history;
 mod journal;
 pub mod model;
@@ -78,6 +79,8 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
             Ok(Value::Null)
         }
         "init" => serde_json::to_value(engine.roots()).map_err(|e| e.to_string()),
+        // 색인 없이 탐색창에서 여는 홈·드라이브·볼륨 목록
+        "places" => serde_json::to_value(volumes::places()).map_err(|e| e.to_string()),
         "licenseNotices" => Ok(json!(include_str!("../../THIRD_PARTY_NOTICES.txt"))),
         "openExternalLink" => {
             operations::open_external_link(payload["url"].as_str().ok_or("링크가 필요합니다.")?)?;
@@ -608,6 +611,7 @@ pub fn run() {
             }
             app.manage(preferences::PreferenceStore::load(&engine.data).map_err(std::io::Error::other)?);
             app.manage(engine);
+            app.manage(Arc::new(codec::Jobs::default()));
             clipboard_history::start(app.handle()).map_err(std::io::Error::other)?;
             desktop::setup(app)?;
             Ok(())
@@ -740,7 +744,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, drag_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control])
+        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, drag_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control, codec::codec_job, codec::codec_cancel])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

@@ -1052,3 +1052,51 @@
 :root .folder-tree .tree-folder.current { background-color: var(--fl-selected); }
 :root .help-find input[type="search"] { height: 100%; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 :root .help-find:focus-within { border-color: var(--fl-accent); box-shadow: 0 0 0 1px var(--fl-accent); }
+
+/* 상단 탐색창 개수: 초점선·눌림 표시를 아이콘까지 포함한 단추 전체에 맞춘다. */
+:root .pane-count-control { cursor: pointer; padding: 0 8px 0 10px; }
+:root .pane-count-control select { outline: none; box-shadow: none; padding-left: 0; }
+:root .pane-count-control select:focus-visible { outline: none; }
+:root .pane-count-control:focus-within { outline: 2px solid var(--fl-focus); outline-offset: 0; }
+:root .pane-count-control:has(select:active), :root .pane-count-control:active { background: var(--fl-pressed); }
+
+/* 창 아래 백그라운드 작업 상태 막대(UU 인코딩·디코딩) */
+.job-bar { flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--fl-stroke); background: var(--fl-surface); }
+.job-item { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 12px; font-size: 12px; color: var(--fl-text); }
+.job-item > svg { flex: 0 0 auto; color: var(--fl-accent); }
+.job-done > svg { color: #0f7b0f; }
+.job-error > svg, .job-error .job-status { color: #c42b1c; }
+.job-title { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.job-progress { flex: 1 1 160px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--fl-hover-strong); }
+.job-progress > i { display: block; height: 100%; border-radius: 3px; background: var(--fl-accent); transition: width 0.15s linear; }
+.job-progress > i.job-waiting { animation: job-wait 1.2s ease-in-out infinite alternate; }
+@keyframes job-wait { from { margin-left: 0; } to { margin-left: 92%; } }
+.job-percent { flex: 0 0 auto; color: var(--fl-text-2); font-variant-numeric: tabular-nums; }
+.job-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fl-text-2); }
+.job-cancel { flex: 0 0 auto; padding: 2px 10px; border-radius: var(--fl-radius); border: 1px solid var(--fl-stroke-control); color: var(--fl-text); background: var(--fl-surface); }
+.job-cancel:hover { background: var(--fl-hover); }
+
+/* 상단 편의 아이콘과 편집 팝업 */
+.quick-toolbar { position: relative; display: flex; align-items: center; gap: 2px; padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--fl-stroke); }
+.quick-toolbar .icon-button { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: var(--fl-radius); color: var(--fl-text); }
+.quick-toolbar .icon-button:hover { background: var(--fl-hover); }
+.quick-toolbar .toolbar-edit-button { color: var(--fl-text-3); width: 26px; }
+.quick-toolbar .toolbar-edit-button[aria-expanded="true"] { background: var(--fl-pressed); color: var(--fl-text); }
+.toolbar-editor {
+  position: absolute; z-index: 70; top: calc(100% + 6px); left: 0; width: 300px; max-height: min(560px, 75vh); overflow: auto; padding: 10px;
+  background: var(--fl-surface); border: 1px solid var(--fl-stroke); border-radius: var(--fl-radius-lg); box-shadow: var(--fl-shadow-flyout); color: var(--fl-text);
+}
+.toolbar-editor-hint { margin: 2px 2px 8px; font-size: 11.5px; line-height: 1.45; color: var(--fl-text-3); }
+.toolbar-editor ul { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 1px; }
+.toolbar-editor li { display: flex; align-items: center; gap: 2px; border-radius: var(--fl-radius); }
+.toolbar-editor li:hover { background: var(--fl-hover); }
+.toolbar-editor li label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 6px; font-size: 12.5px; cursor: pointer; }
+.toolbar-editor li:not(.on) label { color: var(--fl-text-2); }
+.toolbar-editor li .icon-button { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: var(--fl-radius); color: var(--fl-text-2); }
+.toolbar-editor li .icon-button:disabled { opacity: 0.3; }
+.app-header .workspace-actions > *, .app-header .header-actions, .quick-toolbar > * { flex-shrink: 0; }
+.quick-toolbar .toolbar-edit-button { position: relative; width: auto; min-width: 26px; padding: 0 4px; display: inline-flex; gap: 2px; align-items: center; }
+.toolbar-more-count { font-size: 10.5px; font-weight: 700; color: var(--fl-accent); }
+.toolbar-overflow { display: grid; gap: 1px; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--fl-stroke); }
+.toolbar-overflow button { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--fl-radius); font-size: 12.5px; text-align: left; color: var(--fl-text); }
+.toolbar-overflow button:hover { background: var(--fl-hover); }

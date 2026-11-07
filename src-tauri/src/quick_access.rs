@@ -29,6 +29,16 @@ pub struct QuickAccess {
 
 // 인덱스 메타데이터에서 현재 위치를 확인한다.
 pub fn entry(engine: &Engine, location: &Location) -> Result<Entry, String> {
+    // 탐색 전용 위치(드라이브·홈)는 색인이 없으므로 디스크에서 바로 읽는다.
+    if location.root_id.starts_with(crate::volumes::PLACE_PREFIX) {
+        let root = engine.root_by_id(&location.root_id).ok_or("열 수 없는 위치입니다.")?;
+        if location.path.is_empty() {
+            return Ok(Entry { id: format!("{}:", root.id), root_id: root.id, path: String::new(), parent: String::new(), name: root.name, kind: "directory".into(), extension: String::new(), size: None, modified: 0, hidden: false, created: None, accessed: None, readonly: false });
+        }
+        let path = engine.resolve(location)?;
+        let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
+        return crate::store::entry_metadata(&root, &path, &metadata).ok_or_else(|| "파일 위치가 바뀌었습니다.".into());
+    }
     let store = engine.store.lock().unwrap();
     let snapshot = store
         .snapshots

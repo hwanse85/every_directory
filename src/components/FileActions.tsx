@@ -13,6 +13,7 @@ import {
 import {
   copyFiles,
   pasteFiles,
+  startCodec,
   isDesktop,
   isMac,
   quickAccess,
@@ -54,7 +55,9 @@ type ActionDialog =
   | "zip"
   | "unzip"
   | "properties"
-  | "trashList";
+  | "trashList"
+  | "uuencode"
+  | "uudecode";
 
 // 탐색창의 파일 작업과 일괄 이름 변경 미리보기를 제공한다.
 export function FileActions({
@@ -113,6 +116,8 @@ export function FileActions({
   const [compact, setCompact] = useState(false);
   const [dense, setDense] = useState(false);
   const selected = entries.map(({ rootId, path }) => ({ rootId, path }));
+  // 탐색 전용 위치(이 PC)의 항목은 앱 휴지통 대신 운영체제 휴지통으로 보낸다.
+  const systemTrash = entries.some((entry) => entry.rootId.startsWith("pc:"));
   let preview: string[] = [];
   let previewError = "";
   if (dialog === "batchRename") {
@@ -264,7 +269,11 @@ export function FileActions({
                 : "압축파일") + ".zip"
             : next === "unzip"
               ? entries[0]?.name.replace(/\.zip$/i, "") || "압축해제"
-              : entries[0]?.name || "",
+              : next === "uuencode"
+                ? `${entries[0]?.name ?? ""}${entries[0]?.kind === "directory" ? ".zip" : ""}.uue`
+                : next === "uudecode"
+                  ? entries[0]?.name.replace(/\.(uue|uu|txt)$/i, "") || "디코딩 결과"
+                  : entries[0]?.name || "",
     );
     if (next === "properties" || next === "trashList") void loadDetails(next);
   }
@@ -336,6 +345,8 @@ export function FileActions({
         "unzip",
         "properties",
         "trashList",
+        "uuencode",
+        "uudecode",
       ].includes(action)
     )
       return;
@@ -381,9 +392,14 @@ export function FileActions({
         "unzip",
         "properties",
         "trashList",
+        "uuencode",
+        "uudecode",
       ].includes(action)
-    )
-      show(action as ActionDialog);
+    ) {
+      if ((action === "uuencode" || action === "uudecode") && (entries.length !== 1 || (action === "uudecode" && entries[0].kind !== "file")))
+        onMessage(action === "uuencode" ? "인코딩할 파일이나 폴더 하나를 선택해 주세요." : "디코딩할 uuencode 파일 하나를 선택해 주세요.", true);
+      else show(action as ActionDialog);
+    }
   }, [toolRequest, disabled, busy, entries, location.rootId, location.path]);
 
   useEffect(() => {
@@ -477,11 +493,27 @@ export function FileActions({
   // 현재 입력을 실제 서버 파일 작업으로 적용한다.
   async function submit(): Promise<void> {
     if (!dialog || dialog === "properties" || dialog === "trashList") return;
+    if (dialog === "uuencode" || dialog === "uudecode") {
+      // 인코딩·디코딩은 백그라운드 작업으로 넘기고 창을 바로 닫는다. 진행률은 아래 상태 막대에 보인다.
+      if (!isDesktop) { setError("UU 인코딩·디코딩은 데스크톱 앱에서 쓸 수 있습니다."); return; }
+      setBusy(true);
+      setError("");
+      try {
+        await startCodec(dialog, selected[0], name.trim());
+        setDialog(undefined);
+        onMessage(`${dialog === "uuencode" ? "인코딩" : "디코딩"}을 백그라운드에서 시작했습니다. 진행 상황은 창 아래 상태 막대에서 볼 수 있습니다.`);
+      } catch (cause) {
+        setError(String(cause));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const creates = ["mkdir", "mkfile", "zip", "unzip"].includes(dialog);
     const done = await perform(
       { action: dialog, entries: selected, destination: location, name, rule },
       dialog === "trash"
-        ? "앱 휴지통으로 이동했습니다. 휴지통에서 복원할 수 있습니다."
+        ? `${systemTrash ? "운영체제" : "앱"} 휴지통으로 이동했습니다. 휴지통에서 복원할 수 있습니다.`
         : "파일 작업을 완료했습니다.",
     );
     // 탐색기처럼 새로 만든 폴더·파일·압축 결과를 목록에서 선택하도록 이름을 알린다.
@@ -499,6 +531,8 @@ export function FileActions({
     unzip: "ZIP 압축 풀기",
     properties: "파일 속성",
     trashList: "앱 휴지통",
+    uuencode: "UU 인코딩",
+    uudecode: "UU 디코딩",
   };
   return (
     <>
@@ -764,7 +798,7 @@ export function FileActions({
             ) : dialog === "trash" ? (
               <>
                 <p>
-                  선택한 {entries.length}개 항목을 앱 휴지통으로 이동합니다.
+                  선택한 {entries.length}개 항목을 {systemTrash ? "운영체제 휴지통" : "앱 휴지통"}으로 이동합니다.
                 </p>
                 <ul className="operation-files">
                   {entries.slice(0, 12).map((entry) => (
@@ -772,8 +806,9 @@ export function FileActions({
                   ))}
                 </ul>
                 <p className="modal-footnote">
-                  각 연결 폴더의 .every-directory-trash에 보관됩니다. 추가
-                  도구의 앱 휴지통에서 복원할 수 있습니다.
+                  {systemTrash
+                    ? `색인하지 않은 위치라 ${isMac ? "macOS 휴지통" : "Windows 휴지통"}으로 보냅니다. 휴지통에서 복원할 수 있습니다.`
+                    : "각 연결 폴더의 .every-directory-trash에 보관됩니다. 추가 도구의 앱 휴지통에서 복원할 수 있습니다."}
                 </p>
               </>
             ) : dialog === "trashList" ? (
@@ -865,7 +900,7 @@ export function FileActions({
                 }}
               >
                 <label className="operation-name">
-                  {dialog === "unzip" ? "새 압축 해제 폴더" : "이름"}
+                  {dialog === "unzip" ? "새 압축 해제 폴더" : dialog === "uuencode" || dialog === "uudecode" ? "만들 파일 이름" : "이름"}
                   <input
                     autoFocus
                     aria-label="작업 이름"
@@ -874,6 +909,11 @@ export function FileActions({
                   />
                 </label>
                 <p className="modal-footnote">
+                  {dialog === "uuencode"
+                    ? `${entries[0]?.kind === "directory" ? "폴더는 ZIP 하나로 묶은 뒤 " : ""}텍스트(uuencode)로 바꿔 같은 폴더에 만듭니다. 백그라운드에서 실행하며 진행률은 창 아래 상태 막대에 표시합니다. `
+                    : dialog === "uudecode"
+                      ? "uuencode 텍스트(begin~end)를 원래 파일로 되돌려 같은 폴더에 만듭니다. 메일 머리글 같은 앞뒤 글은 건너뜁니다. 진행률은 창 아래 상태 막대에 표시합니다. "
+                      : ""}
                   같은 이름이 있으면 작업을 중단합니다.
                   {dialog === "unzip"
                     ? ` ZIP 해제: 최대 10,000개·${isDesktop ? "500MB" : "2GB"}.`
@@ -901,7 +941,9 @@ export function FileActions({
                   ? "처리 중"
                   : dialog === "batchRename"
                     ? "미리보기대로 적용"
-                    : titles[dialog]}
+                    : dialog === "uuencode" || dialog === "uudecode"
+                      ? `백그라운드에서 ${titles[dialog].slice(3)} 시작`
+                      : titles[dialog]}
               </button>
             )}
           </div>
