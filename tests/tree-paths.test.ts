@@ -21,4 +21,6 @@ test("tree indent narrows at deep levels and always leaves room for the name",()
   assert.deepEqual([0,1,2,3,5,6,8].map(depth=>treeIndent(depth,400)),[0,12,24,32,48,52,60]);
   for(let depth=0;depth<30;depth++)assert.ok(treeIndent(depth,165)<=165-96);
   assert.equal(treeIndent(4,60),0);
+  // Windows 스크롤 막대(12px)를 뺀 폭에서도 이름 자리(110px)를 남긴다.
+  assert.ok(treeIndent(7,165-4-12)<=165-4-12-110);
 });

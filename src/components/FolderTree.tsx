@@ -1,5 +1,5 @@
 import {usePreferences,visibleFile,type Preferences} from "../preferences";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Folder, LoaderCircle } from "lucide-react";
 import type { IndexClient } from "../client";
 import type { ConnectedRoot, FileEntry, Location } from "../types";
@@ -73,11 +73,19 @@ export function FolderTree({roots,location,client,revision,onNavigate,storageKey
 }) {
   const [expanded,setExpanded]=useState(()=>restoreTreeExpansion(readPreference(storageKey,[]),location));
   const tree=useRef<HTMLElement>(null);
+  // 들여쓰기는 스크롤 막대(Windows는 폭을 차지)와 여백을 뺀 실제 내용 폭으로 계산한다.
+  const [inner,setInner]=useState(width);
+  useLayoutEffect(()=>{
+    const element=tree.current;if(!element)return;
+    const measure=()=>{const style=getComputedStyle(element);setInner(element.clientWidth-(parseFloat(style.paddingLeft)||0)-(parseFloat(style.paddingRight)||0));};
+    const observer=new ResizeObserver(measure);observer.observe(element);measure();
+    return()=>observer.disconnect();
+  },[]);
   useEffect(()=>{setExpanded(previous=>new Set([...previous,...treeAncestors(location)]));},[location.rootId,location.path]);
   useEffect(()=>{savePreference(storageKey,[...expanded].slice(-512));},[expanded,storageKey]);
   const toggle=(key:string)=>setExpanded(previous=>{const next=new Set(previous);if(next.has(key))next.delete(key);else next.add(key);return next;});
   const {preferences}=usePreferences();
-  const context:TreeContext={current:location,client,revision,showHidden,preferences,expanded,toggle,onNavigate,width};
+  const context:TreeContext={current:location,client,revision,showHidden,preferences,expanded,toggle,onNavigate,width:inner};
   return <aside ref={tree} style={{width}} className="folder-tree" role="tree" aria-label={label} tabIndex={0}
     onFocus={event=>{if(event.target===event.currentTarget)tree.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({preventScroll:true});}}
     onKeyDown={event=>{

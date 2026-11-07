@@ -116,10 +116,14 @@
     await select("업무 보고서.txt");
     await menu("새로 만들기", "새 폴더");
     const folderDefault = await inlineName("E2E 새 폴더", "새 폴더 이름 입력칸");
-    verify(
-      "새 폴더는 기본 이름으로 바로 만들고 목록 안에서 이름 입력",
-      folderDefault.startsWith("새 폴더") && (await list("")).some((x) => x.name === "E2E 새 폴더") && !(await list("")).some((x) => x.name === folderDefault),
-    );
+    // 이름 변경이 디스크에 반영될 때까지 기다리고, 실패하면 실제 상태를 남긴다.
+    const folderApplied = await until(async () => {
+      const names = (await list("")).map((x) => x.name);
+      return names.includes("E2E 새 폴더") && !names.includes(folderDefault) ? names : false;
+    }, "새 폴더 이름 적용").catch(async () => {
+      throw new Error(`새 폴더 이름 적용 실패: 기본 이름=${folderDefault}, 디스크=${(await list("")).map((x) => x.name).join(",")}, 화면=${[...pane().querySelectorAll(".file-row")].map((row) => row.textContent.slice(0, 20)).join(",")}`);
+    });
+    verify("새 폴더는 기본 이름으로 바로 만들고 목록 안에서 이름 입력", folderDefault.startsWith("새 폴더") && folderApplied);
     await menu("새로 만들기", "새 텍스트 파일");
     const fileDefault = await inlineName("E2E 새 파일.txt", "새 파일 이름 입력칸");
     verify("새 텍스트 파일도 목록 안에서 이름 입력", fileDefault.startsWith("새 파일") && fileDefault.endsWith(".txt"));

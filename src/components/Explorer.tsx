@@ -93,6 +93,9 @@ interface Props {
   onRevealLocation: (location: Location) => void;
 }
 
+// 새로 만든 항목이 목록에 나타나길 기다리는 시간. 느린 디스크·네트워크 드라이브에서도 이름 입력칸을 연다.
+const CREATED_WAIT_MS = 30000;
+
 // 각 탐색창의 탭, 경로, 이동 기록과 파일 목록을 표시한다.
 export function Explorer({
   pane,
@@ -578,7 +581,7 @@ export function Explorer({
               const focus = intent.focus && keyboardInList();
               // 상위로 돌아오면 나온 폴더를 선택하고, 새 폴더에 들어가면 첫 항목에 초점만 둔다.
               if (child || focus) setCursor({ token: performance.now(), id: child?.id, focus, select: !!child });
-            } else if (createdName.current && performance.now() - createdName.current.at < 5000 && result.some((entry) => entry.parent === location.path && entry.name === createdName.current?.name)) {
+            } else if (createdName.current && performance.now() - createdName.current.at < CREATED_WAIT_MS && result.some((entry) => entry.parent === location.path && entry.name === createdName.current?.name)) {
               const created = result.find((entry) => entry.parent === location.path && entry.name === createdName.current?.name);
               const rename = createdName.current.rename;
               createdName.current = undefined;
