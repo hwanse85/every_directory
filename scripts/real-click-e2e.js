@@ -12,7 +12,7 @@
   };
   // 포인터·마우스·클릭 이벤트가 어디로 갔는지 모은다(가장 먼저 받는 캡처 단계).
   let events = [];
-  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "lostpointercapture", "pointercancel"])
+  for (const type of ["pointermove", "pointerdown", "mousedown", "pointerup", "mouseup", "click", "lostpointercapture", "pointercancel"])
     window.addEventListener(type, (event) => events.push(`${type}→${describe(event.target)}${event.isTrusted ? "" : "(합성)"}`), true);
   const pane = (n) => document.querySelectorAll(".explorer-pane")[n - 1];
   // 열린 메뉴를 모두 닫는다.
@@ -30,7 +30,9 @@
     events = [];
     const native = await invoke("ed_request", { kind: "smokeClick", payload: { x, y } });
     await wait(500);
-    const entry = { name, rect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)], hit: describe(hit), hitInside: element.contains(hit), native, events: events.slice(0, 14), active: describe(document.activeElement) };
+    const moves = events.filter((item) => item.startsWith("pointermove")).length;
+    events = events.filter((item) => !item.startsWith("pointermove"));
+    const entry = { name, moves, focus: document.hasFocus(), rect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)], hit: describe(hit), hitInside: element.contains(hit), native, events: events.slice(0, 14), active: describe(document.activeElement) };
     report.diagnostics.push(entry);
     return entry;
   }
@@ -40,6 +42,15 @@
   try {
     for (let n = 0; n < 150 && !pane(1)?.querySelector(".file-row"); n++) await wait(100);
     report.window = { innerWidth, innerHeight, devicePixelRatio, screenX, screenY };
+    // 비교: 사이드바의 ‘인덱스 관리’를 실제 클릭하면 대화상자가 열리는지(입력이 창에 닿는지) 확인한다.
+    const sidebar = [...document.querySelectorAll("button, a")].find((element) => element.textContent.trim().startsWith("인덱스 관리"));
+    if (sidebar) {
+      const control = await realClick(sidebar, "사이드바 인덱스 관리(비교)");
+      control.after = { dialog: !!document.querySelector("dialog[open]") };
+      record("실제 클릭: 사이드바 단추(비교용)", control.after.dialog, JSON.stringify(control));
+      document.querySelector('dialog[open] [aria-label="닫기"]')?.click();
+      await wait(200);
+    }
     for (const number of [1, 2]) {
       const root = pane(number);
       for (const [kind, title] of [["sort", "정렬 기준과 분류"], ["view", "보기 방식·표시 항목"]]) {

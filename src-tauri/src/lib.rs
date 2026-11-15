@@ -349,7 +349,21 @@ async fn ed_request(
         let input=|flags|INPUT{r#type:INPUT_MOUSE,Anonymous:INPUT_0{mi:MOUSEINPUT{dx:0,dy:0,mouseData:0,dwFlags:flags,time:0,dwExtraInfo:0}}};
         // SAFETY: 화면 좌표로 커서를 옮기고 누름·뗌 두 입력을 보낸다.
         let sent=unsafe{SetCursorPos(sx,sy);std::thread::sleep(std::time::Duration::from_millis(60));let inputs=[input(MOUSEEVENTF_LEFTDOWN),input(MOUSEEVENTF_LEFTUP)];SendInput(2,inputs.as_ptr(),std::mem::size_of::<INPUT>() as i32)};
-        return Ok(json!({"screenX":sx,"screenY":sy,"scale":scale,"innerX":inner.x,"innerY":inner.y,"sent":sent}));
+        // 클릭 지점의 최상위 창과 앞 창이 누구인지(클래스·프로세스·제목) 기록한다.
+        let describe=|hwnd:windows_sys::Win32::Foundation::HWND|->Value{
+            use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor,GetClassNameW,GetWindowTextW,GetWindowThreadProcessId,GetWindowLongW,IsWindowVisible,GA_ROOT,GWL_EXSTYLE};
+            if hwnd.is_null(){return Value::Null;}
+            // SAFETY: 운영체제가 돌려준 창 핸들에서 이름·스타일만 읽는다.
+            unsafe{
+                let root=GetAncestor(hwnd,GA_ROOT);let mut class=[0u16;128];let mut title=[0u16;128];let mut pid=0u32;
+                let cl=GetClassNameW(hwnd,class.as_mut_ptr(),128);let rl=GetClassNameW(root,title.as_mut_ptr(),128);
+                let mut text=[0u16;128];let tl=GetWindowTextW(root,text.as_mut_ptr(),128);
+                GetWindowThreadProcessId(root,&mut pid);
+                json!({"class":String::from_utf16_lossy(&class[..cl.max(0) as usize]),"rootClass":String::from_utf16_lossy(&title[..rl.max(0) as usize]),"rootTitle":String::from_utf16_lossy(&text[..tl.max(0) as usize]),"ours":pid==std::process::id(),"visible":IsWindowVisible(root)!=0,"exStyle":format!("{:#x}",GetWindowLongW(root,GWL_EXSTYLE)),"same":root as isize==window.hwnd().map(|h|h.0 as isize).unwrap_or(0)})
+            }
+        };
+        let (at,foreground)=unsafe{(windows_sys::Win32::UI::WindowsAndMessaging::WindowFromPoint(windows_sys::Win32::Foundation::POINT{x:sx,y:sy}),windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow())};
+        return Ok(json!({"screenX":sx,"screenY":sy,"scale":scale,"innerX":inner.x,"innerY":inner.y,"sent":sent,"windowAtPoint":describe(at),"foreground":describe(foreground)}));
     }
     #[cfg(all(windows,feature="smoke-test"))]
     if window.label()=="main"&&kind=="smokeShellNew"{
