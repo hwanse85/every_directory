@@ -1,6 +1,7 @@
 import {visibleFile} from "./preferences";
 import { RE2JS } from "re2js";
 import { normalizeSearchInput } from "./quickSearch";
+import { correctedQuery } from "./keyboard";
 import { searchColumnOptions, searchColumnValue } from "./searchColumns";
 import type {
   FileCategory,
@@ -268,8 +269,19 @@ export class FileIndex {
     });
   }
 
-  // 검색 방식을 적용하고 시간 한도를 넘기면 부분 결과임을 명시한다.
+  // 결과가 없으면 한/영 자판을 바꾼 검색어로 한 번 더 찾고, 찾았을 때만 그 결과를 쓴다.
   search(options: SearchOptions): SearchResult {
+    const result = this.searchOnce(options);
+    const mode = options.mode ?? "initials";
+    if (result.total || result.partial || options.noCorrect || !["normal", "initials", "fuzzy"].includes(mode)) return result;
+    const corrected = correctedQuery(options.query);
+    if (!corrected) return result;
+    const found = this.searchOnce({ ...options, query: corrected });
+    return found.total ? { ...found, corrected } : result;
+  }
+
+  // 검색 방식을 적용하고 시간 한도를 넘기면 부분 결과임을 명시한다.
+  private searchOnce(options: SearchOptions): SearchResult {
     const started = performance.now();
     const mode = options.mode ?? "initials";
     if (options.query.length > 512)

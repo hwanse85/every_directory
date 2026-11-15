@@ -7,7 +7,8 @@
   // 비동기 화면의 조건이 충족될 때까지 제한된 시간 동안 확인한다.
   async function until(check, label) {
     for (let n = 0; n < 200; n++) {
-      if (check()) return;
+      const value = await check();
+      if (value) return value;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error(`시간 초과: ${label}`);
@@ -155,6 +156,30 @@
       "실제 사본 생성",
     );
     verify("연결 폴더로 실제 파일 복사", true);
+    // 학습형 순위: 같은 검색어로 두 번 고른 사본(대상/업무 보고서.txt)이 다음 검색에서 1위로 올라온다.
+    const learnRoots = await invoke("ed_request", { kind: "init", payload: {} });
+    const copied = { rootId: learnRoots[0].id, path: "대상/업무 보고서.txt" };
+    const firstRow = () => document.querySelector("#quick-result-0")?.textContent ?? "";
+    search("업무 보고");
+    await until(() => !document.querySelector(".quick-input-row .spin") && document.querySelectorAll('[role="option"]').length >= 2, "같은 이름 두 결과");
+    verify("학습 전에는 최근 연 원본이 앞", !firstRow().includes("대상"));
+    for (let n = 0; n < 2; n++)
+      await invoke("ed_request", { kind: "quickAccess", payload: { action: "opened", location: copied, query: "업무 보고", learn: true } });
+    search("업무 보");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    search("업무 보고");
+    await until(() => !document.querySelector(".quick-input-row .spin") && firstRow().includes("대상"), "학습한 항목 1위");
+    verify("같은 검색어로 두 번 고른 파일이 세 번째 검색에서 1위", true);
+    // 한/영 자판 보정과 되돌리기
+    search("qhrhtj");
+    await until(() => document.querySelector(".quick-corrected")?.textContent.includes("‘보고서’") && firstRow().includes("업무 보고서.txt"), "빠른 검색 자판 보정");
+    verify("빠른 검색: qhrhtj → 보고서로 바꿔 찾음", true);
+    document.querySelector(".quick-corrected button").click();
+    await until(() => !document.querySelector(".quick-corrected") && !document.querySelector(".quick-input-row .spin") && !document.querySelector('[role="option"]'), "빠른 검색 원래 검색어로 찾기");
+    verify("빠른 검색: 원래 검색어 그대로 찾기", true);
+    search("mbr");
+    await until(() => !document.querySelector(".quick-input-row .spin") && firstRow().includes("MyBigReport.pdf"), "빠른 검색 영문 약어");
+    verify("빠른 검색: 영문 약어 mbr → MyBigReport.pdf", true);
     verify(
       "검색창과 하단 안내가 창 안에 표시됨",
       document.querySelector(".quick-footer").getBoundingClientRect().bottom <=
@@ -244,6 +269,114 @@
     search(roots[0].name+"/대상");
     await until(()=>document.querySelector("#quick-result-0 .path-match")&&document.querySelector("#quick-result-0 strong").textContent==="대상","연결 폴더 이름 경로 일치");
     verify("연결 폴더 이름으로 시작하는 일부 경로도 위치로 해석",true);
+    // ── 2단계: 작업 메뉴 확장(미리보기·경로 형식·압축해서 보내기·다른 앱·이름 바꾸기·사용자 동작·나란히 열기)
+    const mac2 = /Mac/.test(navigator.platform);
+    const spin = () => document.querySelector(".quick-input-row .spin");
+    const row0 = () => document.querySelector("#quick-result-0")?.textContent ?? "";
+    const quickInput = () => document.querySelector('[aria-label="파일·폴더 빠른 검색"]');
+    const key = (k, extra = {}) => quickInput().dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...extra }));
+    const status = () => document.querySelector('.quick-message[role="status"]')?.textContent ?? "";
+    // 검색해서 첫 결과가 name이 될 때까지 기다리고 작업 메뉴를 연다.
+    async function menuFor(query, name) {
+      search(query);
+      await until(() => !spin() && row0().includes(name), `검색 ${query}`);
+      await until(() => { if (document.querySelector('[role="menu"]')) return true; key("Tab"); return false; }, `작업 메뉴 ${name}`);
+    }
+    const pick = (text) => [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent.includes(text)).click();
+    const roots2 = await invoke("ed_request", { kind: "init", payload: {} });
+    // 미리보기(⌘/Ctrl+Y)
+    search("업무 보고서");
+    await until(() => !spin() && row0().includes("업무 보고서.txt"), "미리보기 대상 검색");
+    key("y", mac2 ? { metaKey: true } : { ctrlKey: true });
+    await until(() => document.querySelector(".quick-preview pre")?.textContent.includes("한글 원본 내용"), "텍스트 미리보기");
+    verify("빠른 검색 미리보기(⌘/Ctrl+Y)로 텍스트 앞부분 표시", true);
+    key("y", mac2 ? { metaKey: true } : { ctrlKey: true });
+    await until(() => !document.querySelector(".quick-preview") && document.querySelector("#quick-results"), "미리보기 닫기");
+    // ── 4단계: 계산 결과와 앱 실행(설정에서 켠 상태)
+    search("12*3+4");
+    await until(() => document.querySelector(".quick-special.calc.active")?.textContent.includes("40"), "계산 결과 줄");
+    key("Enter");
+    await until(() => status().includes("계산 결과 40"), "계산 결과 복사");
+    verify("빠른 검색 계산: 12*3+4 = 40을 맨 위에 보이고 Enter로 복사", true);
+    search("2026-03");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    verify("날짜·번호 같은 검색어(2026-03)는 계산하지 않음", !document.querySelector(".quick-special.calc"));
+    search("ㄱㅅ ㅅㅎ");
+    await until(() => document.querySelector(".quick-special.app.active")?.textContent.includes("계산 시험 앱"), "앱 줄");
+    verify("빠른 검색 앱: 초성(ㄱㅅ ㅅㅎ)으로 앱을 찾아 맨 위에 표시", true);
+    key("Enter");
+    await until(async () => (await invoke("ed_request", { kind: "smokeOpens", payload: null })).some((item) => item.launch && String(item.path).includes("계산 시험 앱")), "앱 실행 요청");
+    verify("앱 줄에서 Enter로 앱 실행 요청", true);
+    await invoke("quick_control", { action: "show" });
+    let launchRejected = false;
+    try { await invoke("ed_request", { kind: "launchApp", payload: { path: "/bin/sh" } }); } catch { launchRejected = true; }
+    verify("앱 목록에 없는 경로는 실행하지 않음", launchRejected);
+    // 작업 메뉴에 새 동작이 모두 보인다.
+    await menuFor("메모", "메모.txt");
+    const titles = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
+    for (const title of ["미리보기", mac2 ? "다른 앱으로 열기" : "연결 프로그램 선택", "경로 형식 복사", "압축해서 보내기", "탐색창 두 곳에 나란히 열기", "이름 바꾸기", "검증 동작"])
+      if (!titles.some((text) => text.includes(title))) throw new Error(`작업 메뉴에 ${title} 없음: ${titles.join(" | ")}`);
+    verify("작업 메뉴에 미리보기·다른 앱·경로 형식·압축·나란히 열기·이름 바꾸기·사용자 동작 표시", true);
+    // 경로 형식 복사
+    pick("경로 형식 복사");
+    await until(() => [...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.includes("file:// 주소")), "경로 형식 목록");
+    const urlItem = [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent.includes("file:// 주소"));
+    verify("경로 형식: file:// 주소는 인코딩된 file:/// 경로", /^file:\/\/\/?.*%EB%A9%94%EB%AA%A8\.txt$/.test(urlItem.querySelector(".quick-choice-detail").textContent));
+    verify("경로 형식: 따옴표 경로·연결 폴더 기준 경로 제공", [...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.includes("따옴표로 감싼 경로")) && [...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.includes("문서/메모.txt")));
+    urlItem.click();
+    await until(() => status().includes("file:// 주소을(를) 복사했습니다"), "경로 형식 복사 안내");
+    verify("경로 형식 복사 실행", true);
+    // 압축해서 보내기: ZIP을 만들어 파일 클립보드에 올린다.
+    await menuFor("메모", "메모.txt");
+    pick("압축해서 보내기");
+    await until(() => status().includes("메모.zip"), "압축해서 보내기 안내");
+    await invoke("clipboard_control", { action: "capture", id: null, destination: null, query: null });
+    const zipped = (await invoke("clipboard_control", { action: "list", id: null, destination: null, query: null })).items[0];
+    const zipPaths = zipped?.kind === "files" ? (await invoke("clipboard_control", { action: "read", id: zipped.id, destination: null, query: null })).paths : [];
+    verify("압축해서 보내기: 메모.zip이 파일 클립보드에 올라감", zipPaths.length === 1 && zipPaths[0].endsWith("메모.zip"));
+    // 다른 앱으로 열기(검증 중에는 앱을 띄우지 않고 요청만 기록)
+    await menuFor("메모", "메모.txt");
+    pick(mac2 ? "다른 앱으로 열기" : "연결 프로그램 선택");
+    if (mac2) {
+      await until(() => document.querySelector(".quick-choice-detail")?.textContent.endsWith(".app"), "열 앱 목록");
+      verify("다른 앱으로 열기: 이 파일을 열 수 있는 앱 목록(기본 앱 먼저)", [...document.querySelectorAll('[role="menuitem"]')][0].textContent.includes("기본 앱"));
+      document.querySelector('[role="menuitem"]').click();
+    }
+    let opened;
+    await until(async () => { opened = (await invoke("ed_request", { kind: "smokeOpens", payload: null })).find((item) => String(item.path).endsWith("메모.txt") && "app" in item); return !!opened; }, "다른 앱으로 열기 요청");
+    verify("다른 앱으로 열기 요청 전달(macOS는 고른 앱, Windows는 연결 프로그램 창)", mac2 ? String(opened.app).endsWith(".app") : opened.app === null);
+    await invoke("quick_control", { action: "show" });
+    // 사용자 동작: 위험한 이름도 인자 하나로 넘어가고 셸 명령은 실행되지 않는다.
+    const hostile = "주입 시험; touch hacked && echo $(id).txt";
+    await menuFor("주입 시험", hostile);
+    pick("검증 동작");
+    const confirmBox = await until(() => document.querySelector('[aria-label="사용자 동작 실행 확인"]'), "처음 실행 확인");
+    verify("사용자 동작은 처음 실행할 때 실제 명령을 보여 주고 확인을 받음", confirmBox.textContent.includes(`ran-${hostile}.flag`));
+    [...confirmBox.querySelectorAll("button")].find((button) => button.textContent === "실행").click();
+    await until(() => status().includes("검증 동작"), "사용자 동작 실행 안내");
+    let listing = [];
+    await until(async () => { listing = (await invoke("ed_request", { kind: "list", payload: { rootId: roots2[0].id, path: "" } })).map((item) => item.name); return listing.includes(`ran-${hostile}.flag`); }, "사용자 동작 결과 파일");
+    verify("사용자 동작: 파일 이름의 ; && $( )가 셸 명령으로 실행되지 않고 인자 하나로 전달", !listing.includes("hacked"));
+    // 두 번째부터는 확인 없이 실행한다.
+    await menuFor("주입 시험", hostile);
+    pick("검증 동작");
+    await until(() => status().includes("검증 동작") && !document.querySelector('[aria-label="사용자 동작 실행 확인"]'), "두 번째 실행");
+    verify("한 번 확인한 사용자 동작은 다시 묻지 않음", true);
+    // 이름 바꾸기
+    await menuFor("메모", "메모.txt");
+    pick("이름 바꾸기");
+    const renameInput = await until(() => document.querySelector('[aria-label="새 이름"]'), "이름 입력");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(renameInput, "메모 수정.txt");
+    renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    renameInput.form.requestSubmit();
+    await until(() => status().includes("이름을 바꿨습니다"), "이름 바꾸기 안내");
+    await until(async () => (await invoke("ed_request", { kind: "list", payload: { rootId: roots2[0].id, path: "문서" } })).some((item) => item.name === "메모 수정.txt"), "디스크 이름 변경");
+    verify("빠른 검색에서 이름 바꾸기(디스크에 반영)", true);
+    // 나란히 열기: 메인 창이 결과를 확인한다(quick-smoke-main.js).
+    await menuFor("메모 수정", "메모 수정.txt");
+    pick("탐색창 두 곳에 나란히 열기");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await invoke("quick_control", { action: "show" });
     await invoke("ed_request", {
       kind: "smokeReport",
       payload: {

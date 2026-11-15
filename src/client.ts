@@ -63,6 +63,31 @@ export async function quickControl(
   await invoke("quick_control", { action, location });
 }
 
+// 고른 앱(macOS)이나 운영체제 ‘연결 프로그램’ 창(Windows)으로 파일을 연다.
+export async function openWith(location: Location, app?: string): Promise<void> {
+  await invoke("open_with", { location, app: app ?? null });
+}
+
+// 선택 항목을 ZIP으로 묶어 파일 클립보드에 올리고 만든 파일 이름을 돌려준다.
+export async function zipToClipboard(locations: Location[]): Promise<string> {
+  return invoke<string>("zip_to_clipboard", { locations });
+}
+
+// 설정에 등록한 사용자 동작을 실행한다. 처음이면 실행할 명령을 돌려주고 확인을 기다린다.
+export async function userAction(
+  index: number,
+  location: Location,
+  confirm = false,
+): Promise<{ confirm?: boolean; program?: string; args?: string[]; ran?: boolean }> {
+  return invoke("user_action", { index, location, confirm });
+}
+
+// GitHub 최신 릴리스와 현재 버전을 비교한 결과
+export interface UpdateInfo { current: string; latest: string | null; newer: boolean; url?: string; published?: string; notes?: string; message?: string }
+export async function checkUpdate(): Promise<UpdateInfo> {
+  return invoke<UpdateInfo>("ed_request", { kind: "checkUpdate", payload: {} });
+}
+
 // 최신 요청을 우선하는 네이티브 검색을 실행한다.
 export async function quickSearch(
   options: SearchOptions,

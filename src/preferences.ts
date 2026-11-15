@@ -4,12 +4,17 @@ import {listen} from "@tauri-apps/api/event";
 import {readPreference,savePreference} from "./storage";
 import type {ExplorerView,FileEntry} from "./types";
 
+// 빠른 검색 작업 메뉴에 더하는 사용자 동작(셸 없이 프로그램 + 인자 틀로 실행)
+export interface UserAction {name:string;program:string;args:string[];}
 export interface Preferences {
  showHidden:boolean;showTemporary:boolean;showRecycleBin:boolean;highlightMatches:boolean;fontScale:number;
  activePaneAccent:"blue"|"violet"|"orange"|"green";defaultExplorerView:ExplorerView;searchDelay:number;searchPageSize:number;quickFullPath:boolean;followSearchSelection:boolean;
  clipboardEnabled:boolean;clipboardDays:number;clipboardKeyword:string;clipboardText:boolean;clipboardImages:boolean;clipboardFiles:boolean;clipboardMaxMb:number;clipboardExcludedApps:string;
+ learnRanking:boolean;
+ userActions:UserAction[];
+ contentSearch:boolean;quickApps:boolean;quickCalculator:boolean;updateCheck:boolean;
 }
-export const defaultPreferences:Preferences={showHidden:false,showTemporary:false,showRecycleBin:false,highlightMatches:true,fontScale:100,activePaneAccent:"blue",defaultExplorerView:"list",searchDelay:80,searchPageSize:1000,quickFullPath:true,followSearchSelection:false,clipboardEnabled:true,clipboardDays:10,clipboardKeyword:"clip",clipboardText:true,clipboardImages:true,clipboardFiles:true,clipboardMaxMb:16,clipboardExcludedApps:"1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe"};
+export const defaultPreferences:Preferences={showHidden:false,showTemporary:false,showRecycleBin:false,highlightMatches:true,fontScale:100,activePaneAccent:"blue",defaultExplorerView:"list",searchDelay:80,searchPageSize:1000,quickFullPath:true,followSearchSelection:false,clipboardEnabled:true,clipboardDays:10,clipboardKeyword:"clip",clipboardText:true,clipboardImages:true,clipboardFiles:true,clipboardMaxMb:16,clipboardExcludedApps:"1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe",learnRanking:true,userActions:[],contentSearch:false,quickApps:false,quickCalculator:false,updateCheck:false};
 export function normalizePreferences(input:unknown):Preferences{
  // 알려진 설정 항목만 남긴다(백엔드가 덧붙인 preferencesWarning 같은 값이 설정 비교를 흔들지 않게).
  const source=(input&&typeof input==="object"?input:{}) as Record<string,unknown>;
@@ -20,6 +25,7 @@ export function normalizePreferences(input:unknown):Preferences{
  if(!/^[\p{L}\p{N}_-]{1,32}$/u.test(value.clipboardKeyword))value.clipboardKeyword="clip";
  if(!["blue","violet","orange","green"].includes(value.activePaneAccent))value.activePaneAccent="blue";
  if(!["list","grid","compact","content","icons-small","icons-medium","icons-large","icons-extra"].includes(value.defaultExplorerView))value.defaultExplorerView="list";
+ value.userActions=(Array.isArray(source.userActions)?source.userActions:[]).filter((a):a is UserAction=>!!a&&typeof a==="object"&&typeof (a as UserAction).name==="string"&&typeof (a as UserAction).program==="string").slice(0,20).map(a=>({name:a.name,program:a.program,args:Array.isArray(a.args)?a.args.filter((x):x is string=>typeof x==="string").slice(0,20):[]}));
  return value;
 }
 let cached=normalizePreferences(readPreference("preferences",defaultPreferences));

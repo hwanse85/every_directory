@@ -23,6 +23,18 @@ pub struct Preferences {
     pub clipboard_files: bool,
     pub clipboard_max_mb: u16,
     pub clipboard_excluded_apps: String,
+    // 빠른 검색에서 고른 항목을 같은 검색어의 앞 순위로 올린다.
+    pub learn_ranking: bool,
+    // 빠른 검색 작업 메뉴에 더할 사용자 동작
+    pub user_actions: Vec<crate::quick_actions::UserAction>,
+    // 문서 본문을 색인해 content: 조건으로 찾는다(기본 꺼짐).
+    pub content_search: bool,
+    // 빠른 검색에 설치된 앱을 함께 보여 준다(기본 꺼짐).
+    pub quick_apps: bool,
+    // 빠른 검색에 계산식 결과를 보여 준다(기본 꺼짐).
+    pub quick_calculator: bool,
+    // 시작할 때 GitHub에서 새 버전을 확인한다(기본 꺼짐).
+    pub update_check: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -46,11 +58,18 @@ impl Default for Preferences {
             clipboard_files: true,
             clipboard_max_mb: 16,
             clipboard_excluded_apps: "1password.exe;bitwarden.exe;keepass.exe;keepassxc.exe".into(),
+            learn_ranking: true,
+            user_actions: vec![],
+            content_search: false,
+            quick_apps: false,
+            quick_calculator: false,
+            update_check: false,
         }
     }
 }
 impl Preferences {
     pub fn validate(&self) -> Result<(), String> {
+        crate::quick_actions::validate_actions(&self.user_actions)?;
         if !(1..=60).contains(&self.clipboard_days)
             || !(1..=64).contains(&self.clipboard_max_mb)
             || !(90..=140).contains(&self.font_scale)

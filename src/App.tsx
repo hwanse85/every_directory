@@ -86,6 +86,7 @@ import {
   connectLocation,
   type DesktopStatus,
   type CodecJob,
+  checkUpdate,
 } from "./client";
 import { demoRoots, createDemoEntries } from "./demo";
 import { readPreference, savePreference } from "./storage";
@@ -222,7 +223,7 @@ const isPlace = (id: string) => id.startsWith("pc:");
 // 검색 방식 옆 도움말 툴팁에 보여 줄 짧은 사용법. 자세한 설명은 도움말의 section 절에 있다.
 const searchModeHelp: Record<SearchMode, { title: string; summary: string; examples: [string, string][]; section: string }> = {
   initials: { title: "초성 + 일반", summary: "한글 초성이나 이름 일부로 찾습니다. 공백은 AND입니다.", examples: [["ㅂㄱㅅ", "보고서"], ["ㅇㅁ 보고", "업무 보고.pdf"], ["보고ㅅ", "초성과 글자 섞기"], ["ㅂㄱㅅ2026", "보고서-2026 (기호 건너뜀)"]], section: "help-mode-initials" },
-  normal: { title: "일반", summary: "글자가 이름에 들어 있으면 찾습니다. 연산자를 함께 씁니다.", examples: [["업무 보고서", "두 단어 모두"], ["보고서|계획서", "둘 중 하나(OR)"], ["업무 !초안", "초안 제외"], ["ext:pdf size:>10mb", "확장자·크기"]], section: "help-search-operators" },
+  normal: { title: "일반", summary: "글자가 이름에 들어 있으면 찾습니다. 연산자를 함께 씁니다.", examples: [["업무 보고서", "두 단어 모두"], ["보고서|계획서", "둘 중 하나(OR)"], ["업무 !초안", "초안 제외"], ["ext:pdf size:>10mb", "확장자·크기"], ["kind:문서 dc:today", "종류·만든 날짜"], ['content:"계약 해지"', "본문(설정에서 켬)"]], section: "help-search-operators" },
   wildcard: { title: "와일드카드", summary: "이름 전체를 모양으로 비교합니다. *는 여러 글자, ?는 정확히 한 글자.", examples: [["*보고서*.pdf", "보고서가 든 PDF"], ["IMG_????.jpg", "IMG_0042.jpg"], ["보고서", "이름이 정확히 '보고서'일 때만"]], section: "help-mode-wildcard" },
   regex: { title: "정규식", summary: "입력 전체를 정규식으로 해석합니다. 전후방 탐색·역참조는 지원하지 않습니다.", examples: [["^IMG_\\d{4}\\.jpg$", "IMG_ 뒤 숫자 4자리"], ["(보고서|계획서)\\.", "‘보고서.’나 ‘계획서.’가 든 이름"], ["\\d{4}-\\d{2}", "2026-03 같은 날짜"]], section: "help-mode-regex" },
   fuzzy: { title: "퍼지 · 오타 허용", summary: "3~5글자는 오타 1자, 6글자 이상은 2자까지 허용합니다. 정확한 결과가 먼저 나옵니다.", examples: [["redme", "README.md"], ["configuratoin", "configuration.json"], ["회의룩", "회의록_2026-03.docx"]], section: "help-mode-fuzzy" },
@@ -294,6 +295,10 @@ export default function App() {
   const searchEditing = useSearchInput(mode, setQuery);
   const composingSearch = searchEditing.composing;
   const [onboarding, setOnboarding] = useState(false);
+  // 첫 실행 때 권하는 폴더와 고른 폴더, 여러 폴더를 차례로 색인할 때의 진행(몇 번째/전체)
+  const [suggested, setSuggested] = useState<{ label: string; path: string; estimate: number; connected: boolean }[]>([]);
+  const [suggestedPicked, setSuggestedPicked] = useState<string[]>([]);
+  const [bulkIndex, setBulkIndex] = useState<{ current: number; total: number; started: number }>();
   const [caseSensitive, setCaseSensitive] = useState(
     readPreference("caseSensitive", false),
   );
@@ -317,11 +322,14 @@ export default function App() {
   const [fileColors,setFileColors]=useState(()=>readPreference<unknown>("fileColors",false)===true);
   useEffect(()=>{savePreference("fileColors",fileColors);},[fileColors]);
   const [searchPage,setSearchPage]=useState({key:"",offset:0});
+  // 한/영 자판 보정 없이 그대로 찾기로 한 검색어
+  const [literalQuery,setLiteralQuery]=useState("");
+  const noCorrect=!!query&&literalQuery===query;
   // 검색 결과에 영향을 주는 설정만 검색 조건으로 본다. 글자 크기·따라가기 같은 설정을 바꿔도 결과와 선택을 유지한다.
   const searchPreferences=[preferences.showHidden,preferences.showTemporary,preferences.showRecycleBin,preferences.searchPageSize];
   const searchPreferencesKey=JSON.stringify(searchPreferences);
-  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences,revision]);
-  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences]);
+  const searchKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences,revision,noCorrect]);
+  const searchConditionKey=JSON.stringify([query,mode,caseSensitive,category,scope,fullPath,searchSort,searchPreferences,noCorrect]);
   const lastSearchCondition=useRef("");
   const searchOffset=searchPage.key===searchKey?searchPage.offset:0;
   useEffect(()=>{setSearchPage(previous=>previous.key===searchKey?previous:{key:searchKey,offset:0});},[searchKey]);
@@ -593,6 +601,14 @@ export default function App() {
         if (isDesktop && !saved.length) {
           setOnboarding(true);
           setModal("folders");
+          // 문서·데스크톱·다운로드를 기본으로 권한다.
+          void client
+            .request<{ label: string; path: string; estimate: number; connected: boolean }[]>("suggestedRoots")
+            .then((list) => {
+              setSuggested(list);
+              setSuggestedPicked(list.filter((item) => !item.connected).map((item) => item.path));
+            })
+            .catch(() => undefined);
         }
         setReady(true);
       })
@@ -683,6 +699,7 @@ export default function App() {
           offset:searchOffset,
           sortBy:searchSort?.key,
           descending:searchSort?.descending,
+          noCorrect,
         })
         .then((data) => {
           if (!alive) return;
@@ -733,7 +750,20 @@ export default function App() {
     searchSort,
     searchPage,
     searchPreferencesKey,
+    noCorrect,
   ]);
+
+  // 새 버전 확인을 켰으면 하루 한 번 GitHub 릴리스를 확인한다.
+  useEffect(() => {
+    if (!ready || !isDesktop || !preferences.updateCheck) return;
+    if (Date.now() - readPreference<number>("updateCheckedAt", 0) < 86_400_000) return;
+    savePreference("updateCheckedAt", Date.now());
+    void checkUpdate()
+      .then((info) => {
+        if (info.newer) notify(`새 버전 ${info.latest}이(가) 있습니다. 사용자 설정의 정보에서 릴리스 페이지를 열 수 있습니다.`);
+      })
+      .catch(() => undefined);
+  }, [ready, preferences.updateCheck, notify]);
 
   useLayoutEffect(() => {
     if (measurementStart.current) {
@@ -949,6 +979,21 @@ export default function App() {
     }
   }
 
+  // 첫 실행 때 고른 추천 폴더를 차례로 연결하고 색인한다.
+  async function connectSuggested() {
+    const picked = suggested.filter((item) => suggestedPicked.includes(item.path) && !item.connected);
+    if (!picked.length || scanning) return;
+    setModal(null);
+    const started = Date.now();
+    for (const [index, item] of picked.entries()) {
+      setBulkIndex({ current: index + 1, total: picked.length, started });
+      const done = await indexRoot({ id: "", name: item.path.split(/[\\/]/).pop() || item.label, absolutePath: item.path, count: 0, skipped: 0, lastIndexed: 0 });
+      if (!done) break;
+    }
+    setBulkIndex(undefined);
+    setOnboarding(false);
+  }
+
   // 서버의 실제 폴더 목록을 선택 대화상자로 연다.
   async function connectFolder() {
     if (!ready || scanning) return;
@@ -1135,8 +1180,33 @@ export default function App() {
             [activePane]: entry,
           }));
       });
-      if (disposed) unlisten();
-      else remove = unlisten;
+      // 나란히 열기: 활성 탐색창은 그대로 두고 옆 탐색창(하나뿐이면 새로 나눈 창)에서 연다.
+      const unlistenSplit = await listen<FileEntry>("ed-quick-reveal-split", (event) => {
+        const entry = event.payload;
+        const location = { rootId: entry.rootId, path: entry.kind === "directory" ? entry.path : entry.parent };
+        const current = panesRef.current;
+        let target: string;
+        if (current.length < 2) {
+          const pane = createPane(location);
+          target = pane.id;
+          setPanes((previous) => [...previous, pane]);
+        } else {
+          const index = current.findIndex((pane) => pane.id === activePane);
+          target = current[(index + 1) % current.length].id;
+          navigate(location, target);
+        }
+        setActivePane(target);
+        if (entry.kind === "file")
+          setRevealTargets((previous) => ({ ...previous, [target]: entry }));
+      });
+      if (disposed) {
+        unlisten();
+        unlistenSplit();
+      } else
+        remove = () => {
+          unlisten();
+          unlistenSplit();
+        };
     }
     void connectQuickReveal().catch((cause) => notify(String(cause), true));
     return () => {
@@ -1873,10 +1943,11 @@ export default function App() {
           {scanning && (
             <div className="index-banner">
               <LoaderCircle className="spin" size={14} />
-              <strong>폴더를 인덱싱하고 있습니다</strong>
+              <strong>폴더를 인덱싱하고 있습니다{bulkIndex ? ` (${bulkIndex.current}/${bulkIndex.total})` : ""}</strong>
               <span>
                 {progress?.count.toLocaleString() ?? 0}개 발견 ·{" "}
                 {progress?.directory}
+                {bulkIndex && ` · 경과 ${Math.round((Date.now() - bulkIndex.started) / 1000)}초`}
               </span>
               <span className="index-privacy">
                 최초 스캔은 폴더 크기에 따라 시간이 걸릴 수 있습니다.
@@ -2088,6 +2159,17 @@ export default function App() {
                   {searchError}
                 </div>
               )}
+              {result.contentSource === "spotlight" && (
+                <div className="search-corrected" role="status">
+                  <span>본문 조건(content:)은 macOS Spotlight 결과입니다. 설정에서 ‘본문 검색’을 켜면 이 앱의 본문 색인으로 찾습니다.</span>
+                </div>
+              )}
+              {result.corrected && (
+                <div className="search-corrected" role="status">
+                  <span>한/영 자판을 바꾼 <strong>‘{result.corrected}’</strong>(으)로 찾은 결과입니다.</span>
+                  <button onClick={()=>setLiteralQuery(query)}>‘{query}’ 그대로 찾기</button>
+                </div>
+              )}
               {result.partial && (
                 <div className="search-error" role="status">
                   시간 한도로 부분 결과를 표시합니다. 검색 폴더·확장자·검색어를
@@ -2135,7 +2217,7 @@ export default function App() {
                 selected={selected?.id}
                 selectedIds={searchSelection.map(entry=>entry.id)}
                 onMultiSelect={entries=>{setSearchSelection(entries);if(!entries.length)setSelected(undefined);}}
-                query={query}
+                query={result.corrected??query}
                 searchMode={mode}
                 caseSensitive={caseSensitive}
                 onSelect={selectResult}
@@ -2398,16 +2480,52 @@ export default function App() {
               <div className="onboarding-note" role="status">
                 <strong>검색할 폴더를 먼저 설정해 주세요.</strong>
                 <p>
-                  아래의 폴더 연결 버튼으로 자주 사용하는 문서 폴더를 선택하면
-                  파일 검색을 시작할 수 있습니다.
+                  자주 쓰는 폴더를 골라 바로 시작하거나, 아래의 폴더 연결 버튼으로
+                  다른 폴더를 선택하세요.
                 </p>
+                {suggested.length > 0 && (
+                  <div className="suggested-roots" aria-label="추천 폴더">
+                    {suggested.map((item) => (
+                      <label key={item.path}>
+                        <input
+                          type="checkbox"
+                          disabled={item.connected}
+                          checked={item.connected || suggestedPicked.includes(item.path)}
+                          onChange={(event) =>
+                            setSuggestedPicked((previous) =>
+                              event.target.checked ? [...previous, item.path] : previous.filter((path) => path !== item.path),
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small title={item.path}>{item.path}</small>
+                        </span>
+                        <small>
+                          {item.connected
+                            ? "연결됨"
+                            : item.estimate >= 50000
+                              ? "항목이 많아 수 분 걸릴 수 있음"
+                              : `상위 항목 약 ${item.estimate.toLocaleString()}개 · ${item.estimate > 20000 ? "1분 안팎" : "수 초"}`}
+                        </small>
+                      </label>
+                    ))}
+                    <button
+                      className="button primary small"
+                      disabled={scanning || !suggestedPicked.length}
+                      onClick={() => void connectSuggested()}
+                    >
+                      선택한 폴더 연결 ({suggestedPicked.length}개)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             <div className="info-note">
               <ShieldCheck size={16} />
               <span>
                 파일명·경로·크기·수정일을 이 PC에 인덱싱합니다. 연결 폴더의
-                변경을 자동으로 반영합니다. 파일 내용 검색은 포함하지 않습니다.
+                변경을 자동으로 반영합니다. 문서 본문 검색(content:)은 설정에서 켤 수 있습니다.
               </span>
             </div>
             {demo ? (

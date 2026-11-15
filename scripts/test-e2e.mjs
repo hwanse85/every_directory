@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { prepare } from "./e2e-fixtures.mjs";
+import { prepare, suggestedFolders } from "./e2e-fixtures.mjs";
 const suite = process.argv[2] ?? "search";
 // macOS(WKWebView)에서는 플랫폼 공용 스위트만 실행한다. shell-new·history-monitor·windows는 Windows 셸·클립보드 감시를 검증한다.
 const macSuites = ["ux", "quick", "empty", "desktop", "audit", "portable", "search", "explorer", "history", "layout", "columns", "tree", "actions", "grid", "clipboard", "drag", "transfer"];
@@ -67,7 +67,8 @@ const data = path.join(temp, suite==="portable"?"portable-data":"data");
 if(suite==="portable")await writeFile(path.join(temp,"portable.flag"),"portable data beside this executable\n");
 await prepare(root, suite);
 // 기존 검사는 검색 결과 선택 시 탐색창이 따라가는 흐름을 쓰므로 켜 두고, ux는 실제 기본값(꺼짐)부터 검증한다.
-if(!["ux","portable","empty"].includes(suite)){await mkdir(data,{recursive:true});await writeFile(path.join(data,"preferences.json"),JSON.stringify({followSearchSelection:true}));}
+// search는 본문 검색(content:)도 켜서 확인한다.
+if(!["ux","portable","empty"].includes(suite)){await mkdir(data,{recursive:true});await writeFile(path.join(data,"preferences.json"),JSON.stringify({followSearchSelection:true,...(suite==="search"?{contentSearch:true}:{})}));}
 const env = {
   ...process.env,
   EVERY_DIRECTORY_DATA: data,
@@ -77,9 +78,25 @@ const env = {
 };
 if(suite==="portable")delete env.EVERY_DIRECTORY_DATA;
 if (suite === "quick") env.EVERY_DIRECTORY_QUICK_SMOKE = "1";
+// 빠른 검색 앱 표시: 사용자 앱 대신 검증용 앱 폴더(macOS .app 폴더, Windows .lnk)를 쓴다.
+if (suite === "quick") {
+  const apps = path.join(temp, "apps");
+  await mkdir(apps, { recursive: true });
+  if (mac) await mkdir(path.join(apps, "계산 시험 앱.app"), { recursive: true });
+  else await writeFile(path.join(apps, "계산 시험 앱.lnk"), "shortcut placeholder");
+  env.EVERY_DIRECTORY_APP_DIRS = apps;
+}
+// 업데이트 확인: GitHub 대신 로컬 릴리스 정보(file://)를 읽는다.
+if (["quick", "search"].includes(suite)) {
+  const feed = path.join(temp, "release.json");
+  await writeFile(feed, JSON.stringify({ tag_name: "v99.0.0", html_url: "https://github.com/hwanse85/every_directory/releases/tag/v99.0.0", published_at: "2026-11-15T00:00:00Z", body: "검증용 릴리스" }));
+  env.EVERY_DIRECTORY_UPDATE_FEED = (await import("node:url")).pathToFileURL(feed).href;
+}
 if(suite==="history-monitor")env.EVERY_DIRECTORY_TEST_CLIPBOARD_MONITOR="1";
 if (suite === "windows") env.EVERY_DIRECTORY_WINDOWS_UI = "1";
 if (suite === "empty") {
+  // 첫 실행 추천 폴더는 사용자 폴더 대신 검증용 임시 폴더를 쓴다.
+  env.EVERY_DIRECTORY_SUGGESTED_ROOTS = (await suggestedFolders(path.join(temp, "추천"))).join(path.delimiter);
   delete env.EVERY_DIRECTORY_SMOKE_ROOT;
   delete env.EVERY_DIRECTORY_SKIP_SMOKE;
   env.EVERY_DIRECTORY_SMOKE_EMPTY = "1";

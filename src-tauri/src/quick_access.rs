@@ -17,6 +17,17 @@ pub struct QuickItem {
     pub opened_at: u64,
 }
 
+// 빠른 검색에서 어떤 검색어로 어떤 항목을 골랐는지 기록한다(학습형 순위).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pick {
+    pub query: String,
+    pub root_id: String,
+    pub path: String,
+    pub count: u32,
+    pub last: u64,
+}
+
 // 두 창이 공유하는 업무 바로가기와 검색 기록이다.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -25,6 +36,64 @@ pub struct QuickAccess {
     pub favorites: Vec<QuickItem>,
     pub opened: Vec<QuickItem>,
     pub recent: Vec<String>,
+    pub picks: Vec<Pick>,
+}
+
+// 고른 기록은 이만큼만 남기고 오래 쓰지 않은 것부터 지운다.
+const PICK_LIMIT: usize = 1000;
+
+// 검색어와 고른 항목을 기록한다. 같은 쌍은 횟수와 마지막 시각만 갱신한다.
+fn record_pick(access: &mut QuickAccess, query: &str, item: &QuickItem) {
+    let query = crate::search::normalize(query.trim());
+    if query.is_empty() || query.chars().count() > 128 {
+        return;
+    }
+    if let Some(pick) = access
+        .picks
+        .iter_mut()
+        .find(|p| p.query == query && p.root_id == item.root_id && p.path == item.path)
+    {
+        pick.count = pick.count.saturating_add(1);
+        pick.last = now();
+        return;
+    }
+    if access.picks.len() >= PICK_LIMIT {
+        if let Some(oldest) = access.picks.iter().enumerate().min_by_key(|(_, p)| p.last).map(|(i, _)| i) {
+            access.picks.swap_remove(oldest);
+        }
+    }
+    access.picks.push(Pick { query, root_id: item.root_id.clone(), path: item.path.clone(), count: 1, last: now() });
+}
+
+// 현재 검색어와 앞부분이 이어지는 기록을 골라 항목별 순위 가산점(작을수록 앞)을 만든다.
+// 같은 검색어로 자주·최근에 고른 항목일수록 앞선다.
+pub fn learned(access: &QuickAccess, query: &str) -> Vec<(String, usize)> {
+    let query = crate::search::normalize(query.trim());
+    if query.is_empty() {
+        return vec![];
+    }
+    let mut matched: Vec<&Pick> = access
+        .picks
+        .iter()
+        .filter(|p| p.query.starts_with(&query) || query.starts_with(&p.query))
+        .collect();
+    matched.sort_by(|a, b| {
+        (b.query == query)
+            .cmp(&(a.query == query))
+            .then(b.count.cmp(&a.count))
+            .then(b.last.cmp(&a.last))
+    });
+    let mut boosts: Vec<(String, usize)> = vec![];
+    for pick in matched {
+        let id = format!("{}:{}", pick.root_id, pick.path);
+        if !boosts.iter().any(|(old, _)| old == &id) {
+            boosts.push((id, boosts.len()));
+        }
+        if boosts.len() >= 50 {
+            break;
+        }
+    }
+    boosts
 }
 
 // 인덱스 메타데이터에서 현재 위치를 확인한다.
@@ -163,6 +232,9 @@ pub fn request(engine: &Engine, payload: Value) -> Result<Value, String> {
             access
                 .opened
                 .retain(|f| f.root_id != opened.root_id || f.path != opened.path);
+            if payload["learn"].as_bool() != Some(false) {
+                record_pick(&mut access, payload["query"].as_str().unwrap_or(""), &opened);
+            }
             access.opened.insert(0, opened);
             access.opened.truncate(30);
             record_query(&mut access, payload["query"].as_str().unwrap_or(""));
@@ -171,6 +243,7 @@ pub fn request(engine: &Engine, payload: Value) -> Result<Value, String> {
         "clearRecent" => {
             access.opened.clear();
             access.recent.clear();
+            access.picks.clear();
         }
         _ => return Err("지원하지 않는 바로가기 작업입니다.".into()),
     }

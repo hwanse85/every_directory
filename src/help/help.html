@@ -4,7 +4,7 @@
   <h2>시작하기</h2>
   <p class="lead">Every Directory는 <strong>연결한 폴더 전체를 미리 색인해 즉시 찾고</strong>, 찾은 파일을 <strong>여러 탐색창에서 바로 다루는</strong> 파일 관리 프로그램입니다. 검색 → 위치 확인 → 복사·이동·이름 바꾸기를 한 화면에서 끝냅니다.</p>
   <ol class="steps">
-    <li><strong>폴더 연결</strong> — 사이드바의 <em>폴더 연결</em>을 눌러 검색할 폴더를 고릅니다. 하위 폴더까지 색인하며, 처음 한 번만 시간이 걸립니다.</li>
+    <li><strong>폴더 연결</strong> — 처음 실행하면 문서·데스크톱·다운로드 폴더를 권합니다. 체크한 채 <em>선택한 폴더 연결</em>을 누르면 바로 시작합니다. 다른 폴더는 사이드바의 <em>폴더 연결</em>로 고릅니다. 하위 폴더까지 색인하며, 처음 한 번만 시간이 걸립니다.</li>
     <li><strong>검색</strong> — 위쪽 검색 입력칸에 이름 일부를 입력합니다. 입력하는 즉시 결과가 바뀝니다.</li>
     <li><strong>작업</strong> — 결과를 한 번 누르면 선택, 두 번 누르면 기본 앱으로 엽니다. 위치에서 이어서 작업하려면 <kbd class="mod"></kbd>+<kbd>Enter</kbd>나 <em>새 탭에서 열기</em>를 씁니다.</li>
   </ol>
@@ -43,6 +43,7 @@
     <li>검색어와 일치한 글자는 결과에서 강조됩니다(설정에서 끌 수 있음).</li>
     <li>종류 필터(문서·이미지·음악·동영상·압축 등)로 결과를 좁힐 수 있습니다.</li>
     <li><strong>대소문자</strong>를 켜면 영문 대소문자를 구분합니다. 초성 검색에서는 쓰지 않습니다.</li>
+    <li><strong>한/영 자판 보정</strong>: 결과가 하나도 없으면 자판을 바꿔 다시 찾습니다. 한글 자판을 영문으로 둔 채 친 <code>qhrhtj</code>는 ‘보고서’, 반대로 친 <code>메ㅡ</code>는 ‘apm’으로 찾고, 결과 위에 <em>‘보고서’(으)로 찾은 결과</em>를 알립니다. <em>그대로 찾기</em>를 누르면 친 그대로 찾습니다.</li>
   </ul>
 </section>
 
@@ -68,6 +69,7 @@
     <li>숫자·영문·기호와 섞어도 됩니다: <code>ㅂㄱㅅ_v2</code>, <code>[ㅊㅇ]ㅅㄱ</code>, <code>ㅎㅇㄹ(2026</code>, <code>c++ㅋㄷ</code>.</li>
     <li>한글이 들어간 검색어는 글자 사이의 띄어쓰기와 구분 기호(<code>_ - . [ ] ( )</code> 등)를 건너뜁니다. <code>ㅂㄱㅅ2026</code>은 ‘보고서-2026-03.pdf’, <code>ㅇㅁㅂㄱㅅ</code>는 ‘업무_보고서.txt’를 찾습니다. 입력한 기호는 그대로 비교합니다.</li>
     <li>한글을 치는 도중에도 결과가 끊기지 않습니다. ‘보고서’를 치다 잠깐 ‘보곳’이 되어도, 마지막 받침을 다음 글자의 첫소리로 함께 봅니다.</li>
+    <li><strong>영문 약어</strong>: 영문 이름은 단어 첫 글자로도 찾습니다. <code>mbr</code>은 ‘MyBigReport.pdf’, <code>ubs</code>는 ‘user_build_script.sh’를 찾습니다. 이름에 그대로 들어 있는 결과가 먼저 나옵니다.</li>
   </ul>
 
   <h3 id="help-mode-normal">일반</h3>
@@ -114,6 +116,11 @@
       <tr><td><code>path:</code></td><td>경로에서 찾기(<code>/</code>가 든 단어도 경로로 봄)</td><td><code>path:문서/2026</code></td></tr>
       <tr><td><code>size:</code></td><td>크기(B·KB·MB·GB·TB, 비교·범위)</td><td><code>size:&gt;10mb</code>, <code>size:1mb..10mb</code></td></tr>
       <tr><td><code>dm:</code></td><td>수정일(today·yesterday·YYYY-MM-DD, 비교·범위)</td><td><code>dm:today</code>, <code>dm:&gt;=2026-01-01</code></td></tr>
+      <tr><td><code>dc:</code> / <code>da:</code></td><td>만든 날짜 / 마지막 접근일(dm:과 같은 형식)</td><td><code>dc:2026-03-01</code>, <code>da:&gt;=2026-11-01</code></td></tr>
+      <tr><td><code>kind:</code></td><td>종류 묶음: 문서·이미지·코드·동영상(음악)·압축·폴더</td><td><code>kind:문서 계약</code></td></tr>
+      <tr><td><code>attrib:</code></td><td>속성: r 읽기 전용, h 숨김(함께 쓰면 둘 다)</td><td><code>attrib:r</code>, <code>attrib:rh</code></td></tr>
+      <tr><td><code>tag:</code></td><td>macOS Finder 태그</td><td><code>tag:업무</code></td></tr>
+      <tr><td><code>content:</code></td><td>문서 본문(설정에서 <em>본문 검색</em>을 켠 경우). 띄어쓰기가 있으면 따옴표로 묶습니다.</td><td><code>content:"계약 해지"</code></td></tr>
     </tbody>
   </table>
   <div class="tip"><strong>조합 예</strong> <code>보고서|계획 !초안 ext:pdf dm:&gt;=2026-01-01</code> → 올해 수정한, 초안이 아닌 보고서·계획 PDF</div>
@@ -246,7 +253,11 @@
   <p>어느 프로그램을 쓰고 있든 <strong>전역 단축키</strong>(기본 <kbd class="mod"></kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>, 설정에서 변경)로 작은 검색 창을 띄웁니다. 트레이(메뉴 막대) 아이콘의 <em>빠른 파일 검색</em>으로도 엽니다.</p>
   <ul>
     <li>입력에 따라 초성·와일드카드·일반을 자동으로 고릅니다. 기본 검색 방식은 설정에서 정합니다.</li>
-    <li><kbd>↑</kbd>/<kbd>↓</kbd> 선택, <kbd>Enter</kbd> 열기, <kbd>Tab</kbd> 작업 목록(파일 복사, 전체 경로 복사 <kbd class="mod"></kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>, 다른 폴더로 복사, Every Directory에서 위치 열기, 즐겨찾기), <kbd>Esc</kbd> 닫기.</li>
+    <li><kbd>↑</kbd>/<kbd>↓</kbd> 선택, <kbd>Enter</kbd> 열기, <kbd class="mod"></kbd>+<kbd>Y</kbd> 미리보기(텍스트 앞부분·이미지·PDF), <kbd>F2</kbd> 이름 바꾸기, <kbd>Esc</kbd> 닫기.</li>
+    <li><kbd>Tab</kbd> 작업 목록: 미리보기, 다른 앱으로 열기(Windows는 연결 프로그램 선택), 파일 복사, 전체 경로 복사 <kbd class="mod"></kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>, 경로 형식 복사(따옴표·file:// 주소·네트워크 경로·연결 폴더 기준), 압축해서 보내기(ZIP을 클립보드에 올려 메일·메신저에 붙여넣기), 다른 폴더로 복사, Every Directory에서 위치 열기, 탐색창 두 곳에 나란히 열기, 이름 바꾸기, 즐겨찾기.</li>
+    <li><strong>사용자 동작</strong>: 설정의 <em>빠른 검색 사용자 동작</em>에 이름·프로그램·인자를 등록하면 작업 목록 끝에 나옵니다. 인자에는 <code>{path}</code>·<code>{dir}</code>·<code>{name}</code>·<code>{stem}</code>·<code>{ext}</code>를 넣습니다. 셸을 거치지 않고 실행하며, 처음 실행할 때 실제 명령을 보여 주고 확인을 받습니다.</li>
+    <li><strong>학습형 순위</strong>: 같은 검색어로 자주 연 파일이 다음부터 앞에 나옵니다. 기록은 이 PC에만 두며 <em>최근 기록 지우기</em>로 함께 지웁니다(설정에서 끌 수 있음).</li>
+    <li><strong>앱·계산</strong>(설정에서 켬): 앱 이름이나 초성(<code>ㄱㅅㄱ</code> → 계산기)으로 앱을 찾아 Enter로 실행하고, <code>12*3+4</code> 같은 계산식은 결과를 맨 위에 보여 주며 Enter로 복사합니다. <code>2026-03</code> 같은 날짜·번호는 계산하지 않습니다.</li>
     <li>절대 경로나 ‘연결 폴더 이름/하위 경로’를 입력하면 그 위치가 맨 위에 <em>경로 일치</em>로 나오고, Enter로 그 폴더를 엽니다.</li>
     <li>검색어가 없으면 즐겨찾기와 최근에 연 항목을 보여 줍니다.</li>
   </ul>
@@ -278,9 +289,11 @@
   <p>사이드바의 <strong>설정</strong>에서 엽니다. 바꾼 뒤 아래쪽의 <em>사용자 설정 저장</em>을 누르세요. 저장하지 않고 닫으면 저장 여부를 묻습니다.</p>
   <ul>
     <li><strong>표시</strong>: 숨김 파일·임시·잠금 파일·휴지통 항목 표시, 검색어 매칭 강조, 파일 목록 글자 크기, 파일 목록 밀도, 파일 종류별 색상, 화면 테마, 활성 탐색창 강조 색, 새 탐색창 기본 보기.</li>
-    <li><strong>검색</strong>: 기본 검색 방식, 전체 경로에서 검색, 검색 입력 대기, 한 번에 불러올 결과 수, 검색 결과 선택 시 탐색창 따라가기, 빠른 검색에서 경로도 검색.</li>
+    <li><strong>검색</strong>: 기본 검색 방식, 전체 경로에서 검색, 검색 입력 대기, 한 번에 불러올 결과 수, 검색 결과 선택 시 탐색창 따라가기, 빠른 검색에서 경로도 검색, 고른 항목을 순위에 반영, 빠른 검색에 앱 표시·계산.</li>
+    <li><strong>본문 검색</strong>: 켜면 txt·md·코드·PDF·docx·xlsx·pptx·hwpx 문서의 본문(파일당 20MB까지, 앞 64KB)을 이 PC에 색인해 <code>content:</code>로 찾습니다. 한글 CP949 텍스트도 읽습니다. 끄면 본문 색인을 지웁니다. macOS에서 꺼 둔 채 <code>content:</code>를 쓰면 Spotlight 결과를 대신 보여 줍니다.</li>
+    <li><strong>새 버전 확인</strong>: 켜면 하루 한 번 GitHub 릴리스를 확인해 알려 줍니다. 정보의 <em>업데이트 확인</em>으로 바로 확인할 수도 있습니다. 설치는 릴리스 페이지에서 받습니다.</li>
     <li><strong>실행</strong>: 전역 검색 단축키, 창을 닫아도 계속 실행(트레이), 로그인 시 자동 시작, 트레이에서 시작.</li>
-    <li><strong>연결 폴더</strong>: 다시 색인, 연결 해제, 인덱스 제외 폴더(검색에서만 빼고 탐색은 계속 가능), 네트워크·웹 드라이브(SMB·WebDAV) 연결.</li>
+    <li><strong>연결 폴더</strong>: 다시 색인, 연결 해제, 인덱스 제외 폴더(검색에서만 빼고 탐색은 계속 가능), 네트워크·웹 드라이브(SMB·WebDAV) 연결. Windows에서 드라이브 전체(예: <code>C:\</code>)를 연결하고 관리자 권한으로 실행하면 NTFS 파일 표(MFT)를 한 번에 읽어 첫 색인을 빨리 끝냅니다.</li>
   </ul>
   <p>포터블 판은 실행 파일 옆 <code>portable-data</code> 폴더에 설정과 색인을 저장합니다.</p>
 </section>

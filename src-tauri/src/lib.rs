@@ -3,6 +3,8 @@ pub mod desktop;
 mod drag_out;
 pub mod file_clipboard;
 pub mod file_icons;
+pub mod keyboard;
+pub mod launcher;
 pub mod preferences;
 pub mod visibility;
 pub mod volumes;
@@ -11,10 +13,15 @@ pub mod clipboard_history;
 mod journal;
 pub mod model;
 pub mod operations;
+pub mod pdf_text;
+pub mod ntfs;
+pub mod content;
 pub mod query;
 pub mod quick_access;
+pub mod quick_actions;
 pub mod search;
 pub mod store;
+pub mod tags;
 #[cfg(windows)]
 mod windows_file_ops;
 #[cfg(windows)]
@@ -87,11 +94,48 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
             Ok(Value::Null)
         }
         "status" => Ok(engine.status()),
+        "contentStatus" => Ok(content::status(engine)),
+        "checkUpdate" => launcher::check_update(),
+        "apps" => Ok(json!(launcher::apps())),
+        "launchApp" => {
+            let path = payload["path"].as_str().ok_or("앱 경로가 필요합니다.")?;
+            launcher::launch(Path::new(path), &engine.data)?;
+            Ok(Value::Null)
+        }
+        // 첫 실행 때 연결을 권할 폴더(문서·데스크톱·다운로드)와 대략의 항목 수
+        "suggestedRoots" => {
+            let mut candidates: Vec<(String, std::path::PathBuf)> = vec![];
+            #[cfg(feature = "smoke-test")]
+            if let Some(paths) = std::env::var_os("EVERY_DIRECTORY_SUGGESTED_ROOTS") {
+                candidates = std::env::split_paths(&paths).map(|path| (path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), path)).collect();
+            }
+            if candidates.is_empty() {
+                for (label, path) in [("문서", dirs::document_dir()), ("데스크톱", dirs::desktop_dir()), ("다운로드", dirs::download_dir())] {
+                    if let Some(path) = path {
+                        candidates.push((label.into(), path));
+                    }
+                }
+            }
+            let connected: Vec<String> = engine.roots().into_iter().map(|root| root.absolute_path).collect();
+            Ok(json!(candidates.into_iter().filter(|(_, path)| path.is_dir()).map(|(label, path)| {
+                // 예상 시간을 알려 주려고 2단계 깊이까지만 빠르게 센다(최대 5만 개).
+                let estimate = walkdir::WalkDir::new(&path).max_depth(2).into_iter().take(50_000).count();
+                json!({"label": label, "path": path, "estimate": estimate, "connected": connected.iter().any(|root| std::path::Path::new(root) == path)})
+            }).collect::<Vec<_>>()))
+        }
         "quickAccess" => quick_access::request(engine, payload),
         "quickSuggestions" => quick_access::suggestions(engine),
         "quickEntry" => {
             let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
             serde_json::to_value(quick_access::entry(engine, &location)?).map_err(|e| e.to_string())
+        }
+        "quickPathFormats" => {
+            let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
+            quick_actions::path_formats(engine, &location)
+        }
+        "openWithApps" => {
+            let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
+            Ok(json!(quick_actions::open_with_apps(&engine.resolve(&location)?)))
         }
         "quickPath" => {
             let location: Location = serde_json::from_value(payload).map_err(|e| e.to_string())?;
@@ -107,6 +151,30 @@ pub fn dispatch(engine: &Arc<Engine>, kind: &str, payload: Value) -> Result<Valu
         "search" => {
             let options: SearchOptions =
                 serde_json::from_value(payload).map_err(|e| e.to_string())?;
+            // 본문 색인을 켜지 않은 macOS에서는 content: 조건을 Spotlight(mdfind)로 찾는다.
+            let terms: Vec<String> = if cfg!(target_os = "macos") && !engine.content.enabled.load(std::sync::atomic::Ordering::SeqCst) && options.query.to_lowercase().contains("content:") {
+                query::Query::parse(&options.query, &options.mode, false).map(|q| q.content_terms().into_iter().map(str::to_owned).collect()).unwrap_or_default()
+            } else {
+                vec![]
+            };
+            if !terms.is_empty() {
+                let roots: Vec<String> = engine.roots().into_iter().filter(|root| !root.browse).map(|root| root.absolute_path).collect();
+                let hits: Vec<(String, std::path::PathBuf)> = terms.iter().flat_map(|term| content::spotlight(&roots, term).into_iter().map(move |path| (term.clone(), path))).collect();
+                let store=engine.store.lock().unwrap();
+                let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                for (term, path) in hits {
+                    if let Some(id) = store.index.id_for_path(&path) {
+                        let text = map.entry(id).or_default();
+                        text.push(' ');
+                        text.push_str(&term);
+                    }
+                }
+                let mut found = store.index.search_with_content(&options, &map)?;
+                found.content_source = Some("spotlight");
+                let mut result=serde_json::to_value(found).map_err(|e|e.to_string())?;
+                result["indexVersion"]=json!(store.version);
+                return Ok(result);
+            }
             let store=engine.store.lock().unwrap();
             let mut result=serde_json::to_value(store.index.search(&options)?).map_err(|e|e.to_string())?;
             result["indexVersion"]=json!(store.version);
@@ -194,6 +262,9 @@ async fn preferences_control(app:tauri::AppHandle,window:tauri::WebviewWindow,ne
     if let Some(next)=next {
         if window.label()!="main" {return Err("사용자 설정은 메인 창에서 변경해 주세요.".into());}
         let saved=store.save(next)?;
+        // 본문 검색을 켜거나 끄면 색인 작업을 시작하거나 색인을 지운다.
+        let engine=app.state::<Arc<Engine>>().inner().clone();
+        if engine.content.enabled.load(std::sync::atomic::Ordering::SeqCst)!=saved.content_search {content::set_enabled(&engine,saved.content_search);}
         if let Some(history)=app.try_state::<Arc<clipboard_history::ClipboardHistory>>(){history.snapshot(&saved)?;}
         use tauri::Emitter;
         let _=app.emit("ed-preferences",&saved);
@@ -234,7 +305,7 @@ async fn ed_request(
     mut payload: Value,
     engine: State<'_, Arc<Engine>>,
 ) -> Result<Value, String> {
-    let smoke_report = cfg!(feature = "smoke-test") && kind == "smokeReport";
+    let smoke_report = cfg!(feature = "smoke-test") && (kind == "smokeReport" || kind == "smokeOpens");
     if window.label() == "quick-search"
         && !smoke_report
         && !matches!(
@@ -244,6 +315,10 @@ async fn ed_request(
                 | "quickSuggestions"
                 | "quickEntry"
                 | "quickPath"
+                | "quickPathFormats"
+                | "openWithApps"
+                | "apps"
+                | "launchApp"
                 | "list"
                 | "operation"
         )
@@ -252,7 +327,7 @@ async fn ed_request(
     }
     if window.label() == "quick-search"
         && kind == "operation"
-        && !matches!(payload["action"].as_str(), Some("open" | "reveal" | "copy"))
+        && !matches!(payload["action"].as_str(), Some("open" | "reveal" | "copy" | "rename"))
     {
         return Err("빠른 검색창에서 허용되지 않는 파일 작업입니다.".into());
     }
@@ -289,7 +364,7 @@ async fn ed_request(
     Ok(result)
 }
 
-// 최신 검색만 실행하고 즐겨찾기와 최근 사용 순위를 검색 엔진에 전달한다.
+// 최신 검색만 실행하고 학습한 선택 기록·즐겨찾기·최근 사용 순위를 검색 엔진에 전달한다.
 #[tauri::command]
 async fn quick_search(
     app:tauri::AppHandle,
@@ -298,6 +373,7 @@ async fn quick_search(
 ) -> Result<Value, String> {
     let p=app.state::<preferences::PreferenceStore>().value.lock().unwrap().clone();
     options.show_hidden=p.show_hidden;options.show_temporary=p.show_temporary;options.show_recycle_bin=p.show_recycle_bin;
+    let learn=p.learn_ranking;
     use std::sync::atomic::Ordering;
     let engine = engine.inner().clone();
     let epoch = engine.quick_search_epoch.fetch_add(1, Ordering::SeqCst) + 1;
@@ -305,31 +381,21 @@ async fn quick_search(
         engine.wait_ready()?;
         let access = quick_access::request(&engine, json!({}))
             .unwrap_or_else(|_| json!(quick_access::QuickAccess::default()));
+        // 순위 가산점(작을수록 앞): 이 검색어로 골랐던 항목 0~49, 즐겨찾기 50, 최근 연 항목 100부터.
         let mut boosts = std::collections::HashMap::new();
-        for (n, value) in access["opened"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .enumerate()
-        {
-            boosts.insert(
-                format!(
-                    "{}:{}",
-                    value["rootId"].as_str().unwrap_or(""),
-                    value["path"].as_str().unwrap_or("")
-                ),
-                100 + n,
-            );
+        let location_id = |value: &Value| format!("{}:{}", value["rootId"].as_str().unwrap_or(""), value["path"].as_str().unwrap_or(""));
+        for (n, value) in access["opened"].as_array().into_iter().flatten().enumerate() {
+            boosts.insert(location_id(value), 100 + n);
         }
         for value in access["favorites"].as_array().into_iter().flatten() {
-            boosts.insert(
-                format!(
-                    "{}:{}",
-                    value["rootId"].as_str().unwrap_or(""),
-                    value["path"].as_str().unwrap_or("")
-                ),
-                0,
-            );
+            boosts.insert(location_id(value), 50);
+        }
+        if learn {
+            if let Ok(saved) = serde_json::from_value::<quick_access::QuickAccess>(access.clone()) {
+                for (id, boost) in quick_access::learned(&saved, &options.query) {
+                    boosts.insert(id, boost);
+                }
+            }
         }
         let cancelled = || engine.quick_search_epoch.load(Ordering::SeqCst) != epoch;
         if cancelled() {
@@ -370,6 +436,47 @@ async fn copy_files(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// 고른 앱(macOS) 또는 운영체제 ‘연결 프로그램’ 창(Windows)으로 파일을 연다.
+#[tauri::command]
+async fn open_with(window: tauri::WebviewWindow, engine: State<'_, Arc<Engine>>, location: Location, app: Option<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || quick_actions::open_with(&engine, &location, app.as_deref(), owner))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// 선택한 항목을 ZIP으로 묶어 파일 클립보드에 올린다. 메일·메신저에 붙여넣어 보낸다.
+#[tauri::command]
+async fn zip_to_clipboard(window: tauri::WebviewWindow, engine: State<'_, Arc<Engine>>, locations: Vec<Location>) -> Result<String, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.wait_ready()?;
+        let output = quick_actions::zip_for_sending(&engine, &locations)?;
+        file_clipboard::write_files(std::slice::from_ref(&output), owner, false)?;
+        Ok(output.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// 설정에 등록한 사용자 동작을 실행한다. 처음 실행하면 실행할 명령을 돌려주고 확인을 받는다.
+#[tauri::command]
+async fn user_action(app: tauri::AppHandle, engine: State<'_, Arc<Engine>>, index: usize, location: Location, confirm: bool) -> Result<Value, String> {
+    let action = app.state::<preferences::PreferenceStore>().value.lock().unwrap().user_actions.get(index).cloned().ok_or("사용자 동작을 찾지 못했습니다. 설정을 확인해 주세요.")?;
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || quick_actions::run_user_action(&engine, &action, &location, confirm))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // 선택한 파일을 운영체제 드래그로 넘긴다. 창 밖의 다른 앱에 놓으면 복사로 받는다.
@@ -609,7 +716,10 @@ pub fn run() {
                     .scan(&json!({"absolutePath":root.to_string_lossy()}))
                     .map_err(std::io::Error::other)?;
             }
-            app.manage(preferences::PreferenceStore::load(&engine.data).map_err(std::io::Error::other)?);
+            let preference_store=preferences::PreferenceStore::load(&engine.data).map_err(std::io::Error::other)?;
+            // 본문 검색을 켜 두었으면 저장한 본문 색인을 읽고 변경을 반영한다.
+            if preference_store.value.lock().unwrap().content_search {content::set_enabled(&engine,true);}
+            app.manage(preference_store);
             app.manage(engine);
             app.manage(Arc::new(codec::Jobs::default()));
             clipboard_history::start(app.handle()).map_err(std::io::Error::other)?;
@@ -744,7 +854,7 @@ pub fn run() {
                 let _ = webview.eval(include_str!("../../scripts/windows-ui-smoke.js"));
             }
         })
-        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, drag_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control, codec::codec_job, codec::codec_cancel])
+        .invoke_handler(tauri::generate_handler![ed_request, connect_location, shell_new_menu, quick_search, copy_files, open_with, zip_to_clipboard, user_action, drag_files, paste_files, import_files, desktop::desktop_control, desktop::quick_control, preferences_control, clipboard_history::clipboard_control, codec::codec_job, codec::codec_cancel])
         .register_asynchronous_uri_scheme_protocol("edfile", |context, request, responder| {
             let engine = context.app_handle().state::<Arc<Engine>>().inner().clone();
             std::thread::spawn(move || responder.respond(file_response(&engine, request)));

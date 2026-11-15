@@ -77,6 +77,8 @@ export interface SearchOptions {
   offset?: number;
   sortBy?: SearchSortKey;
   descending?: boolean;
+  // 결과가 없을 때 한/영 자판을 바꿔 다시 찾지 않는다.
+  noCorrect?: boolean;
 }
 
 export type SearchSortKey = "name" | "location" | "type" | "extension" | "size" | "modified" | "root" | "fullPath" | "created" | "accessed" | "attributes";
@@ -89,6 +91,10 @@ export interface SearchResult {
   partial?: boolean;
   indexVersion?: number;
   scanned?: number;
+  // 한/영 자판을 바꿔 찾았다면 실제로 찾은 검색어
+  corrected?: string;
+  // 본문 조건을 macOS Spotlight로 찾았으면 "spotlight"
+  contentSource?: "spotlight";
 }
 
 export interface IndexProgress {

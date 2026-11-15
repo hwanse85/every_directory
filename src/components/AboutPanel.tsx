@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 import { version } from "../../package.json";
 import licenses from "../third-party-licenses.json";
-import { isDesktop, openExternalLink } from "../client";
+import { checkUpdate, isDesktop, openExternalLink, type UpdateInfo } from "../client";
 import { componentSource, project } from "../about";
 
 // 앱 자체의 정보·이용조건과 제3자 구성요소의 고지를 구분한다.
@@ -11,6 +11,20 @@ export function AboutPanel() {
   const [notices, setNotices] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [update, setUpdate] = useState<UpdateInfo>();
+  const [checking, setChecking] = useState(false);
+  // GitHub 릴리스에서 새 버전이 있는지 확인한다.
+  async function runUpdateCheck() {
+    setChecking(true);
+    setError("");
+    try {
+      setUpdate(await checkUpdate());
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setChecking(false);
+    }
+  }
   const items = licenses.filter((item) =>
     `${item.ecosystem} ${item.name} ${item.version} ${item.license}`
       .toLowerCase()
@@ -48,7 +62,31 @@ export function AboutPanel() {
         </p>
         <dl className="app-info">
           <dt>버전</dt>
-          <dd data-testid="app-version">v{version}</dd>
+          <dd data-testid="app-version">
+            v{version}
+            {isDesktop && (
+              <>
+                {" "}
+                <button className="button secondary small" disabled={checking} onClick={() => void runUpdateCheck()}>
+                  {checking ? "확인 중…" : "업데이트 확인"}
+                </button>
+                {update && (
+                  <span className="update-result" role="status">
+                    {update.newer ? (
+                      <>
+                        새 버전 <strong>{update.latest}</strong>이(가) 있습니다.{" "}
+                        <a href={update.url} onClick={(e) => link(e, update.url ?? project.repository)}>릴리스 페이지 열기</a>
+                      </>
+                    ) : update.latest ? (
+                      `최신 버전입니다(최근 릴리스 ${update.latest}).`
+                    ) : (
+                      update.message ?? "확인할 릴리스가 없습니다."
+                    )}
+                  </span>
+                )}
+              </>
+            )}
+          </dd>
           <dt>프로젝트 관리자</dt>
           <dd>{project.maintainer}</dd>
           <dt>프로젝트</dt>

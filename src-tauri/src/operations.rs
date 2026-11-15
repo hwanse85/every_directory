@@ -848,7 +848,7 @@ fn properties(engine: &Engine, request: &Operation) -> Result<Value, String> {
 }
 
 // 셸 문자열 없이 운영체제의 기본 앱 또는 탐색기를 실행한다.
-fn native_open(path: &Path, reveal: bool) -> Result<(), String> {
+pub(crate) fn native_open(path: &Path, reveal: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let mut command = Command::new("/usr/bin/open");

@@ -216,6 +216,58 @@
       await search("IMG_????.jpg", "wildcard", "IMG_0042.jpg");
       await search("configuratoin", "fuzzy", "configuration.json");
     });
+    await test("한/영 자판을 잘못 두고 친 검색어(qhrhtj)는 보고서로 바꿔 찾고, 그대로 찾기로 되돌림", async () => {
+      await search("qhrhtj", "initials", "업무 보고서.txt");
+      const notice = await until(() => document.querySelector(".search-corrected"), "자판 보정 안내");
+      if (!notice.textContent.includes("‘보고서’")) throw new Error(notice.textContent);
+      notice.querySelector("button").click();
+      await until(() => !document.querySelector(".search-corrected") && !document.querySelector(".result-summary .spin") && ![...document.querySelectorAll(".search-table .file-row")].some((row) => row.textContent.includes("업무 보고서.txt")), "원래 검색어로 찾기");
+    });
+    await test("영문 약어 검색(mbr → MyBigReport.pdf)", () => search("mbr", "initials", "MyBigReport.pdf"));
+    await test("메타데이터 조건: kind:문서·dc:today·dm:today", async () => {
+      await search("kind:문서 업무 계획", "initials", "업무 계획.txt");
+      await search("dc:today ㅇㅁ ㅂㄱㅅ", "initials", "업무 보고서.txt");
+      await search("dm:today kind:이미지 IMG", "initials", "IMG_0042.jpg");
+      // 종류가 다르면 찾지 않는다.
+      value(document.querySelector('[aria-label="파일 검색"]'), "kind:코드 업무 계획");
+      await until(() => !document.querySelector(".result-summary .spin") && document.querySelector(".result-summary strong")?.textContent === "0", "kind:코드 0건");
+    });
+    await test("잘못된 메타데이터 조건은 오류로 안내(kind:모름)", async () => {
+      value(document.querySelector('[aria-label="파일 검색"]'), "kind:모름");
+      await until(() => document.querySelector(".search-error")?.textContent.includes("kind:"), "kind 오류");
+    });
+    await test("본문 검색(content:): docx·xlsx·pptx·hwpx·한글 PDF·CP949 txt의 본문으로 찾음", async () => {
+      value(document.querySelector('[aria-label="검색 방식"]'), "initials");
+      const input = document.querySelector('[aria-label="파일 검색"]');
+      const names = ["초안 문서.docx", "정산 표.xlsx", "발표 자료.pptx", "검토 의견.hwpx", "스캔 본.pdf", "옛날 메모.txt"];
+      let rows = [];
+      // 본문 색인은 뒤에서 만들어지므로, 모두 보일 때까지 검색을 다시 실행한다.
+      for (let n = 0; n < 60; n++) {
+        value(input, "");
+        await new Promise((r) => setTimeout(r, 120));
+        value(input, 'content:"계약 해지"');
+        await new Promise((r) => setTimeout(r, 400));
+        rows = [...document.querySelectorAll(".search-table .file-row")].map((row) => row.textContent);
+        if (names.every((name) => rows.some((row) => row.includes(name)))) break;
+      }
+      const missing = names.filter((name) => !rows.some((row) => row.includes(name)));
+      if (missing.length) throw new Error(`본문으로 못 찾음: ${missing.join(", ")} / ${rows.length}건`);
+      value(input, 'content:"없는 문구 조합"');
+      await until(() => !document.querySelector(".result-summary .spin") && document.querySelector(".result-summary strong")?.textContent === "0", "없는 본문 0건");
+      const status = await invoke("ed_request", { kind: "contentStatus", payload: {} });
+      if (!status.enabled || status.documents < 6) throw new Error(JSON.stringify(status));
+    });
+    await test("업데이트 확인: 정보 화면에서 새 버전과 릴리스 링크 표시", async () => {
+      const info = await invoke("ed_request", { kind: "checkUpdate", payload: {} });
+      if (!info.newer || info.latest !== "v99.0.0") throw new Error(JSON.stringify(info));
+      document.querySelector('[aria-label="설정"]').click();
+      const button = await until(() => [...document.querySelectorAll("dialog[open] button")].find((b) => b.textContent.includes("업데이트 확인")), "업데이트 확인 단추");
+      button.click();
+      await until(() => document.querySelector(".update-result")?.textContent.includes("v99.0.0"), "새 버전 안내");
+      if (!document.querySelector(".update-result a")?.textContent.includes("릴리스 페이지")) throw new Error("릴리스 링크 없음");
+      document.querySelector('dialog[open] [aria-label="닫기"]').click();
+      await until(() => !document.querySelector("dialog[open]"), "설정 닫기");
+    });
     await test("잘못된 정규식 오류 후 복구", async () => {
       value(document.querySelector('[aria-label="검색 방식"]'), "regex");
       value(document.querySelector('[aria-label="파일 검색"]'), "[");

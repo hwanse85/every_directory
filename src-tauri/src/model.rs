@@ -87,6 +87,9 @@ pub struct SearchOptions {
     pub sort_by: Option<String>,
     #[serde(default)]
     pub descending: bool,
+    // 결과가 없을 때 한/영 자판을 바꿔 다시 찾지 않는다(원래 검색어로 찾기).
+    #[serde(default)]
+    pub no_correct: bool,
 }
 
 // 지정하지 않은 검색 방식의 기본값을 반환한다.
@@ -107,6 +110,12 @@ pub struct SearchResult {
     pub elapsed: f64,
     pub partial: bool,
     pub scanned: usize,
+    // 한/영 자판을 바꿔 찾았다면 실제로 찾은 검색어
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corrected: Option<String>,
+    // 본문 조건을 무엇으로 찾았는지("spotlight": macOS Spotlight)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_source: Option<&'static str>,
 }
 
 // 일괄 이름 변경에서 적용할 치환과 번호 규칙이다.

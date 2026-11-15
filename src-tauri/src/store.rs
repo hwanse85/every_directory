@@ -178,6 +178,8 @@ pub struct Engine {
     startup_complete: Condvar,
     startup_started: Instant,
     startup_elapsed_ms: AtomicU64,
+    // 본문 검색 색인 작업 상태
+    pub content: crate::content::ContentState,
 }
 
 // 유닉스 기준 밀리초를 화면에서 사용하는 시각으로 변환한다.
@@ -286,6 +288,7 @@ impl Engine {
             startup_complete: Condvar::new(),
             startup_started: Instant::now(),
             startup_elapsed_ms: AtomicU64::new(0),
+            content: Default::default(),
         }))
     }
 
@@ -603,7 +606,15 @@ impl Engine {
             Some(json!({"rootId":root.id,"count":0,"directory":root.name}));
         let new_root = existing.is_none() && !self.roots().iter().any(|r| r.id == root.id);
         self.watch(&root);
-        let (entries, skipped) = self.collect(&root, &absolute);
+        // 드라이브 전체를 연결했고 관리자 권한이 있으면 NTFS MFT를 한 번에 읽고, 아니면 폴더를 순회한다.
+        let fast = if crate::ntfs::eligible(&absolute) {
+            let data = self.data.clone();
+            let progress = |count: usize| *self.progress.lock().unwrap() = Some(json!({"rootId":root.id,"count":count,"directory":"NTFS 파일 표 읽는 중"}));
+            crate::ntfs::collect(&root, &absolute, &|path| excluded(path, &data) || user_excluded(&root, path), &progress)
+        } else {
+            None
+        };
+        let (entries, skipped) = fast.unwrap_or_else(|| self.collect(&root, &absolute));
         root.count = entries.len();
         root.skipped = skipped;
         let mut next = self.store.lock().unwrap().snapshots.clone();

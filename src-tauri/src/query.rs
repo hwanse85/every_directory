@@ -20,11 +20,30 @@ pub enum Query {
     },
     Extension(Vec<String>),
     Kind(&'static str),
+    // kind:문서 처럼 파일 종류 묶음(document·image·code·audio·archive·folder)
+    Category(&'static str),
+    // attrib:r(읽기 전용)·attrib:h(숨김) 속성 조건
+    Attributes { readonly: bool, hidden: bool },
+    // tag:업무 처럼 macOS Finder 태그 조건
+    Tag(String),
+    // content:키워드 처럼 본문 색인 조건
+    Content(String),
     Number {
         field: &'static str,
         low: u64,
         high: u64,
     },
+}
+
+// 조건식을 검사할 때 항목 이름·경로 외에 쓰는 부가 정보다.
+#[derive(Default)]
+pub struct Facts<'a> {
+    // 영문 이름의 약어(mbr 등)
+    pub acronym: &'a str,
+    // 연결 폴더의 실제 경로(Finder 태그를 읽을 때 쓴다)
+    pub root_path: Option<&'a str>,
+    // 본문 색인에 있는 이 항목의 본문(소문자)
+    pub content: Option<&'a str>,
 }
 
 // 따옴표와 연산자를 구별한 검색 토큰이다.
@@ -52,7 +71,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             continue;
         }
         let comparison = matches!(c, '<' | '>')
-            && ["size:", "dm:", "date-modified:"].contains(&word.to_lowercase().as_str());
+            && ["size:", "dm:", "date-modified:", "dc:", "date-created:", "da:", "date-accessed:"].contains(&word.to_lowercase().as_str());
         if comparison {
             word.push(c);
             continue;
@@ -168,7 +187,7 @@ fn date(input: &str) -> Result<(u64, u64), String> {
         "today" => today,
         "yesterday" => today.pred_opt().ok_or("날짜 범위 오류")?,
         _ => NaiveDate::parse_from_str(input, "%Y-%m-%d")
-            .map_err(|_| "수정일은 dm:2026-10-23 또는 dm:today 형식으로 입력해 주세요.")?,
+            .map_err(|_| "날짜는 dm:2026-10-23 또는 dm:today 형식으로 입력해 주세요(dc: 만든 날짜, da: 접근일도 같음).")?,
     };
     let next = day.succ_opt().ok_or("날짜 범위 오류")?;
     let start = Local
@@ -238,10 +257,44 @@ fn term(word: &str, mode: &str, sensitive: bool) -> Result<Query, String> {
         ("size:", "size"),
         ("dm:", "modified"),
         ("date-modified:", "modified"),
+        ("dc:", "created"),
+        ("date-created:", "created"),
+        ("da:", "accessed"),
+        ("date-accessed:", "accessed"),
     ] {
         if lower.starts_with(prefix) {
             return number(field, &word[prefix.len()..]);
         }
+    }
+    if let Some(value) = lower.strip_prefix("kind:") {
+        let category = match value {
+            "문서" | "document" | "doc" => "document",
+            "이미지" | "사진" | "image" | "picture" => "image",
+            "코드" | "code" => "code",
+            "오디오" | "동영상" | "음악" | "audio" | "video" | "media" => "audio",
+            "압축" | "archive" | "zip" => "archive",
+            "폴더" | "folder" => "folder",
+            _ => return Err("kind:는 문서·이미지·코드·동영상·압축·폴더 중 하나를 입력해 주세요.".into()),
+        };
+        return Ok(Query::Category(category));
+    }
+    if let Some(value) = lower.strip_prefix("attrib:") {
+        if value.is_empty() || !value.chars().all(|c| matches!(c, 'r' | 'h')) {
+            return Err("attrib:r(읽기 전용)·attrib:h(숨김)·attrib:rh 형식으로 입력해 주세요.".into());
+        }
+        return Ok(Query::Attributes { readonly: value.contains('r'), hidden: value.contains('h') });
+    }
+    if let Some(value) = lower.strip_prefix("tag:") {
+        if value.is_empty() {
+            return Err("tag: 다음에 Finder 태그 이름을 입력해 주세요.".into());
+        }
+        return Ok(Query::Tag(normalize(&word[4..])));
+    }
+    if let Some(value) = lower.strip_prefix("content:") {
+        if value.chars().count() < 2 {
+            return Err("content: 다음에 두 글자 이상 입력해 주세요.".into());
+        }
+        return Ok(Query::Content(normalize(&word[8..])));
     }
     for (prefix, kind) in [("file:", "file"), ("folder:", "directory")] {
         if lower.starts_with(prefix) {
@@ -321,6 +374,24 @@ impl Query {
         }
         Ok(query)
     }
+    // 본문 조건(content:)의 검색어들
+    pub fn content_terms(&self) -> Vec<&str> {
+        match self {
+            Query::And(items) | Query::Or(items) => items.iter().flat_map(Query::content_terms).collect(),
+            Query::Not(query) => query.content_terms(),
+            Query::Content(text) => vec![text.as_str()],
+            _ => vec![],
+        }
+    }
+    // 본문 조건(content:)이 들어 있는지 확인한다.
+    pub fn uses_content(&self) -> bool {
+        match self {
+            Query::And(items) | Query::Or(items) => items.iter().any(Query::uses_content),
+            Query::Not(query) => query.uses_content(),
+            Query::Content(_) => true,
+            _ => false,
+        }
+    }
     // 모든 결과에 반드시 필요한 파일명 조건만 후보 축소에 사용한다.
     pub fn literals(&self) -> Vec<&str> {
         match self {
@@ -337,31 +408,47 @@ impl Query {
         }
     }
     // 현재 파일에 조건식을 적용하고 퍼지 일치 점수를 반환한다.
-    pub fn matches(&self, entry: &Entry, value: &str, path_value: &str) -> Option<usize> {
+    pub fn matches(&self, entry: &Entry, value: &str, path_value: &str, facts: &Facts) -> Option<usize> {
         match self {
             Query::And(items) => items.iter().try_fold(0, |sum, q| {
-                q.matches(entry, value, path_value).map(|s| sum + s)
+                q.matches(entry, value, path_value, facts).map(|s| sum + s)
             }),
             Query::Or(items) => items
                 .iter()
-                .filter_map(|q| q.matches(entry, value, path_value))
+                .filter_map(|q| q.matches(entry, value, path_value, facts))
                 .min(),
             Query::Not(query) => query
-                .matches(entry, value, path_value)
+                .matches(entry, value, path_value, facts)
                 .is_none()
                 .then_some(0),
             Query::Extension(exts) => {
                 (entry.kind == "file" && exts.contains(&entry.extension)).then_some(0)
             }
             Query::Kind(kind) => (entry.kind == *kind).then_some(0),
+            Query::Category(group) => (crate::search::category(entry) == *group).then_some(0),
+            Query::Attributes { readonly, hidden } => {
+                ((!readonly || entry.readonly) && (!hidden || entry.hidden)).then_some(0)
+            }
+            Query::Tag(tag) => {
+                let root = facts.root_path?;
+                let path = std::path::Path::new(root).join(&entry.path);
+                crate::tags::finder_tags(&path)
+                    .iter()
+                    .any(|name| normalize(name).contains(tag.as_str()))
+                    .then_some(0)
+            }
+            Query::Content(text) => facts.content?.contains(text.as_str()).then_some(0),
             Query::Number { field, low, high } => {
-                let number = if *field == "size" {
-                    if entry.kind != "file" {
-                        return None;
+                let number = match *field {
+                    "size" => {
+                        if entry.kind != "file" {
+                            return None;
+                        }
+                        entry.size?
                     }
-                    entry.size?
-                } else {
-                    entry.modified
+                    "created" => entry.created?,
+                    "accessed" => entry.accessed?,
+                    _ => entry.modified,
                 };
                 (*low <= number && number <= *high).then_some(0)
             }
@@ -382,6 +469,11 @@ impl Query {
                 }
                 match mode.as_str() {
                     "fuzzy" => fuzzy(text, value),
+                    // 초성 + 일반 검색은 영문 약어(mbr → MyBigReport)도 찾되 이름 일치보다 뒤에 둔다.
+                    "initials" if !*path && crate::search::acronym_query(text) => value
+                        .contains(text.as_str())
+                        .then_some(0)
+                        .or_else(|| facts.acronym.starts_with(text.as_str()).then_some(1)),
                     _ => value.contains(text).then_some(0),
                 }
             }

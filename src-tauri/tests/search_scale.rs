@@ -116,6 +116,7 @@ fn candidate_planning_preserves_a_direct_match_oracle() {
                                 entry,
                                 &normalize(if full_path { &entry.path } else { &entry.name }),
                                 &normalize(&entry.path),
+                                &every_directory_lib::query::Facts { acronym: &every_directory_lib::search::acronym(&entry.name), ..Default::default() },
                             )
                             .is_some()
                     })
@@ -204,4 +205,22 @@ fn quick_full_path_search_finds_file_names_in_a_large_index() {
 #[ignore = "explicit million-entry performance verification"]
 fn million_entries_quick_full_path_search() {
     verify_quick_full_path(&deep_fixture(1_000_000));
+}
+
+// 한/영 자판 보정은 결과가 없을 때만 한 번 더 찾으므로, 큰 색인에서도 보정된 결과를 시간 안에 돌려준다.
+#[test]
+fn keyboard_correction_in_a_large_index() {
+    let index = deep_fixture(200_000);
+    for (query, quick) in [("wjdtksvy", false), ("wjdtksvy", true)] {
+        let options: SearchOptions = serde_json::from_value(
+            serde_json::json!({"query":query,"mode":"initials","fullPath":true,"limit":12}),
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let result = if quick { index.quick_search(&options, &HashMap::new(), &|| false) } else { index.search(&options) }.unwrap();
+        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        println!("{query} quick={quick}: corrected={:?} total={} elapsed={elapsed:.2}ms", result.corrected, result.total);
+        assert_eq!(result.corrected.as_deref(), Some("정산표"));
+        assert!(result.entries.iter().any(|entry| entry.name == "YK5 정산표.xlsx"));
+    }
 }

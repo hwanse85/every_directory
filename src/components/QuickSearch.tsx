@@ -15,9 +15,16 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
+  AppWindow,
+  Archive,
+  Columns2,
   Copy,
   ExternalLink,
+  Eye,
   Folder,
+  Link,
+  Pencil,
+  Play,
   History,
   LoaderCircle,
   Search,
@@ -33,7 +40,13 @@ import {
   writeClipboard,
   desktopControl,
   isDesktop,
+  openWith,
+  userAction,
+  zipToClipboard,
 } from "../client";
+import { QuickPreview } from "./QuickPreview";
+import { calculate, formatResult } from "../calculator";
+import { filenameFilter } from "../search";
 import {
   isComposingKey,
   pathQueryMode,
@@ -61,7 +74,18 @@ import { fileDragErrorEvent, startFileDrag } from "../fileDrag";
 import "../quick-search.css";
 
 type Action =
-  "open" | "reveal" | "main" | "copy" | "path" | "destination" | "favorite";
+  | "open" | "reveal" | "main" | "copy" | "path" | "destination" | "favorite"
+  | "preview" | "openWith" | "formats" | "zip" | "split" | "rename" | `user:${number}`;
+// 작업 메뉴에서 고르는 하위 목록(열 앱, 경로 형식)
+type Choices = { title: string; items: { label: string; detail?: string; value: string }[]; choose: (value: string, label: string) => Promise<void> };
+// 빠른 검색에 함께 보여 주는 설치된 앱
+type QuickApp = { name: string; stem: string; path: string };
+// 파일 결과 위에 놓는 특별한 줄: 클립보드 보기, 계산 결과, 앱
+type Special = { kind: "clipboard" } | { kind: "calc"; value: number } | { kind: "app"; app: QuickApp };
+// 검색어가 바뀌면 맨 위 줄을 고르도록 쓰는 값(특별한 줄이 있으면 첫 특별한 줄, 없으면 첫 파일)
+const TOP = -1000;
+// 처음 실행하는 사용자 동작의 확인 내용
+type Confirm = { index: number; name: string; program: string; args: string[]; target: FileEntry };
 // 빠른 검색에서 한 번에 보여 줄 결과 수. 창에 10개 남짓 보이고 나머지는 목록을 내려 본다.
 const quickLimit = 30;
 const emptyAccess: QuickAccess = {
@@ -84,15 +108,23 @@ export default function QuickSearch() {
   const [access, setAccess] = useState<QuickAccess>(emptyAccess);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState(0);
-  const [view, setView] = useState<"results" | "actions" | "destination" | "clipboard">(
+  const [view, setView] = useState<"results" | "actions" | "destination" | "clipboard" | "choices" | "rename" | "confirm" | "preview">(
     "results",
   );
+  const [choices, setChoices] = useState<Choices>();
+  const [choiceIndex, setChoiceIndex] = useState(0);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirm, setConfirm] = useState<Confirm>();
   const [actionIndex, setActionIndex] = useState(0);
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [partial, setPartial] = useState(false);
+  // 한/영 자판을 바꿔 찾았을 때의 검색어와, 보정 없이 그대로 찾기로 한 검색어
+  const [corrected, setCorrected] = useState<string>();
+  const [literalQuery, setLiteralQuery] = useState("");
+  const highlightQuery = preferences.highlightMatches ? corrected ?? query : "";
   const [revision, setRevision] = useState(0);
   const [destination, setDestination] = useState<Location>();
   // 경로 입력이 실제 위치와 일치한 항목. Enter로 Every Directory 탐색창에서 그 위치를 연다.
@@ -104,7 +136,7 @@ export default function QuickSearch() {
     requestVersion.current+=1;
     selectedId.current=undefined;
     setQuery(text);
-    setSelected(isClipboardKeyword(text,preferences.clipboardKeyword)?-1:0);
+    setSelected(TOP);
   });
   const composing = searchEditing.composing;
   const busyRef = useRef(false);
@@ -113,7 +145,26 @@ export default function QuickSearch() {
   const selectedId = useRef<string | undefined>(undefined);
   const mac = /Mac/.test(navigator.platform);
   const modifier = mac ? "⌘" : "Ctrl";
-  const entry = entries[selected];
+  const [apps, setApps] = useState<QuickApp[]>([]);
+  const calcValue = preferences.quickCalculator ? calculate(query) : undefined;
+  const matchedApps = useMemo(() => {
+    if (!preferences.quickApps || !query.trim() || pathInput) return [];
+    const matches = filenameFilter(query);
+    return apps.filter((app) => matches(app.name) || matches(app.stem)).slice(0, 4);
+  }, [apps, query, pathInput, preferences.quickApps]);
+  const specials: Special[] = [
+    ...(clipboardTrigger ? [{ kind: "clipboard" } as const] : []),
+    ...(calcValue !== undefined ? [{ kind: "calc", value: calcValue } as const] : []),
+    ...matchedApps.map((app) => ({ kind: "app", app }) as const),
+  ];
+  const specialCount = specials.length;
+  // 실제로 고른 줄: 음수는 특별한 줄(-specialCount..-1), 0 이상은 파일 결과
+  const current = specialCount
+    ? Math.max(-specialCount, Math.min(selected, entries.length - 1))
+    : Math.max(0, Math.min(selected, entries.length - 1));
+  const entry = current >= 0 ? entries[current] : undefined;
+  const special = current < 0 ? specials[current + specialCount] : undefined;
+  const rowId = (index: number) => (index >= 0 ? `quick-result-${index}` : specials[index + specialCount]?.kind === "clipboard" ? "quick-clipboard-trigger" : `quick-special-${index + specialCount}`);
   const isFavorite =
     !!entry &&
     access.favorites.some(
@@ -130,11 +181,18 @@ export default function QuickSearch() {
       title: mac ? "Finder에서 보기" : "탐색기에서 보기",
       key: `${modifier}+Enter`,
     },
+    { id: "preview", title: "미리보기", key: `${modifier}+Y` },
+    { id: "openWith", title: mac ? "다른 앱으로 열기…" : "연결 프로그램 선택…" },
     { id: "copy", title: "파일·폴더 복사", key: `${modifier}+C` },
     { id: "path", title: "전체 경로 복사", key: `${modifier}+Shift+C` },
+    { id: "formats", title: "경로 형식 복사…" },
+    { id: "zip", title: "압축해서 보내기 (ZIP을 클립보드에)" },
     { id: "destination", title: "다른 폴더로 복사…" },
     { id: "main", title: "Every Directory에서 위치 열기" },
+    { id: "split", title: "탐색창 두 곳에 나란히 열기" },
+    { id: "rename", title: "이름 바꾸기…", key: "F2" },
     { id: "favorite", title: isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가" },
+    ...preferences.userActions.map((action, index) => ({ id: `user:${index}` as Action, title: action.name })),
   ];
 
   // 저장된 테마를 두 창에서 같은 기준으로 적용한다.
@@ -192,9 +250,18 @@ export default function QuickSearch() {
   }, [client, refresh]);
 
   useEffect(() => {
-    const current = entries[selected];
-    if (current) selectedId.current = current.id;
-  }, [entries, selected]);
+    const file = current >= 0 ? entries[current] : undefined;
+    if (file) selectedId.current = file.id;
+  }, [entries, current]);
+
+  // 앱 표시를 켰으면 설치된 앱 목록을 읽는다(검색창을 열 때마다 새로 읽음).
+  useEffect(() => {
+    if (!preferences.quickApps) {
+      setApps([]);
+      return;
+    }
+    void client.request<QuickApp[]>("apps").then(setApps).catch(() => setApps([]));
+  }, [client, preferences.quickApps, revision]);
 
   // 다른 앱으로 끌기를 시작하지 못한 이유를 검색창 아래에 표시한다.
   useEffect(() => {
@@ -216,19 +283,19 @@ export default function QuickSearch() {
     if (previousSearch.current !== searchKey) {
       previousSearch.current = searchKey;
       selectedId.current = undefined;
-      setSelected(clipboardTrigger?-1:0);
+      setSelected(TOP);
       setEntries([]);
     }
     setError("");
     setPartial(false);
+    setCorrected(undefined);
     setSearching(true);
     // 기록 변경으로 순위가 갱신되어도 사용자가 선택한 파일을 유지한다.
     function applyEntries(next: FileEntry[]) {
-      setSelected(current=>clipboardTrigger&&current===-1?-1:
-        Math.max(
-          0,
-          next.findIndex((file) => file.id === selectedId.current),
-        ),
+      setSelected((previous) =>
+        previous < 0 && !selectedId.current
+          ? previous
+          : Math.max(0, next.findIndex((file) => file.id === selectedId.current)),
       );
       setEntries(next);
     }
@@ -278,12 +345,14 @@ export default function QuickSearch() {
                   category,
                   fullPath: !!pathMode || preferences.quickFullPath,
                   limit: quickLimit,
+                  noCorrect: literalQuery === query,
                 })
               : { entries: [], total: 0, elapsed: 0 };
             if (version !== requestVersion.current) return;
             setPathMatch(located?.id);
             applyEntries(located ? [located, ...result.entries.filter((file) => file.id !== located.id)].slice(0, quickLimit) : result.entries);
             setPartial(!!result.partial);
+            setCorrected(result.corrected);
           } catch (cause) {
             if (version === requestVersion.current) {
               setError(String(cause));
@@ -302,11 +371,11 @@ export default function QuickSearch() {
       clearTimeout(timer);
       requestVersion.current += 1;
     };
-  }, [client, query, scope, category, revision, defaultMode, clipboardTrigger, preferences.quickFullPath, preferences.showHidden, preferences.showTemporary, preferences.showRecycleBin]);
+  }, [client, query, scope, category, revision, defaultMode, clipboardTrigger, literalQuery, preferences.quickFullPath, preferences.showHidden, preferences.showTemporary, preferences.showRecycleBin]);
 
   useEffect(() => {
     document
-      .getElementById(`quick-result-${selected}`)
+      .getElementById(rowId(current))
       ?.scrollIntoView({ block: "nearest" });
   }, [selected, entries]);
 
@@ -315,6 +384,7 @@ export default function QuickSearch() {
     await quickAccess("opened", {
       location: { rootId: target.rootId, path: target.path },
       query,
+      learn: preferences.learnRanking,
     });
   }
 
@@ -336,6 +406,72 @@ export default function QuickSearch() {
             ? "즐겨찾기에서 제거했습니다."
             : "즐겨찾기에 추가했습니다.",
         );
+      } else if (action === "preview") {
+        setView("preview");
+      } else if (action === "openWith") {
+        if (mac) {
+          const apps = await client.request<{ name: string; path: string; default: boolean }[]>("openWithApps", location);
+          if (!apps.length) throw new Error("이 파일을 열 수 있는 앱을 찾지 못했습니다.");
+          openChoices({
+            title: `‘${target.name}’을(를) 열 앱`,
+            items: apps.map((app) => ({ label: app.default ? `${app.name} (기본 앱)` : app.name, detail: app.path, value: app.path })),
+            choose: async (app) => {
+              await openWith(location, app);
+              await record(target);
+              await quickControl("hide");
+            },
+          });
+        } else {
+          // Windows는 운영체제 ‘연결 프로그램’ 창을 띄운다. 창이 떠 있는 동안 검색창을 숨기지 않는다.
+          await quickControl("dialogStart");
+          try {
+            await openWith(location);
+          } finally {
+            await quickControl("dialogEnd");
+          }
+          await record(target);
+        }
+      } else if (action === "formats") {
+        const formats = await client.request<{ plain: string; quoted: string; url: string; network?: string; relative: string }>("quickPathFormats", location);
+        const items = [
+          { label: "전체 경로", detail: formats.plain, value: formats.plain },
+          { label: "따옴표로 감싼 경로", detail: formats.quoted, value: formats.quoted },
+          { label: "file:// 주소", detail: formats.url, value: formats.url },
+          ...(formats.network ? [{ label: mac ? "서버 주소(smb:// 등)" : "네트워크 경로(UNC)", detail: formats.network, value: formats.network }] : []),
+          { label: "연결 폴더 기준 경로", detail: formats.relative, value: formats.relative },
+        ];
+        openChoices({
+          title: "복사할 경로 형식",
+          items,
+          choose: async (value, label) => {
+            await writeClipboard(value);
+            setView("results");
+            setMessage(`${label}을(를) 복사했습니다.`);
+            await quickAccess("query", { query });
+          },
+        });
+      } else if (action === "zip") {
+        const name = await zipToClipboard([location]);
+        setView("results");
+        setMessage(`‘${name}’을(를) 복사했습니다. 메일·메신저 창에 붙여넣어 보내세요.`);
+        await record(target);
+      } else if (action === "split") {
+        await quickControl("revealSplit", location);
+        await record(target);
+      } else if (action === "rename") {
+        setRenameValue(target.name);
+        setView("rename");
+      } else if (action.startsWith("user:")) {
+        const index = Number(action.slice(5));
+        const result = await userAction(index, location);
+        if (result.confirm) {
+          setConfirm({ index, name: preferences.userActions[index]?.name ?? "", program: result.program ?? "", args: result.args ?? [], target });
+          setView("confirm");
+        } else {
+          setView("results");
+          setMessage(`‘${preferences.userActions[index]?.name}’을(를) 실행했습니다.`);
+          await record(target);
+        }
       } else if (action === "destination") {
         setView("destination");
         setDestination(undefined);
@@ -374,6 +510,96 @@ export default function QuickSearch() {
     } finally {
       busyRef.current = false;
       setBusy(false);
+      input.current?.focus();
+    }
+  }
+
+  // 특별한 줄을 실행한다: 클립보드 보기, 계산 결과 복사, 앱 실행
+  async function runSpecial(item: Special) {
+    if (busyRef.current) return;
+    setError("");
+    setMessage("");
+    try {
+      if (item.kind === "clipboard") setView("clipboard");
+      else if (item.kind === "calc") {
+        await writeClipboard(String(Math.round(item.value * 1e12) / 1e12));
+        setMessage(`계산 결과 ${formatResult(item.value)}을(를) 복사했습니다.`);
+      } else {
+        await client.request("launchApp", { path: item.app.path });
+        await quickControl("hide");
+      }
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }
+
+  // 하위 선택 목록(열 앱, 경로 형식)을 연다.
+  function openChoices(next: Choices) {
+    setChoices(next);
+    setChoiceIndex(0);
+    setView("choices");
+  }
+
+  // 하위 목록에서 고른 값을 실행한다.
+  async function choose(index: number) {
+    const item = choices?.items[index];
+    if (!choices || !item || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await choices.choose(item.value, item.label);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      input.current?.focus();
+    }
+  }
+
+  // 입력한 새 이름을 적용하고 결과를 다시 찾는다.
+  async function applyRename() {
+    const name = renameValue.trim();
+    if (!entry || !name || busyRef.current) return;
+    if (name === entry.name) {
+      setView("results");
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await client.request("operation", { action: "rename", entries: [{ rootId: entry.rootId, path: entry.path }], name });
+      setView("results");
+      setMessage(`‘${name}’(으)로 이름을 바꿨습니다.`);
+      setRevision((n) => n + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      input.current?.focus();
+    }
+  }
+
+  // 확인한 사용자 동작을 실행한다.
+  async function runConfirmed() {
+    if (!confirm || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await userAction(confirm.index, { rootId: confirm.target.rootId, path: confirm.target.path }, true);
+      setView("results");
+      setMessage(`‘${confirm.name}’을(를) 실행했습니다.`);
+      await record(confirm.target);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      setConfirm(undefined);
       input.current?.focus();
     }
   }
@@ -435,10 +661,35 @@ export default function QuickSearch() {
     }
     if (
       view === "destination" ||
+      view === "rename" ||
+      view === "confirm" ||
       event.target instanceof HTMLSelectElement ||
       event.target instanceof HTMLButtonElement
     )
       return;
+    // 하위 선택 목록: ↑↓로 고르고 Enter로 실행한다.
+    if (view === "choices" && choices) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        setChoiceIndex((n) => (n + delta + choices.items.length) % choices.items.length);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        void choose(choiceIndex);
+      }
+      return;
+    }
+    // Ctrl/⌘+Y로 미리보기를 켜고 끈다.
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y" && entry) {
+      event.preventDefault();
+      setView(view === "preview" ? "results" : "preview");
+      return;
+    }
+    if (event.key === "F2" && entry && (view === "results" || view === "preview")) {
+      event.preventDefault();
+      void run("rename");
+      return;
+    }
     if (event.key === "Tab" && entry && !event.shiftKey && view === "results") {
       event.preventDefault();
       input.current?.setSelectionRange(query.length, query.length);
@@ -452,10 +703,15 @@ export default function QuickSearch() {
       const delta = event.key === "ArrowDown" ? 1 : -1;
       if (view === "actions")
         setActionIndex((n) => (n + delta + actions.length) % actions.length);
-      else if(clipboardTrigger)setSelected(n=>(n+1+delta+entries.length+1)%(entries.length+1)-1);
-      else if (entries.length)
+      else if (view === "preview" && entries.length)
         setSelected((n) => (n + delta + entries.length) % entries.length);
-    } else if(event.key==="Enter"&&clipboardTrigger&&selected===-1){event.preventDefault();setView("clipboard");
+      else {
+        const total = specialCount + entries.length;
+        if (total) setSelected(((current + specialCount + delta + total) % total) - specialCount);
+      }
+    } else if (event.key === "Enter" && special && view === "results") {
+      event.preventDefault();
+      void runSpecial(special);
     } else if (event.key === "Enter" && entry) {
       event.preventDefault();
       void run(
@@ -515,7 +771,7 @@ export default function QuickSearch() {
           aria-controls="quick-results"
           aria-expanded={view === "results"}
           aria-activedescendant={
-            clipboardTrigger&&selected===-1?"quick-clipboard-trigger":entry && view === "results" ? `quick-result-${selected}` : undefined
+            view === "results" && (special || entry) ? rowId(current) : undefined
           }
           placeholder="파일이나 폴더 이름을 입력하세요"
           maxLength={512}
@@ -677,6 +933,77 @@ export default function QuickSearch() {
               </button>
             </div>
           </>
+        ) : view === "choices" && choices ? (
+          <>
+            <div className="quick-section-title">
+              <button onClick={() => setView("actions")}>
+                <ArrowLeft size={14} /> 작업
+              </button>
+              <strong>{choices.title}</strong>
+            </div>
+            <div className="quick-actions" role="menu" aria-label={choices.title}>
+              {choices.items.map((item, index) => (
+                <button
+                  role="menuitem"
+                  key={item.label + item.value}
+                  className={index === choiceIndex ? "active" : ""}
+                  disabled={busy}
+                  onMouseMove={(event) => {
+                    if (event.movementX || event.movementY) setChoiceIndex(index);
+                  }}
+                  onClick={() => void choose(index)}
+                >
+                  <ChevronRight size={16} />
+                  <span>{item.label}</span>
+                  {item.detail && <small className="quick-choice-detail" title={item.detail}>{item.detail}</small>}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : view === "rename" && entry ? (
+          <>
+            <div className="quick-section-title">
+              <button onClick={() => setView("actions")}>
+                <ArrowLeft size={14} /> 작업
+              </button>
+              <strong title={entry.name}>‘{entry.name}’ 이름 바꾸기</strong>
+            </div>
+            <form className="quick-rename" onSubmit={(event) => { event.preventDefault(); void applyRename(); }}>
+              <input
+                aria-label="새 이름"
+                autoFocus
+                maxLength={255}
+                value={renameValue}
+                onFocus={(event) => {
+                  // 확장자 앞까지만 골라 이름만 바로 고치게 한다.
+                  const dot = entry.kind === "file" ? event.target.value.lastIndexOf(".") : -1;
+                  event.target.setSelectionRange(0, dot > 0 ? dot : event.target.value.length);
+                }}
+                onChange={(event) => setRenameValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setView("results");
+                    input.current?.focus();
+                  }
+                }}
+              />
+              <button className="button primary small" disabled={busy || !renameValue.trim()}>바꾸기</button>
+            </form>
+          </>
+        ) : view === "confirm" && confirm ? (
+          <div className="quick-confirm" role="alertdialog" aria-label="사용자 동작 실행 확인">
+            <strong>‘{confirm.name}’을(를) 처음 실행합니다. 아래 명령이 맞는지 확인하세요.</strong>
+            <pre>{[confirm.program, ...confirm.args.map((arg) => (/[\s"']/.test(arg) ? JSON.stringify(arg) : arg))].join(" ")}</pre>
+            <p>셸을 거치지 않고 프로그램에 인자를 그대로 넘깁니다. 한 번 확인하면 프로그램·인자 틀이 바뀔 때까지 다시 묻지 않습니다.</p>
+            <div>
+              <button className="button secondary small" onClick={() => { setConfirm(undefined); setView("results"); input.current?.focus(); }}>취소</button>
+              <button className="button primary small" autoFocus disabled={busy} onClick={() => void runConfirmed()}>실행</button>
+            </div>
+          </div>
+        ) : view === "preview" && entry ? (
+          <QuickPreview entry={entry} />
         ) : view === "actions" && entry ? (
           <>
             <div className="quick-section-title">
@@ -706,6 +1033,20 @@ export default function QuickSearch() {
                     <Star size={16} />
                   ) : action.id === "copy" || action.id === "path" ? (
                     <Copy size={16} />
+                  ) : action.id === "preview" ? (
+                    <Eye size={16} />
+                  ) : action.id === "openWith" ? (
+                    <AppWindow size={16} />
+                  ) : action.id === "formats" ? (
+                    <Link size={16} />
+                  ) : action.id === "zip" ? (
+                    <Archive size={16} />
+                  ) : action.id === "split" ? (
+                    <Columns2 size={16} />
+                  ) : action.id === "rename" ? (
+                    <Pencil size={16} />
+                  ) : action.id.startsWith("user:") ? (
+                    <Play size={16} />
                   ) : (
                     <ChevronRight size={16} />
                   )}
@@ -717,6 +1058,12 @@ export default function QuickSearch() {
           </>
         ) : (
           <>
+            {corrected && (
+              <div className="quick-corrected" role="status">
+                <span>‘{corrected}’(으)로 찾은 결과</span>
+                <button onClick={() => { setLiteralQuery(query); input.current?.focus(); }}>‘{query}’ 그대로 찾기</button>
+              </div>
+            )}
             <div className="quick-section-title">
               <span>{query ? "검색 결과" : "즐겨찾기 · 최근 사용 항목"}</span>
               <span>
@@ -732,14 +1079,44 @@ export default function QuickSearch() {
               className="quick-results"
               aria-busy={searching}
             >
-              {clipboardTrigger&&<button id="quick-clipboard-trigger" role="option" aria-selected={selected===-1} className={`quick-result clipboard-trigger ${selected===-1?"active":""}`} onClick={()=>setView("clipboard")}>클립보드 보기 <small>최신 순 이력 · Enter</small></button>}
+              {specials.map((item, position) => {
+                const index = position - specialCount;
+                const active = index === current;
+                return item.kind === "clipboard" ? (
+                  <button id="quick-clipboard-trigger" key="clipboard" role="option" aria-selected={active} className={`quick-result clipboard-trigger ${active ? "active" : ""}`} onClick={() => setView("clipboard")}>클립보드 보기 <small>최신 순 이력 · Enter</small></button>
+                ) : (
+                  <button
+                    id={`quick-special-${position}`}
+                    key={item.kind === "app" ? item.app.path : "calc"}
+                    role="option"
+                    aria-selected={active}
+                    className={`quick-result quick-special ${item.kind} ${active ? "active" : ""}`}
+                    onMouseMove={(event) => { if (event.movementX || event.movementY) setSelected(index); }}
+                    onClick={() => void runSpecial(item)}
+                  >
+                    {item.kind === "calc" ? (
+                      <>
+                        <span className="quick-special-icon">=</span>
+                        <strong>{formatResult(item.value)}</strong>
+                        <small>계산 결과 · Enter로 복사</small>
+                      </>
+                    ) : (
+                      <>
+                        <AppWindow size={18} />
+                        <strong>{item.app.name}</strong>
+                        <small>앱 · Enter로 실행</small>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
               {entries.map((file, index) => (
                 <div
                   id={`quick-result-${index}`}
                   role="option"
-                  aria-selected={index === selected}
+                  aria-selected={index === current}
                   key={file.id}
-                  className={`quick-result ${index === selected ? "active" : ""}`}
+                  className={`quick-result ${index === current ? "active" : ""}`}
                   onMouseMove={(event) => {
                     if (!busy && (event.movementX || event.movementY))
                       setSelected(index);
@@ -757,14 +1134,14 @@ export default function QuickSearch() {
                 >
                   <FileIcon entry={file} pixels={20} />
                   <div className="quick-result-text">
-                    <strong title={file.name}><Highlight text={file.name} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)}/></strong>
+                    <strong title={file.name}><Highlight text={file.name} query={highlightQuery} mode={quickSearchMode(query,defaultMode)}/></strong>
                     <span
                       title={locationLabel(
                         roots.find((r) => r.id === file.rootId),
                         file.parent,
                       )}
                     >
-                      <Highlight text={locationLabel(roots.find(r=>r.id===file.rootId),file.parent)} query={preferences.highlightMatches?query:""} mode={quickSearchMode(query,defaultMode)} field="path"/>
+                      <Highlight text={locationLabel(roots.find(r=>r.id===file.rootId),file.parent)} query={highlightQuery} mode={quickSearchMode(query,defaultMode)} field="path"/>
                     </span>
                   </div>
                   {access.favorites.some(
@@ -848,9 +1225,15 @@ export default function QuickSearch() {
             <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> 복사 <kbd>{modifier}+1~5</kbd> 종류
           </span>
         ) : (
+          view === "preview" ? (
+            <span>
+              <kbd>↑↓</kbd> 다른 파일 <kbd>Enter</kbd> 열기 <kbd>{modifier}+Y</kbd> 미리보기 닫기
+            </span>
+          ) : (
           <span>
-            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> {entry && entry.id === pathMatch ? "위치로 이동" : "열기"} <kbd>Tab</kbd> 작업
+            <kbd>↑↓</kbd> 선택 <kbd>Enter</kbd> {entry && entry.id === pathMatch ? "위치로 이동" : "열기"} <kbd>Tab</kbd> 작업 <kbd>{modifier}+Y</kbd> 미리보기
           </span>
+          )
         )}
         <span>
           <kbd>Esc</kbd> {clipboardView ? "파일 검색으로" : "닫기"}

@@ -525,8 +525,8 @@ pub async fn quick_control(
                 }
             }
         }
-        "main" | "folders" | "reveal" => {
-            let target = if action == "reveal" {
+        "main" | "folders" | "reveal" | "revealSplit" => {
+            let target = if action == "reveal" || action == "revealSplit" {
                 let engine = app.state::<Arc<Engine>>();
                 Some(crate::quick_access::entry(
                     &engine,
@@ -547,7 +547,9 @@ pub async fn quick_control(
                 },
             );
             if let Some(target) = target {
-                app.emit_to("main", "ed-quick-reveal", target)
+                // revealSplit은 활성 탐색창은 두고 옆 탐색창(없으면 새로 나눈 창)에서 연다.
+                let event = if action == "revealSplit" { "ed-quick-reveal-split" } else { "ed-quick-reveal" };
+                app.emit_to("main", event, target)
                     .map_err(|e| e.to_string())?;
             }
         }

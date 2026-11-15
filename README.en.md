@@ -74,6 +74,8 @@ Korean initial-consonant matching ignores spacing differences in filenames and q
 
 Queries that contain Korean also skip separators between letters (`_ - . [ ] ( )` and similar): `ㅂㄱㅅ2026` finds `보고서-2026-03.pdf` and `ㅇㅁㅂㄱㅅ` finds `업무_보고서.txt`, while separators you type (`ㅂㄱㅅ_v2`, `[ㅊㅇ]ㅅㄱ`) are still compared. Results no longer disappear while the IME is composing the last syllable (for example `보곳` on the way to `보고서`). A comparison with Alfred, Spotlight and similar tools and the next improvement plan are in [docs/launcher-comparison-plan.md](docs/launcher-comparison-plan.md) (Korean).
 
+When a search finds nothing, the app retries with the other keyboard layout (`qhrhtj` → 보고서), and English names also match their acronym (`mbr` → MyBigReport). Quick search ranks files you picked for the same query first and its Tab menu adds preview, open with, path formats, zip-and-send, side-by-side reveal, rename and user actions. Search supports `dc:`, `da:`, `kind:`, `attrib:`, `tag:` and an opt-in content index (`content:` for PDF, docx, xlsx, pptx, hwpx and text). Signing and update setup is described in [docs/release-signing.md](docs/release-signing.md) (Korean).
+
 Advanced operators include OR (`|`), exclusion (`!`), grouping (`< >`), `file:`, `folder:`, `path:`, `size:>10mb`, `size:1mb..10mb`, `dm:today`, and `dm:>=2026-01-01`. OR binds more tightly than AND. For example, `report|plan !draft ext:pdf` combines alternatives, exclusion, and an extension filter.
 
 The desktop app uses Rust's `regex` engine, which does not support look-around or backreferences. Regex and batch-replacement syntax is not identical to the legacy RE2JS implementation. Search applies NFC normalization to Korean text.

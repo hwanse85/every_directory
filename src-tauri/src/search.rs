@@ -101,6 +101,47 @@ fn initial_class(index: usize) -> String {
     format!("[{consonant}{first}-{last}]")
 }
 
+// 영문·숫자 이름을 단어로 나눠 첫 글자만 모은 약어를 만든다. 확장자는 뺀다.
+// 예: MyBigReport.pdf → mbr, user_build_script.sh → ubs, HTMLParser → hp, report2026v2 → r2v2
+pub fn acronym(name: &str) -> String {
+    let stem = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && (1..=8).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()) => stem,
+        _ => name,
+    };
+    let chars: Vec<char> = stem.chars().collect();
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if !c.is_alphanumeric() {
+            continue;
+        }
+        let previous = i.checked_sub(1).map(|p| chars[p]);
+        let next = chars.get(i + 1).copied();
+        let start = match previous {
+            None => true,
+            Some(p) if !p.is_alphanumeric() => true,
+            Some(p) if p.is_ascii_digit() != c.is_ascii_digit() => true,
+            Some(p) if p.is_lowercase() && c.is_uppercase() => true,
+            // 대문자 묶음 다음의 새 단어(HTMLParser의 P)
+            Some(p) if p.is_uppercase() && c.is_uppercase() && next.is_some_and(char::is_lowercase) => true,
+            _ => false,
+        };
+        if start && c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        }
+    }
+    if out.len() >= 2 { out } else { String::new() }
+}
+
+// 약어로도 찾아볼 영문·숫자 검색어인지 확인한다(두 글자 이상, 16자 이하).
+pub fn acronym_query(text: &str) -> bool {
+    (2..=16).contains(&text.len()) && text.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) && text.chars().any(|c| c.is_ascii_lowercase())
+}
+
+// 약어 색인의 키(앞 두 글자)
+fn acronym_key(acronym: &str) -> Option<&str> {
+    acronym.get(..2)
+}
+
 // 받침이 다음 글자의 첫소리일 수 있는 음절을 (받침을 뗀 음절, 다음 첫소리 번호)로 나눈다.
 // 예: '곳' → ('고', ㅅ), '값' → ('갑', ㅅ), '읠' → ('의', ㄹ)
 fn composing_split(c: char) -> Option<(char, usize)> {
@@ -225,7 +266,7 @@ fn initial_grams(value: &str) -> HashSet<String> {
 }
 
 // 파일 확장자와 폴더 여부로 분류를 결정한다.
-fn category(entry: &Entry) -> &str {
+pub(crate) fn category(entry: &Entry) -> &str {
     if entry.kind == "directory" {
         return "folder";
     }
@@ -304,7 +345,14 @@ pub struct Index {
     paths: Vec<String>,
     grams: HashMap<String, Vec<u32>>,
     initial_grams: HashMap<String, Vec<u32>>,
+    // 영문 이름 약어와, 약어 앞 두 글자로 찾는 후보 목록
+    acronyms: Vec<String>,
+    acronym_keys: HashMap<String, Vec<u32>>,
     root_labels: HashMap<String, (String, String)>,
+    // 연결 폴더의 실제 경로(Finder 태그 조건에서 파일을 읽을 때 쓴다)
+    root_paths: HashMap<String, String>,
+    // 본문 색인: 항목 id → 소문자로 바꾼 본문
+    content: HashMap<String, String>,
     hidden_dirs: HashSet<String>,
     visibility:Vec<u8>,
 }
@@ -338,7 +386,28 @@ impl Index {
         self.root_labels.get(&entry.root_id).map(|value|if absolute{value.1.as_str()}else{value.0.as_str()}).unwrap_or(&entry.root_id)
     }
     pub fn set_roots(&mut self, roots: impl IntoIterator<Item=Root>) {
+        let roots: Vec<Root> = roots.into_iter().collect();
+        self.root_paths=roots.iter().map(|root|(root.id.clone(),root.absolute_path.clone())).collect();
         self.root_labels=roots.into_iter().map(|root|(root.id,(normalize(&root.name),normalize(&root.absolute_path).replace('\\',"/")))).collect();
+    }
+    // 본문 색인을 바꾼다(항목 id → 소문자 본문).
+    pub fn set_content(&mut self, content: HashMap<String, String>) {
+        self.content = content;
+    }
+    // 본문 색인 일부를 고친다(지운 항목, 새로 뽑은 본문).
+    pub fn update_content(&mut self, removed: &[String], added: Vec<(String, String)>) {
+        for id in removed {
+            self.content.remove(id);
+        }
+        self.content.extend(added);
+    }
+    // 본문 색인 항목을 차례로 돌려준다(저장용).
+    pub fn content_entries(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.content.iter()
+    }
+    // 본문 색인에 든 항목 수와 본문 글자 바이트 수
+    pub fn content_size(&self) -> (usize, usize) {
+        (self.content.len(), self.content.values().map(String::len).sum())
     }
 
     fn compare(&self, first:usize, second:usize, key:&str, descending:bool) -> Ordering {
@@ -369,6 +438,13 @@ impl Index {
         self.paths = entries.iter().map(|e| normalize(&e.path)).collect();
         self.grams.clear();
         self.initial_grams.clear();
+        self.acronyms = entries.iter().map(|e| acronym(&e.name)).collect();
+        self.acronym_keys.clear();
+        for (i, value) in self.acronyms.iter().enumerate() {
+            if let Some(key) = acronym_key(value) {
+                self.acronym_keys.entry(key.to_owned()).or_default().push(i as u32);
+            }
+        }
         for (i, name) in self.names.iter().enumerate() {
             for gram in grams(name) {
                 self.grams.entry(gram).or_default().push(i as u32);
@@ -404,11 +480,13 @@ impl Index {
         let mut remap: HashMap<u32, Option<u32>> = HashMap::new();
         let mut changed_names = HashSet::new();
         let mut changed_initials = HashSet::new();
+        let mut changed_acronyms = HashSet::new();
         for position in positions.into_iter().rev() {
             let last = self.entries.len() - 1;
             for slot in [position, last] {
                 changed_names.extend(grams(&self.names[slot]));
                 changed_initials.extend(initial_grams(&initials(&self.paths[slot])));
+                changed_acronyms.extend(acronym_key(&self.acronyms[slot]).map(str::to_owned));
             }
             remap.insert(position as u32, None);
             if position != last {
@@ -420,6 +498,7 @@ impl Index {
             self.visibility.swap_remove(position);
             self.names.swap_remove(position);
             self.paths.swap_remove(position);
+            self.acronyms.swap_remove(position);
         }
         fn repair(
             index: &mut HashMap<String, Vec<u32>>,
@@ -444,6 +523,7 @@ impl Index {
         }
         repair(&mut self.grams, changed_names, &remap);
         repair(&mut self.initial_grams, changed_initials, &remap);
+        repair(&mut self.acronym_keys, changed_acronyms, &remap);
         for entry in entries {
             let i = self.entries.len() as u32;
             let name = normalize(&entry.name);
@@ -454,6 +534,11 @@ impl Index {
             for gram in initial_grams(&initials(&path)) {
                 self.initial_grams.entry(gram).or_default().push(i);
             }
+            let short = acronym(&entry.name);
+            if let Some(key) = acronym_key(&short) {
+                self.acronym_keys.entry(key.to_owned()).or_default().push(i);
+            }
+            self.acronyms.push(short);
             self.names.push(name);
             self.paths.push(path);
             self.visibility.push(Self::visibility(&entry));
@@ -524,14 +609,29 @@ impl Index {
                     };
                     for key in keys {
                         let Some(list) = index.get(&key) else {
-                            return Some(Cow::Borrowed(&[]));
+                            best = Some(&[]);
+                            break;
                         };
                         if best.is_none_or(|previous| list.len() < previous.len()) {
                             best = Some(list);
                         }
                     }
+                    if best.is_some_and(<[u32]>::is_empty) {
+                        break;
+                    }
                 }
-                best.map(Cow::Borrowed)
+                // 초성 + 일반 검색의 영문 검색어는 약어가 같은 글자로 시작하는 항목도 후보에 더한다.
+                let acronyms = (mode == "initials" && !path && acronym_query(text))
+                    .then(|| self.acronym_keys.get(&text[..2]).map_or(&[][..], Vec::as_slice));
+                match (best, acronyms) {
+                    (Some(names), Some(extra)) if !extra.is_empty() => {
+                        let mut combined: Vec<u32> = names.iter().chain(extra).copied().collect();
+                        combined.sort_unstable();
+                        combined.dedup();
+                        Some(Cow::Owned(combined))
+                    }
+                    (best, _) => best.map(Cow::Borrowed),
+                }
             }
             _ => None,
         }
@@ -539,11 +639,48 @@ impl Index {
 
     // 다섯 검색 방식과 필터를 적용하고 시간 초과 여부를 명시한다.
     pub fn search(&self, options: &SearchOptions) -> Result<SearchResult, String> {
-        self.search_inner(options, None, &|| false, Instant::now() + Duration::from_millis(650))
+        let result = self.search_inner(options, None, &|| false, Instant::now() + Duration::from_millis(650))?;
+        self.corrected(options, result, |next| {
+            self.search_inner(next, None, &|| false, Instant::now() + Duration::from_millis(650))
+        })
+    }
+
+    // 결과가 없으면 한/영 자판을 바꾼 검색어로 한 번 더 찾고, 찾았을 때만 그 결과를 쓴다.
+    fn corrected(
+        &self,
+        options: &SearchOptions,
+        result: SearchResult,
+        retry: impl Fn(&SearchOptions) -> Result<SearchResult, String>,
+    ) -> Result<SearchResult, String> {
+        if result.total > 0 || result.partial || options.no_correct || !["normal", "initials", "fuzzy"].contains(&options.mode.as_str()) {
+            return Ok(result);
+        }
+        let Some(query) = crate::keyboard::corrected_query(&options.query) else {
+            return Ok(result);
+        };
+        let next = SearchOptions { query: query.clone(), ..options.clone() };
+        match retry(&next) {
+            Ok(mut found) if found.total > 0 => {
+                found.corrected = Some(query);
+                Ok(found)
+            }
+            _ => Ok(result),
+        }
     }
 
     // 빠른 검색은 전체 후보에서 상위 항목을 고르고 이전 요청을 중단한다.
     pub fn quick_search(
+        &self,
+        options: &SearchOptions,
+        boosts: &HashMap<String, usize>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<SearchResult, String> {
+        let result = self.quick_search_once(options, boosts, cancelled)?;
+        self.corrected(options, result, |next| self.quick_search_once(next, boosts, cancelled))
+    }
+
+    // 빠른 검색 한 번을 실행한다.
+    fn quick_search_once(
         &self,
         options: &SearchOptions,
         boosts: &HashMap<String, usize>,
@@ -581,6 +718,8 @@ impl Index {
             elapsed: start.elapsed().as_secs_f64() * 1000.0,
             partial: names.partial || paths.partial,
             scanned: names.scanned + paths.scanned,
+            corrected: None,
+            content_source: None,
         })
     }
 
@@ -603,6 +742,23 @@ impl Index {
         boosts: Option<&HashMap<String, usize>>,
         cancelled: &dyn Fn() -> bool,
         deadline: Instant,
+    ) -> Result<SearchResult, String> {
+        self.search_with(options, boosts, cancelled, deadline, &self.content)
+    }
+
+    // 본문 조건(content:)을 Spotlight 결과처럼 따로 받은 본문 표로 검사하는 일반 검색
+    pub fn search_with_content(&self, options: &SearchOptions, content: &HashMap<String, String>) -> Result<SearchResult, String> {
+        self.search_with(options, None, &|| false, Instant::now() + Duration::from_millis(650), content)
+    }
+
+    // 공통 검색 본체. content는 본문 조건에 쓸 항목 id → 본문 표다.
+    fn search_with(
+        &self,
+        options: &SearchOptions,
+        boosts: Option<&HashMap<String, usize>>,
+        cancelled: &dyn Fn() -> bool,
+        deadline: Instant,
+        content: &HashMap<String, String>,
     ) -> Result<SearchResult, String> {
         let start = Instant::now();
         if options.query.chars().count() > 512 {
@@ -631,6 +787,7 @@ impl Index {
         } else {
             None
         };
+        let needs_content = expression.as_ref().is_some_and(Query::uses_content);
         let planned = expression
             .as_ref()
             .and_then(|query| self.candidates(query, options.full_path));
@@ -693,10 +850,15 @@ impl Index {
             let score = if let Some(regex) = &regex {
                 regex.is_match(value).then_some(0)
             } else {
+                let facts = crate::query::Facts {
+                    acronym: &self.acronyms[i],
+                    root_path: self.root_paths.get(&entry.root_id).map(String::as_str),
+                    content: if needs_content { content.get(&entry.id).map(String::as_str) } else { None },
+                };
                 expression
                     .as_ref()
                     .unwrap()
-                    .matches(entry, value, path_value)
+                    .matches(entry, value, path_value, &facts)
             };
             // 숨김 폴더 아래인지는 상위 경로마다 키를 만들어야 해서 일치한 항목에만 확인한다.
             let score = score.filter(|_| options.show_hidden || flags&6!=0 || !self.under_hidden_dir(entry));
@@ -750,6 +912,16 @@ impl Index {
             elapsed: start.elapsed().as_secs_f64() * 1000.0,
             partial,
             scanned,
+            corrected: None,
+            content_source: None,
+        })
+    }
+
+    // 연결 폴더 실제 경로로 항목 id를 찾는다(Spotlight 결과를 색인 항목에 맞출 때 쓴다).
+    pub fn id_for_path(&self, path: &std::path::Path) -> Option<String> {
+        self.root_paths.iter().find_map(|(id, root)| {
+            let relative = path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+            Some(format!("{id}:{relative}"))
         })
     }
 }

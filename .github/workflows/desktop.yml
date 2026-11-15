@@ -30,7 +30,36 @@ jobs:
         with:
           name: Windows-E2E-reports
           path: test-results/e2e/
-      - run: npm run desktop:build
+      # 서명 인증서 비밀값이 등록돼 있으면 서명(macOS는 공증까지)하고, 없으면 지금처럼 서명 없이 빌드한다.
+      # 필요한 비밀값은 docs/release-signing.md에 정리했다.
+      - name: Build (signed when signing secrets exist)
+        shell: bash
+        env:
+          MAC_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MAC_NOTARY_ID: ${{ secrets.APPLE_ID }}
+          MAC_NOTARY_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          MAC_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          args=()
+          if [ "$RUNNER_OS" = "macOS" ] && [ -n "$MAC_CERTIFICATE" ]; then
+            export APPLE_CERTIFICATE="$MAC_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$MAC_CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$MAC_SIGNING_IDENTITY"
+            if [ -n "$MAC_NOTARY_ID" ]; then
+              export APPLE_ID="$MAC_NOTARY_ID" APPLE_PASSWORD="$MAC_NOTARY_PASSWORD" APPLE_TEAM_ID="$MAC_TEAM_ID"
+            fi
+            echo "macOS 서명을 적용합니다."
+          fi
+          if [ "$RUNNER_OS" = "Windows" ] && [ -n "$WIN_CERTIFICATE" ]; then
+            export WINDOWS_CERTIFICATE_PATH="$RUNNER_TEMP/codesign.pfx"
+            echo "$WIN_CERTIFICATE" | base64 --decode > "$WINDOWS_CERTIFICATE_PATH"
+            node -e 'const fs=require("fs"),p=require("path");fs.writeFileSync(p.join(process.env.RUNNER_TEMP,"sign.json"),JSON.stringify({bundle:{windows:{signCommand:`node "${p.resolve("scripts/sign-windows.mjs")}" %1`}}}))'
+            args=(--config "$RUNNER_TEMP/sign.json")
+            echo "Windows 서명을 적용합니다."
+          fi
+          npm run desktop:build -- "${args[@]}"
       - name: Check Windows executable privacy
         if: runner.os == 'Windows'
         run: npm run privacy:check -- --binary src-tauri/target/release/every-directory.exe

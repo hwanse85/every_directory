@@ -153,7 +153,21 @@
         "실행 가능한 실제 파일과 폴더 연결 안내",
         document.body.textContent.includes("실제 파일을 검색하고 기본 앱으로"),
       );
-      report.passed = report.errors.length === 0;
+      // 첫 실행: 추천 폴더(검증용 임시 폴더 둘)를 기본 선택으로 보여 주고 한 번에 연결한다.
+      const choices = await until(() => document.querySelectorAll(".suggested-roots label").length >= 2 && document.querySelectorAll(".suggested-roots label"), "추천 폴더 표시");
+      verify("첫 실행에 추천 폴더를 기본 선택으로 표시", [...choices].every((label) => label.querySelector("input").checked) && choices[0].textContent.includes("추천 문서"));
+      verify("추천 폴더마다 대략의 항목 수와 예상 시간 표시", [...choices].every((label) => /상위 항목 약 \d+개/.test(label.textContent)));
+      [...document.querySelectorAll(".suggested-roots button")].find((button) => button.textContent.includes("선택한 폴더 연결")).click();
+      await until(() => document.querySelector(".index-banner")?.textContent.includes("/2)") || !document.querySelector(".demo-banner"), "여러 폴더 색인 진행 표시", 30000);
+      await until(() => !document.querySelector(".demo-banner") && !document.querySelector(".index-banner"), "추천 폴더 색인 완료", 60000);
+      const connected = await originalInvoke("ed_request", { kind: "init", payload: {} });
+      verify("고른 추천 폴더 두 곳을 연결하고 색인", connected.length === 2 && connected.every((root) => root.count >= 1));
+      const input = document.querySelector('[aria-label="파일 검색"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "추천 파일");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await until(() => document.querySelectorAll(".search-table .file-row").length >= 2, "추천 폴더 검색");
+      verify("연결 직후 추천 폴더의 파일을 검색", true);
+      report.passed = report.errors.length === 0 && report.tests.every((test) => test.passed !== false);
       report.finished = new Date().toISOString();
       await originalInvoke("ed_request", {
         kind: "smokeReport",

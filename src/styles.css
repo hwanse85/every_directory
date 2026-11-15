@@ -3113,6 +3113,30 @@ h2 {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+.search-corrected {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 16px;
+  background: #eef4ff;
+  color: #2c4a7a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.search-corrected button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+[data-theme="dark"] .search-corrected {
+  background: #1f2a3d;
+  color: #c4d6f5;
+}
 .folder-address {
   display: flex;
   gap: 8px;
@@ -3739,3 +3763,58 @@ button:focus-visible, a:focus-visible, select:focus-visible, [tabindex]:focus-vi
 .saved-preset:hover .preset-remove, .preset-remove:focus-visible { opacity: 1; }
 .field-label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
 .field-label input { padding: 10px; border: 1px solid #cdd7e4; border-radius: 4px; }
+/* 설정: 빠른 검색 사용자 동작 편집 줄 */
+.user-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto;
+  gap: 6px;
+  align-items: start;
+  margin: 6px 0;
+}
+.user-action-row input,
+.user-action-row textarea {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  background: inherit;
+  color: inherit;
+  resize: vertical;
+}
+/* 첫 실행: 추천 폴더 고르기 */
+.suggested-roots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.suggested-roots label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.suggested-roots label span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.suggested-roots label small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggested-roots .button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+/* 정보: 업데이트 확인 결과 */
+.update-result {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
