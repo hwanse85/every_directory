@@ -93,7 +93,8 @@ test("local scanning persists metadata, skips links, and isolates connected path
     const listing = await files.directories(directory);
     assert.deepEqual(
       listing.directories.map((entry) => entry.name),
-      ["빈 폴더", "docs"],
+      // 숫자 → 영문 → 한글 순서(검색 결과·Windows 탐색기와 같음)
+      ["docs", "빈 폴더"],
     );
     await rename(directory, directory + "-gone");
     await assert.rejects(files.scan(root));

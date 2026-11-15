@@ -113,6 +113,9 @@ export async function prepare(root, suite) {
     await writeFile(path.join(root,"문서/하위/보관.txt"),"자료");
     await writeFile(path.join(root,"비공개/하위/제외 검증.txt"),"검색 제외 · 탐색 유지");
     await writeFile(path.join(root,"안내.pdf"),pdf());
+    // 정렬 검증: 영문·숫자 이름(자연 순서 2 < 10, 영문이 한글보다 앞)
+    await writeFile(path.join(root,"Notes 2.txt"),"정렬");
+    await writeFile(path.join(root,"Notes 10.txt"),"정렬");
     await sharp({create:{width:320,height:180,channels:3,background:"#6389c6"}}).png().toFile(path.join(root,"이미지.png"));
     // 색인하지 않은 위치(이 PC)의 탐색·작업 검증용. 연결 폴더 바깥(같은 임시 폴더)에 둔다.
     await mkdir(path.join(path.dirname(root),"색인 밖 폴더","하위"),{recursive:true});

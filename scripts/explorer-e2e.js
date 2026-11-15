@@ -36,6 +36,16 @@
       verify('Windows 형식의 보기 종류 여덟 개 제공',view.options.length===8);
       verify('폴더의 기본 유형 칼럼은 폴더로 표시',find('문서').querySelector('[data-column="extension"]').textContent==='폴더');
       for(const option of [...view.options]){set(view,option.value);await pause();verify(`${option.textContent} 보기 실제 적용`,pane(1).querySelector('.file-table').dataset.view===option.value&&rows().length>0);}
+      set(view,'list');set(sort,'name');await pause();
+      // 실제 행 순서: 폴더 먼저, 숫자는 자연 순서, 영문 이름이 한글 이름보다 앞(검색 결과·Windows 탐색기와 같은 순서)
+      const files=()=>rows().map(row=>row.title.split(/[\\/]/).pop()).filter(name=>/\.(txt|pdf|png)$/.test(name));
+      const ascending=['Notes 2.txt','Notes 10.txt','안내.pdf','업무 보고서.txt','이미지.png'];
+      if(files().join('|')!==ascending.join('|'))throw new Error('이름 오름차순 순서: '+files().join(','));
+      verify('이름 정렬: 폴더 먼저, 자연 순서(2 < 10), 영문이 한글보다 앞',rows()[0].title.split(/[\\/]/).pop()==='대상');
+      pane(1).querySelector('[role="columnheader"][data-column="name"] button').click();await pause();
+      if(files().join('|')!==[...ascending].reverse().join('|'))throw new Error('이름 내림차순 순서: '+files().join(','));
+      verify('이름 내림차순은 정확히 반대 순서',true);
+      pane(1).querySelector('[role="columnheader"][data-column="name"] button').click();await pause();
       set(view,'list');set(sort,'created');await pause();verify('만든 날짜 정렬 기준 제공',pane(1).querySelector('[data-column="name"]').getAttribute('aria-sort')==='none');
       pane(1).querySelector('[aria-label="탐색창 1 표시 항목"]').click();const picker=await until(()=>document.querySelector('.search-columns-picker'),'속성 칼럼 선택');
       for(const label of ['만든 날짜','액세스한 날짜','특성']){const row=[...picker.querySelectorAll('label')].find(row=>row.querySelector('strong')?.textContent===label);row.querySelector('input').click();await pause();}

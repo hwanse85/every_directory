@@ -4,9 +4,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpRight, Columns3, SearchX } from "lucide-react";
 import { FileIcon, formatSize } from "./FileIcon";
-import { fileCollator, choseong, categoryOf } from "../search";
+import { choseong, categoryOf } from "../search";
 import type { ConnectedRoot, ExplorerView, FileEntry, TableSort, SearchSortKey } from "../types";
-import {defaultExplorerColumns,groupedEntries} from "../explorerView";
+import {defaultExplorerColumns,groupedEntries,sortEntries} from "../explorerView";
 import { locationPath } from "../paths";
 import { validateName } from "../rename";
 import { isDesktop } from "../client";
@@ -242,26 +242,8 @@ export function FileTable({
     () =>
       (search&&onSortChange) || (search && !sort)
         ? entries
-        : [...entries].sort((a, b) => {
-            const first = searchColumnValue(
-              a,
-              rootById.get(a.rootId),
-              sort ?? "name",
-            );
-            const second = searchColumnValue(
-              b,
-              rootById.get(b.rootId),
-              sort ?? "name",
-            );
-            return (
-              Number(b.kind === "directory") - Number(a.kind === "directory") ||
-              (typeof first === "number" && typeof second === "number"
-                ? first - second
-                : fileCollator.compare(String(first), String(second))) *
-                (descending ? -1 : 1)
-            );
-          }),
-    [entries, search, sort, descending, rootById,onSortChange],
+        : sortEntries(entries, roots, sort ?? "name", descending),
+    [entries, search, sort, descending, roots, onSortChange],
   );
   const grouped=useMemo(()=>groupedEntries(ordered,search?"none":groupBy,roots),[ordered,groupBy,search,roots]);
   const sorted=grouped.entries,displayRows=grouped.rows;

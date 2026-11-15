@@ -62,7 +62,7 @@ import { TabMenu } from "./TabMenu";
 import { useTabReorder } from "../useTabReorder";
 import {TreeWidthHandle,treeWidth} from "./TreeWidthHandle";
 import {SearchColumnPicker} from "./SearchColumnPicker";
-import {defaultExplorerColumns,explorerViews} from "../explorerView";
+import {defaultExplorerColumns,explorerViews,groupedEntries,sortEntries} from "../explorerView";
 import {normalizeSearchColumns,normalizeTableSort,searchColumnOptions} from "../searchColumns";
 export { createTab, createPane } from "../tabs";
 
@@ -349,6 +349,8 @@ export function Explorer({
       visibleFile(entry,{...preferences,showHidden}) &&
       matchesFilter(entry.name),
   );
+  // 화면에 보이는 순서(정렬·분류 적용). 전체 선택·선택 반전·목록 내보내기도 이 순서를 쓴다.
+  const orderedEntries = groupedEntries(sortEntries(visibleEntries, roots, explorerSort.key, explorerSort.descending), pane.group ?? "none", roots).entries;
   useEffect(()=>setHiddenOverride(undefined),[preferences.showHidden]);
 
   useEffect(() => {
@@ -393,10 +395,10 @@ export function Explorer({
     )
       setAnalysis(action);
     else if (action === "selectAll") {
-      setSelection(visibleEntries);
-      setSelected(visibleEntries[0]);
+      setSelection(orderedEntries);
+      setSelected(orderedEntries[0]);
     } else if (action === "invertSelection") {
-      const inverse = visibleEntries.filter(
+      const inverse = orderedEntries.filter(
         (entry) => !selection.some((selected) => selected.id === entry.id),
       );
       setSelection(inverse);
@@ -410,7 +412,7 @@ export function Explorer({
           : location,
       );
     else if (action === "exportList")
-      void exportEntries(visibleEntries, roots).catch((cause) =>
+      void exportEntries(orderedEntries, roots).catch((cause) =>
         onError(String(cause)),
       );
     else if (action === "terminal")
@@ -1139,8 +1141,8 @@ export function Explorer({
         onPreview={onPreview}
         onMore={(x, y) => setContext({ x, y })}
         onSelectAll={() => {
-          setSelection(visibleEntries);
-          setSelected(visibleEntries[0]);
+          setSelection(orderedEntries);
+          setSelected(orderedEntries[0]);
         }}
         onCreated={(name, rename) => { createdName.current = { name, at: performance.now(), rename }; }}
         onRename={root && !root.demo ? startRename : undefined}

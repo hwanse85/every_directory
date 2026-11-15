@@ -5,6 +5,21 @@ import {choseong,fileCollator} from "./search";
 export const explorerViews:{id:ExplorerView;label:string}[]=[{id:"icons-extra",label:"아주 큰 아이콘"},{id:"icons-large",label:"큰 아이콘"},{id:"icons-medium",label:"보통 아이콘"},{id:"icons-small",label:"작은 아이콘"},{id:"compact",label:"간단히"},{id:"list",label:"자세히"},{id:"grid",label:"타일"},{id:"content",label:"내용"}];
 export const defaultExplorerColumns:SearchSortKey[]=["name","extension","size","modified"];
 export function normalizeExplorerView(value:unknown):ExplorerView{return explorerViews.some(view=>view.id===value)?value as ExplorerView:"list";}
+// 탐색창 정렬: 폴더 먼저 → 고른 속성 → 같으면 이름(자연 순서) → 그래도 같으면 id.
+// 표시·전체 선택·내보내기가 모두 이 순서를 쓴다.
+export function sortEntries(entries:FileEntry[],roots:ConnectedRoot[],key:SearchSortKey="name",descending=false):FileEntry[]{
+  const rootById=new Map(roots.map(root=>[root.id,root]));
+  // 고른 속성 값끼리 비교한다(숫자는 크기, 글자는 파일 이름 규칙).
+  const compareValue=(a:FileEntry,b:FileEntry)=>{
+    const first=searchColumnValue(a,rootById.get(a.rootId),key),second=searchColumnValue(b,rootById.get(b.rootId),key);
+    return typeof first==="number"&&typeof second==="number"?first-second:fileCollator.compare(String(first),String(second));
+  };
+  return [...entries].sort((a,b)=>
+    Number(b.kind==="directory")-Number(a.kind==="directory")||
+    compareValue(a,b)*(descending?-1:1)||
+    (key==="name"?0:fileCollator.compare(a.name,b.name))||
+    fileCollator.compare(a.id,b.id));
+}
 export type GroupRow={kind:"group";label:string;count:number}|{kind:"entry";entry:FileEntry;index:number};
 export function groupedEntries(entries:FileEntry[],by:SearchSortKey|"none"="none",roots:ConnectedRoot[]=[],now=Date.now()):{entries:FileEntry[];rows:GroupRow[]}{
   if(by==="none")return {entries,rows:entries.map((entry,index)=>({kind:"entry",entry,index}))};
