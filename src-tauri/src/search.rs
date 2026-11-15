@@ -101,9 +101,9 @@ fn initial_class(index: usize) -> String {
     format!("[{consonant}{first}-{last}]")
 }
 
-// 입력 중인 마지막 음절의 받침이 다음 글자의 첫소리일 수 있으면 그 경우의 정규식을 만든다.
-// 예: '보곳'(보고서를 치는 중) → '보고' + ㅅ으로 시작하는 음절, '값' → '갑' + ㅅ으로 시작하는 음절
-fn composing_alternative(c: char, separators: &str) -> Option<String> {
+// 받침이 다음 글자의 첫소리일 수 있는 음절을 (받침을 뗀 음절, 다음 첫소리 번호)로 나눈다.
+// 예: '곳' → ('고', ㅅ), '값' → ('갑', ㅅ), '읠' → ('의', ㄹ)
+fn composing_split(c: char) -> Option<(char, usize)> {
     let code = c as u32;
     if !(0xac00..=0xd7a3).contains(&code) {
         return None;
@@ -118,8 +118,36 @@ fn composing_alternative(c: char, separators: &str) -> Option<String> {
         25 => (0, 16), 26 => (0, 17), 27 => (0, 18),
         _ => return None,
     };
-    let base = char::from_u32(code - jong + keep).unwrap();
+    Some((char::from_u32(code - jong + keep).unwrap(), initial))
+}
+
+// 입력 중인 마지막 음절의 받침이 다음 글자의 첫소리일 수 있으면 그 경우의 정규식을 만든다.
+// 예: '보곳'(보고서를 치는 중) → '보고' + ㅅ으로 시작하는 음절, '값' → '갑' + ㅅ으로 시작하는 음절
+fn composing_alternative(c: char, separators: &str) -> Option<String> {
+    let (base, initial) = composing_split(c)?;
     Some(format!("{}{separators}{}", regex::escape(&base.to_string()), initial_class(initial)))
+}
+
+// 초성 검색에서 일치하는 값이 반드시 담고 있는 첫 글자 후보를 구한다.
+// 첫 글자가 초성·와일드카드면 어떤 글자든 올 수 있으므로 빈 목록을 돌려준다.
+pub fn initial_hint(value: &str) -> Vec<String> {
+    let value = split_consonants(value);
+    let consonants = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+    let korean = value.chars().any(|c| consonants.contains(c) || ('가'..='힣').contains(&c));
+    let letters: Vec<char> = value.chars().filter(|c| !korean || !c.is_whitespace()).collect();
+    let Some(&first) = letters.first() else { return vec![] };
+    // 대소문자·호환 문자 차이가 생길 수 있는 영문 등은 정규식에 맡긴다.
+    let syllable = ('가'..='힣').contains(&first);
+    if !korean || consonants.contains(first) || matches!(first, '*' | '?') || (first.is_alphabetic() && !syllable) {
+        return vec![];
+    }
+    let last = letters.iter().rposition(|c| !matches!(c, '*' | '?'));
+    let mut hint = vec![first.to_string()];
+    // 입력 중인 마지막 음절이면 받침을 뗀(또는 겹받침 앞부분만 남긴) 음절도 허용한다.
+    if let Some((base, _)) = composing_split(first).filter(|_| last == Some(0)) {
+        hint.push(base.to_string());
+    }
+    hint
 }
 
 // 일반 음절은 그대로 비교하고 입력된 초성만 해당 음절 범위와 함께 검색한다.

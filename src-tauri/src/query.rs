@@ -13,6 +13,8 @@ pub enum Query {
     Text {
         text: String,
         pattern: Option<Regex>,
+        // 정규식을 돌리기 전에 값에 하나라도 들어 있어야 하는 글자(비어 있으면 검사 생략)
+        hint: Vec<String>,
         path: bool,
         mode: String,
     },
@@ -290,9 +292,15 @@ fn term(word: &str, mode: &str, sensitive: bool) -> Result<Query, String> {
     } else {
         None
     };
+    let hint = if mode == "initials" {
+        crate::search::initial_hint(&text)
+    } else {
+        vec![]
+    };
     Ok(Query::Text {
         text,
         pattern,
+        hint,
         path,
         mode: mode.into(),
     })
@@ -360,10 +368,15 @@ impl Query {
             Query::Text {
                 text,
                 pattern,
+                hint,
                 path,
                 mode,
             } => {
                 let value = if *path { path_value } else { value };
+                // 정규식보다 훨씬 싼 포함 검사로 대부분의 항목을 먼저 거른다.
+                if !hint.is_empty() && !hint.iter().any(|piece| value.contains(piece.as_str())) {
+                    return None;
+                }
                 if let Some(pattern) = pattern {
                     return pattern.is_match(value).then_some(0);
                 }
