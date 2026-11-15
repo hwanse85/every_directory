@@ -221,7 +221,7 @@ const knownToolbarItems = ["newTab", "newFolder", "refresh", "clipboard", "uuenc
 const isPlace = (id: string) => id.startsWith("pc:");
 // 검색 방식 옆 도움말 툴팁에 보여 줄 짧은 사용법. 자세한 설명은 도움말의 section 절에 있다.
 const searchModeHelp: Record<SearchMode, { title: string; summary: string; examples: [string, string][]; section: string }> = {
-  initials: { title: "초성 + 일반", summary: "한글 초성이나 이름 일부로 찾습니다. 공백은 AND입니다.", examples: [["ㅂㄱㅅ", "보고서"], ["ㅇㅁ 보고", "업무 보고.pdf"], ["보고ㅅ", "초성과 글자 섞기"]], section: "help-mode-initials" },
+  initials: { title: "초성 + 일반", summary: "한글 초성이나 이름 일부로 찾습니다. 공백은 AND입니다.", examples: [["ㅂㄱㅅ", "보고서"], ["ㅇㅁ 보고", "업무 보고.pdf"], ["보고ㅅ", "초성과 글자 섞기"], ["ㅂㄱㅅ2026", "보고서-2026 (기호 건너뜀)"]], section: "help-mode-initials" },
   normal: { title: "일반", summary: "글자가 이름에 들어 있으면 찾습니다. 연산자를 함께 씁니다.", examples: [["업무 보고서", "두 단어 모두"], ["보고서|계획서", "둘 중 하나(OR)"], ["업무 !초안", "초안 제외"], ["ext:pdf size:>10mb", "확장자·크기"]], section: "help-search-operators" },
   wildcard: { title: "와일드카드", summary: "이름 전체를 모양으로 비교합니다. *는 여러 글자, ?는 정확히 한 글자.", examples: [["*보고서*.pdf", "보고서가 든 PDF"], ["IMG_????.jpg", "IMG_0042.jpg"], ["보고서", "이름이 정확히 '보고서'일 때만"]], section: "help-mode-wildcard" },
   regex: { title: "정규식", summary: "입력 전체를 정규식으로 해석합니다. 전후방 탐색·역참조는 지원하지 않습니다.", examples: [["^IMG_\\d{4}\\.jpg$", "IMG_ 뒤 숫자 4자리"], ["(보고서|계획서)\\.", "‘보고서.’나 ‘계획서.’가 든 이름"], ["\\d{4}-\\d{2}", "2026-03 같은 날짜"]], section: "help-mode-regex" },

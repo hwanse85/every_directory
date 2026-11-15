@@ -16,12 +16,31 @@ pub fn normalize(value: &str) -> String {
     value.nfc().collect::<String>().to_lowercase()
 }
 
-// 공백을 제외하고 한글 음절을 초성으로 바꿔 띄어쓰기 차이를 무시한다.
+// 초성 검색에서 건너뛰는 구분자 중 공백·ASCII 기호 외에 자주 쓰는 전각·한글 문장 부호다.
+const EXTRA_SEPARATORS: &str = "·•…、。「」『』【】〔〕（）［］｛｝～〜‐–—‘’“”";
+
+// 초성 검색에서 글자 사이에 있어도 무시하는 공백·구분 기호인지 확인한다.
+pub fn is_separator(c: char) -> bool {
+    c.is_whitespace() || c.is_ascii_punctuation() || EXTRA_SEPARATORS.contains(c)
+}
+
+// 구분 기호가 0개 이상 이어지는 부분과 일치하는 정규식 조각이다.
+fn separator_run() -> String {
+    let symbols: String = (0u8..128)
+        .map(char::from)
+        .filter(char::is_ascii_punctuation)
+        .chain(EXTRA_SEPARATORS.chars())
+        .map(|c| regex::escape(&c.to_string()))
+        .collect();
+    format!("[\\s{symbols}]*")
+}
+
+// 공백·구분 기호를 빼고 한글 음절을 초성으로 바꿔 띄어쓰기·구분자 차이를 무시한다.
 pub fn initials(value: &str) -> String {
     let consonants: Vec<char> = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ".chars().collect();
     normalize(value)
         .chars()
-        .filter(|c| !c.is_whitespace())
+        .filter(|c| !is_separator(*c))
         .map(|c| {
             let code = c as u32;
             if (0xac00..=0xd7a3).contains(&code) {
@@ -74,35 +93,72 @@ pub fn split_consonants(value: &str) -> String {
         .collect()
 }
 
+// 초성 하나를 그 초성으로 시작하는 음절 범위와 함께 일치시키는 정규식 조각이다.
+fn initial_class(index: usize) -> String {
+    let consonant = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ".chars().nth(index).unwrap();
+    let first = char::from_u32(0xac00 + index as u32 * 588).unwrap();
+    let last = char::from_u32(first as u32 + 587).unwrap();
+    format!("[{consonant}{first}-{last}]")
+}
+
+// 입력 중인 마지막 음절의 받침이 다음 글자의 첫소리일 수 있으면 그 경우의 정규식을 만든다.
+// 예: '보곳'(보고서를 치는 중) → '보고' + ㅅ으로 시작하는 음절, '값' → '갑' + ㅅ으로 시작하는 음절
+fn composing_alternative(c: char, separators: &str) -> Option<String> {
+    let code = c as u32;
+    if !(0xac00..=0xd7a3).contains(&code) {
+        return None;
+    }
+    let jong = (code - 0xac00) % 28;
+    // 받침 번호 → (남는 받침 번호, 다음 글자 첫소리 번호). 첫소리가 될 수 없는 받침은 없다.
+    let (keep, initial) = match jong {
+        1 => (0, 0), 2 => (0, 1), 3 => (1, 9), 4 => (0, 2), 5 => (4, 12), 6 => (4, 18),
+        7 => (0, 3), 8 => (0, 5), 9 => (8, 0), 10 => (8, 6), 11 => (8, 7), 12 => (8, 9),
+        13 => (8, 16), 14 => (8, 17), 15 => (8, 18), 16 => (0, 6), 17 => (0, 7), 18 => (17, 9),
+        19 => (0, 9), 20 => (0, 10), 21 => (0, 11), 22 => (0, 12), 23 => (0, 14), 24 => (0, 15),
+        25 => (0, 16), 26 => (0, 17), 27 => (0, 18),
+        _ => return None,
+    };
+    let base = char::from_u32(code - jong + keep).unwrap();
+    Some(format!("{}{separators}{}", regex::escape(&base.to_string()), initial_class(initial)))
+}
+
 // 일반 음절은 그대로 비교하고 입력된 초성만 해당 음절 범위와 함께 검색한다.
+// 한글이 들어간 검색어는 글자 사이의 공백·구분 기호(_ - . [ ] 등)를 건너뛰고,
+// 입력 중인 마지막 음절의 받침이 다음 글자 첫소리인 경우도 함께 찾는다.
 pub fn initial_pattern(value: &str) -> Result<Option<regex::Regex>, String> {
     let value = split_consonants(value);
     let consonants = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
     let has_initial = value.chars().any(|c| consonants.contains(c));
     let wildcard = value.contains(['*', '?']);
-    let ignore_spaces = has_initial || value.chars().any(|c| ('가'..='힣').contains(&c));
-    if !ignore_spaces && !wildcard {
+    let korean = has_initial || value.chars().any(|c| ('가'..='힣').contains(&c));
+    if !korean && !wildcard {
         return Ok(None);
     }
-    let mut parts = vec![];
-    for c in value
+    let separators = if korean { separator_run() } else { String::new() };
+    let letters: Vec<char> = value
         .chars()
-        .filter(|c| !ignore_spaces || !c.is_whitespace())
-    {
+        .filter(|c| !korean || !c.is_whitespace())
+        .collect();
+    let last_letter = letters.iter().rposition(|c| !matches!(c, '*' | '?'));
+    let mut parts = vec![];
+    for (position, &c) in letters.iter().enumerate() {
         let part = if let Some(index) = consonants.chars().position(|initial| initial == c) {
-            let first = char::from_u32(0xac00 + index as u32 * 588).unwrap();
-            let last = char::from_u32(first as u32 + 587).unwrap();
-            format!("[{c}{first}-{last}]")
+            initial_class(index)
         } else if c == '*' {
             ".*".into()
         } else if c == '?' {
             ".".into()
+        } else if let Some(alternative) = (korean && Some(position) == last_letter)
+            .then(|| composing_alternative(c, &separators))
+            .flatten()
+        {
+            format!("(?:{}|{alternative})", regex::escape(&c.to_string()))
         } else {
             regex::escape(&c.to_string())
         };
         parts.push(part);
     }
-    let body = parts.join(if ignore_spaces { "\\s*" } else { "" });
+    let body = parts.join(&separators);
     let pattern = if wildcard {
         format!("(?s)^{body}$")
     } else {

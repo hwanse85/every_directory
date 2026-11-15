@@ -333,3 +333,31 @@ test("default search combines initials with literal Korean and English", () => {
   assert.deepEqual(find("*.pdf"), ["보고서_report.pdf"]);
   assert.deepEqual(find("배관"), ["배관 검사.txt"]);
 });
+
+test("Korean initials skip separators between letters and keep matching while the last syllable is composing", () => {
+  const cases: [string, string][] = [
+    ["ㅂㄱㅅ_v2", "보고서_v2.txt"],
+    ["ㅂㄱㅅv2", "보고서_v2.txt"],
+    ["ㅂㄱㅅ2026", "보고서-2026-03.pdf"],
+    ["ㅎㅇㄹ(2026", "회의록(2026.03).hwp"],
+    ["회의록2026", "회의록(2026.03).hwp"],
+    ["ㅇㅁㅂㄱㅅ", "업무_보고서.txt"],
+    ["[ㅊㅇ]ㅅㄱ", "[초안] 설계 검토.docx"],
+    ["ㅊㅇㅅㄱ", "[초안] 설계 검토.docx"],
+    ["ㄱㅎㅅv12", "프로젝트A_계획서 v1.2.xlsx"],
+    ["c++ㅋㄷ", "C++ 코딩 규칙.md"],
+    ["50%ㅎㅇ", "50%할인.txt"],
+    ["ㅂㅇㅈㅅ", "비용$정산.xlsx"],
+    ["보곳", "보고서_v2.txt"],
+    ["횡", "회의록(2026.03).hwp"],
+    ["겱", "결과+분석.txt"],
+    ["값", "갑시다.txt"],
+  ];
+  for (const [query, name] of cases) assert.ok(filenameFilter(query)(name), `${query} → ${name}`);
+  for (const [query, name] of [["ㅂㄱㅅv2", "보고서-2026-03.pdf"], ["보곳", "결과+분석.txt"], ["[ㅊㅇ]", "설계-검토_rev.B.pdf"]])
+    assert.equal(filenameFilter(query)(name), false, `${query} ↛ ${name}`);
+  const mixed = new FileIndex();
+  mixed.replace(cases.map(([, name]) => ({ id: `r:문서/${name}`, rootId: "r", path: `문서/${name}`, parent: "문서", name, kind: "file", extension: name.split(".").pop()!, size: 1, modified: 1 }) as FileEntry));
+  for (const [query, name] of cases)
+    assert.ok(mixed.search({ query, mode: "initials", category: "all", fullPath: false } as SearchOptions).entries.some((entry) => entry.name === name), `색인 ${query}`);
+});

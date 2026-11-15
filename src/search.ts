@@ -85,9 +85,20 @@ function trigrams(value: string): string[] {
 
 const initials = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
 
-// 공백을 제외하고 한글 음절을 초성으로 바꿔 띄어쓰기 차이를 무시한다.
+// 초성 검색에서 글자 사이에 있어도 무시하는 공백·구분 기호다(Rust 검색과 같은 목록).
+const extraSeparators = "·•…、。「」『』【】〔〕（）［］｛｝～〜‐–—‘’“”";
+const asciiSeparators = Array.from({ length: 128 }, (_, code) => String.fromCharCode(code)).filter((char) => /[!-/:-@[-`{-~]/.test(char)).join("");
+const separatorChars = asciiSeparators + extraSeparators;
+const separatorRun = `[\\s\\p{Z}${Array.from(asciiSeparators, (char) => `\\${char}`).join("")}${extraSeparators}]*`;
+
+// 공백·구분 기호인지 확인한다.
+export function isSeparator(char: string): boolean {
+  return /\s/u.test(char) || separatorChars.includes(char);
+}
+
+// 공백·구분 기호를 빼고 한글 음절을 초성으로 바꿔 띄어쓰기·구분자 차이를 무시한다.
 export function choseong(value: string): string {
-  return Array.from(normalize(value).replace(/\s/gu, ""), (char) => {
+  return Array.from(Array.from(normalize(value)).filter((char) => !isSeparator(char)).join(""), (char) => {
     const offset = char.charCodeAt(0) - 0xac00;
     return offset >= 0 && offset <= 11171
       ? initials[Math.floor(offset / 588)]
@@ -100,31 +111,52 @@ function escapePattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// 초성 하나를 그 초성으로 시작하는 음절 범위와 함께 일치시키는 정규식 조각이다.
+function initialClass(index: number): string {
+  const start = 0xac00 + index * 588;
+  return `[${initials[index]}${String.fromCharCode(start)}-${String.fromCharCode(start + 587)}]`;
+}
+
+// 받침 번호 → [남는 받침 번호, 다음 글자 첫소리 번호]. 겹받침은 뒤 자음만 다음 글자로 넘어간다.
+const composingSplit: Record<number, [number, number]> = {
+  1: [0, 0], 2: [0, 1], 3: [1, 9], 4: [0, 2], 5: [4, 12], 6: [4, 18], 7: [0, 3], 8: [0, 5], 9: [8, 0],
+  10: [8, 6], 11: [8, 7], 12: [8, 9], 13: [8, 16], 14: [8, 17], 15: [8, 18], 16: [0, 6], 17: [0, 7],
+  18: [17, 9], 19: [0, 9], 20: [0, 10], 21: [0, 11], 22: [0, 12], 23: [0, 14], 24: [0, 15], 25: [0, 16],
+  26: [0, 17], 27: [0, 18],
+};
+
+// 입력 중인 마지막 음절의 받침이 다음 글자 첫소리일 수 있으면 그 경우의 정규식을 만든다(예: 보곳 → 보고 + ㅅ…).
+function composingAlternative(char: string): string | undefined {
+  const offset = char.charCodeAt(0) - 0xac00;
+  if (offset < 0 || offset > 11171) return undefined;
+  const split = composingSplit[offset % 28];
+  if (!split) return undefined;
+  const base = String.fromCharCode(0xac00 + offset - (offset % 28) + split[0]);
+  return `${escapePattern(base)}${separatorRun}${initialClass(split[1])}`;
+}
+
 // 입력한 초성만 한글 음절 범위로 펼쳐 일반 검색과 함께 적용한다.
+// 한글이 들어간 검색어는 글자 사이의 공백·구분 기호를 건너뛰고, 입력 중인 마지막 음절의 받침도 다음 글자 첫소리로 본다.
 export function initialPattern(value: string): RE2JS | undefined {
   const text = normalizeSearchInput(value, "initials");
   const hasInitial = Array.from(text).some((letter) =>
     initials.includes(letter),
   );
   const wildcard = /[*?]/.test(text);
-  const ignoreSpaces = hasInitial || /[가-힣]/.test(text);
-  if (!ignoreSpaces && !wildcard) return undefined;
-  const parts = Array.from(
-    ignoreSpaces ? text.replace(/\s/gu, "") : text,
-    (letter) => {
-      const index = initials.indexOf(letter);
-      if (index >= 0) {
-        const start = 0xac00 + index * 588;
-        return `[${letter}${String.fromCharCode(start)}-${String.fromCharCode(start + 587)}]`;
-      }
-      return letter === "*"
-        ? ".*"
-        : letter === "?"
-          ? "."
-          : escapePattern(letter);
-    },
-  );
-  const pattern = parts.join(ignoreSpaces ? "[\\s\\p{Z}]*" : "");
+  const korean = hasInitial || /[가-힣]/.test(text);
+  if (!korean && !wildcard) return undefined;
+  const letters = Array.from(korean ? text.replace(/\s/gu, "") : text);
+  let lastLetter = letters.length - 1;
+  while (lastLetter >= 0 && /[*?]/.test(letters[lastLetter])) lastLetter--;
+  const parts = letters.map((letter, position) => {
+    const index = initials.indexOf(letter);
+    if (index >= 0) return initialClass(index);
+    if (letter === "*") return ".*";
+    if (letter === "?") return ".";
+    const alternative = korean && position === lastLetter ? composingAlternative(letter) : undefined;
+    return alternative ? `(?:${escapePattern(letter)}|${alternative})` : escapePattern(letter);
+  });
+  const pattern = parts.join(korean ? separatorRun : "");
   return RE2JS.compile(
     wildcard ? `^${pattern}$` : pattern,
     RE2JS.CASE_INSENSITIVE | RE2JS.DOTALL,

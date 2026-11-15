@@ -72,6 +72,8 @@ Supported modes include substring search, space-separated AND terms, quoted phra
 
 Korean initial-consonant matching ignores spacing differences in filenames and queries. For example, `데이터분석 발굴.pdf` matches `ㄷㅇㅌㅂㅅ ㅂㄱ`, `ㄷㅇㅌㅂㅅㅂㄱ`, and `ㄷㅇ ㅌㅂㅅㅂ ㄱ`. Space-separated terms still use AND logic. Normal search and regex retain their own whitespace semantics.
 
+Queries that contain Korean also skip separators between letters (`_ - . [ ] ( )` and similar): `ㅂㄱㅅ2026` finds `보고서-2026-03.pdf` and `ㅇㅁㅂㄱㅅ` finds `업무_보고서.txt`, while separators you type (`ㅂㄱㅅ_v2`, `[ㅊㅇ]ㅅㄱ`) are still compared. Results no longer disappear while the IME is composing the last syllable (for example `보곳` on the way to `보고서`). A comparison with Alfred, Spotlight and similar tools and the next improvement plan are in [docs/launcher-comparison-plan.md](docs/launcher-comparison-plan.md) (Korean).
+
 Advanced operators include OR (`|`), exclusion (`!`), grouping (`< >`), `file:`, `folder:`, `path:`, `size:>10mb`, `size:1mb..10mb`, `dm:today`, and `dm:>=2026-01-01`. OR binds more tightly than AND. For example, `report|plan !draft ext:pdf` combines alternatives, exclusion, and an extension filter.
 
 The desktop app uses Rust's `regex` engine, which does not support look-around or backreferences. Regex and batch-replacement syntax is not identical to the legacy RE2JS implementation. Search applies NFC normalization to Korean text.
