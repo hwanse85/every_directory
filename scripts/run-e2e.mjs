@@ -26,6 +26,7 @@ if (
 const reports = [];
 // macOS는 플랫폼 공용 스위트만, Windows는 전체 스위트를 실행한다.
 const suites = process.platform === "darwin" ? ["search", "audit", "explorer", "history", "portable", "layout", "columns", "tree", "desktop", "actions", "quick", "grid", "clipboard", "drag", "transfer", "empty", "ux"] : [
+  "realclick",
   "search",
   "audit",
   "explorer",

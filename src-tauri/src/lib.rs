@@ -338,6 +338,19 @@ async fn ed_request(
         window.set_size(tauri::LogicalSize::new(width as f64, height as f64)).map_err(|error| error.to_string())?;
         return Ok(json!({"width":width,"height":height}));
     }
+    // 검증 전용: 화면 좌표(CSS px)에 운영체제 실제 마우스 클릭을 보낸다(Windows). 스크립트 click()이 지나치는 가림·포인터 문제를 재현한다.
+    #[cfg(all(windows,feature="smoke-test"))]
+    if kind=="smokeClick"{
+        use windows_sys::Win32::UI::{Input::KeyboardAndMouse::{SendInput,INPUT,INPUT_0,INPUT_MOUSE,MOUSEINPUT,MOUSEEVENTF_LEFTDOWN,MOUSEEVENTF_LEFTUP},WindowsAndMessaging::SetCursorPos};
+        let (x,y)=(payload["x"].as_f64().ok_or("x")?,payload["y"].as_f64().ok_or("y")?);
+        let _=window.set_focus();
+        let inner=window.inner_position().map_err(|e|e.to_string())?;let scale=window.scale_factor().map_err(|e|e.to_string())?;
+        let (sx,sy)=(inner.x+(x*scale).round() as i32,inner.y+(y*scale).round() as i32);
+        let input=|flags|INPUT{r#type:INPUT_MOUSE,Anonymous:INPUT_0{mi:MOUSEINPUT{dx:0,dy:0,mouseData:0,dwFlags:flags,time:0,dwExtraInfo:0}}};
+        // SAFETY: 화면 좌표로 커서를 옮기고 누름·뗌 두 입력을 보낸다.
+        let sent=unsafe{SetCursorPos(sx,sy);std::thread::sleep(std::time::Duration::from_millis(60));let inputs=[input(MOUSEEVENTF_LEFTDOWN),input(MOUSEEVENTF_LEFTUP)];SendInput(2,inputs.as_ptr(),std::mem::size_of::<INPUT>() as i32)};
+        return Ok(json!({"screenX":sx,"screenY":sy,"scale":scale,"innerX":inner.x,"innerY":inner.y,"sent":sent}));
+    }
     #[cfg(all(windows,feature="smoke-test"))]
     if window.label()=="main"&&kind=="smokeShellNew"{
         match payload["action"].as_str(){
@@ -844,6 +857,10 @@ pub fn run() {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("desktop") {
                 let _ = webview.eval("window.__edE2E=true;");
                 let _ = webview.eval(include_str!("../../scripts/desktop-smoke.js"));
+            }
+            #[cfg(all(windows, feature = "smoke-test"))]
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("realclick") {
+                let _ = webview.eval(include_str!("../../scripts/real-click-e2e.js"));
             }
             #[cfg(feature = "smoke-test")]
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished && std::env::var("EVERY_DIRECTORY_E2E_SUITE").as_deref() == Ok("search") {
