@@ -17,6 +17,9 @@ const Screen = lazy(() =>
 );
 // Windows·macOS별 글꼴과 용어 차이를 CSS에서 고를 수 있게 표시한다.
 document.documentElement.dataset.platform = isWindows ? "windows" : isMac ? "mac" : "other";
+// 진단용 빌드(VITE_ED_CLICK_DIAG=1)에서만 메인 창에 클릭 진단 기록을 띄운다.
+if (import.meta.env.VITE_ED_CLICK_DIAG === "1" && window.location.hash !== "#quick-search")
+  void import("./clickDiagnostics").then(({ startClickDiagnostics }) => startClickDiagnostics());
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 // 개발 중 진입점이 갱신되면 이전 React 트리를 정리한다.
 import.meta.hot?.dispose(() => root.unmount());
