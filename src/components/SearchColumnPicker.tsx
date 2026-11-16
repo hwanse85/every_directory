@@ -1,3 +1,4 @@
+import { onViewportResize } from "../viewportResize";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Columns3, RotateCcw, X } from "lucide-react";
@@ -64,15 +65,12 @@ export function SearchColumnPicker({
       )
         close(false);
     }
-    // 화면 크기가 바뀌면 이전 위치의 설정 창을 닫는다.
-    function resize() {
-      close(false);
-    }
+    // 화면 크기가 실제로 바뀌면 이전 위치의 설정 창을 닫는다.
+    const stopResize = onViewportResize(() => close(false));
     document.addEventListener("pointerdown", outside);
-    window.addEventListener("resize", resize);
     return () => {
       document.removeEventListener("pointerdown", outside);
-      window.removeEventListener("resize", resize);
+      stopResize();
     };
   }, [open]);
 

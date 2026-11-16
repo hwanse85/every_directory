@@ -163,6 +163,15 @@
     verify('정렬 메뉴에서 크기순 정렬 적용',pane(1).querySelector('[role="columnheader"][data-column="size"]').getAttribute('aria-sort')!=='none');
     set(sort,'name');document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
     verify('메뉴 바깥을 누르면 정렬 메뉴 닫기',sortButton.nextElementSibling.hidden);
+    // Windows WebView2는 창 크기가 그대로인데도 resize를 보낸다. 그때 열린 정렬·보기·도구 메뉴가 닫히면 클릭해도 반응이 없는 것처럼 보인다.
+    for(const [trigger,label] of [[sortButton,'정렬'],[viewButton,'보기']]){
+      trigger.click();await pause();window.dispatchEvent(new Event('resize'));await pause();
+      verify(`크기 변화 없는 resize에도 ${label} 메뉴 유지`,trigger.getAttribute('aria-expanded')==='true'&&!trigger.nextElementSibling.hidden);
+      document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
+    }
+    pane(1).querySelector('[aria-label="추가 파일 도구"]').click();await pause();window.dispatchEvent(new Event('resize'));await pause();
+    verify('크기 변화 없는 resize에도 도구 메뉴 유지',!!document.querySelector('.file-context-menu'));
+    key(document.activeElement??document.body,'Escape');document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
 
     // 5-1. 탐색창이 3개 이상이어도 보기 메뉴가 잘리지 않고 트리를 켤 수 있다.
     const paneCount=document.querySelector('[aria-label="탐색창 개수"]');set(paneCount,'3');await until(()=>document.querySelectorAll('.explorer-pane').length===3,'탐색창 세 개');

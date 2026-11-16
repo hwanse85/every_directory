@@ -63,6 +63,7 @@ import { useTabReorder } from "../useTabReorder";
 import {TreeWidthHandle,treeWidth} from "./TreeWidthHandle";
 import {SearchColumnPicker} from "./SearchColumnPicker";
 import {defaultExplorerColumns,explorerViews,groupedEntries,sortEntries} from "../explorerView";
+import { onViewportResize } from "../viewportResize";
 import {normalizeSearchColumns,normalizeTableSort,searchColumnOptions} from "../searchColumns";
 export { createTab, createPane } from "../tabs";
 
@@ -214,14 +215,13 @@ export function Explorer({
       flyoutRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus();
       setFlyout(undefined);
     };
-    const close = () => setFlyout(undefined);
+    const stopResize = onViewportResize(() => setFlyout(undefined));
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", close);
+      stopResize();
     };
   }, [flyout]);
   // 선택한 항목 하나를 목록 안에서 바로 이름 바꾸기 상태로 둔다.

@@ -1,3 +1,4 @@
+import { onViewportResize } from "../viewportResize";
 import {Highlight} from "./Highlight";
 import {usePreferences} from "../preferences";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -232,11 +233,11 @@ export function FileTable({
     if(!columnMenu)return;
     const close=(event:PointerEvent) => {if(!columnMenuRef.current?.contains(event.target as Node)&&!menuTrigger.current?.contains(event.target as Node))setColumnMenu(undefined);};
     const key=(event:KeyboardEvent) => {if(event.key==="Escape"){event.stopPropagation();setColumnMenu(undefined);menuTrigger.current?.focus();}};
-    const resize=()=>setColumnMenu(undefined);
-    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key,true);window.addEventListener("resize",resize);
+    const stopResize=onViewportResize(()=>setColumnMenu(undefined));
+    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key,true);
     columnMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus({preventScroll:true});
     const bounds=columnMenuRef.current?.getBoundingClientRect();if(bounds&&bounds.bottom>innerHeight-8)setColumnMenu(previous=>previous?{...previous,y:Math.max(8,innerHeight-bounds.height-8)}:previous);
-    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key,true);window.removeEventListener("resize",resize);};
+    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key,true);stopResize();};
   },[columnMenu]);
   const ordered = useMemo(
     () =>
