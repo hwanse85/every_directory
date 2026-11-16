@@ -343,7 +343,8 @@ async fn ed_request(
     if kind=="smokeClick"{
         use windows_sys::Win32::UI::{Input::KeyboardAndMouse::{SendInput,INPUT,INPUT_0,INPUT_MOUSE,MOUSEINPUT,MOUSEEVENTF_LEFTDOWN,MOUSEEVENTF_LEFTUP},WindowsAndMessaging::SetCursorPos};
         let (x,y)=(payload["x"].as_f64().ok_or("x")?,payload["y"].as_f64().ok_or("y")?);
-        let _=window.set_focus();
+        // CI에서는 실행기의 터미널 창이 앱 창을 덮으므로, 검사 동안 앱 창을 맨 위에 둔다.
+        let _=window.set_always_on_top(true);let _=window.set_focus();std::thread::sleep(std::time::Duration::from_millis(150));
         let inner=window.inner_position().map_err(|e|e.to_string())?;let scale=window.scale_factor().map_err(|e|e.to_string())?;
         let (sx,sy)=(inner.x+(x*scale).round() as i32,inner.y+(y*scale).round() as i32);
         let input=|flags|INPUT{r#type:INPUT_MOUSE,Anonymous:INPUT_0{mi:MOUSEINPUT{dx:0,dy:0,mouseData:0,dwFlags:flags,time:0,dwExtraInfo:0}}};
