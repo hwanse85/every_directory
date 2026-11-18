@@ -1,3 +1,4 @@
+import { onViewportResize } from "../viewportResize";
 import {useEffect,useRef} from "react";
 import {createPortal} from "react-dom";
 
@@ -6,8 +7,8 @@ export function TabMenu({x,y,items,onClose}:{x:number;y:number;items:{label:stri
   useEffect(()=>{
     menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({preventScroll:true});
     const outside=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node))onClose();};
-    const resize=()=>onClose();document.addEventListener("pointerdown",outside);window.addEventListener("resize",resize);
-    return()=>{document.removeEventListener("pointerdown",outside);window.removeEventListener("resize",resize);};
+    const stopResize=onViewportResize(onClose);document.addEventListener("pointerdown",outside);
+    return()=>{document.removeEventListener("pointerdown",outside);stopResize();};
   },[onClose]);
   return createPortal(<div ref={menu} className="tab-context-menu" role="menu" aria-label="탐색 탭 메뉴" style={{left:Math.max(8,Math.min(x,innerWidth-236)),top:Math.max(8,Math.min(y,innerHeight-items.length*34-20))}}
     onContextMenu={event=>event.preventDefault()} onKeyDown={event=>{

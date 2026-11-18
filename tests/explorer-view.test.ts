@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {explorerViews,normalizeExplorerView,groupedEntries} from "../src/explorerView";
+import {explorerViews,normalizeExplorerView,groupedEntries,sortEntries,explorerGroupOptions} from "../src/explorerView";
 import {normalizeExclusions,isIndexExcluded} from "../src/indexExclusions";
 import {restorePaneState,createPane} from "../src/tabs";
 import {treeWidth} from "../src/components/TreeWidthHandle";
@@ -33,4 +33,40 @@ test("index exclusions normalize paths and use complete folder boundaries",()=>{
 test("tree width rejects damaged preferences and keeps a useful range",()=>{
   for(const value of [null,"300",NaN,Infinity])assert.equal(treeWidth(value),165);
   assert.equal(treeWidth(700),600);assert.equal(treeWidth(2),80);assert.equal(treeWidth(257.6),258);
+});
+
+// 탐색창 정렬: 폴더 먼저, 숫자 → 영문 → 한글(검색 결과·Windows 탐색기와 같은 순서), 숫자는 자연 순서,
+// 크기·날짜가 같으면 이름순으로 둔다.
+test("explorer sort keeps folders first, Latin before Hangul, natural numbers and name ties", () => {
+  const file = (name: string, size: number, modified = 1): FileEntry => ({ id: `r:${name}`, rootId: "r", path: name, parent: "", name, kind: "file", extension: name.split(".").pop() ?? "", size, modified });
+  const folder = (name: string): FileEntry => ({ id: `r:${name}`, rootId: "r", path: name, parent: "", name, kind: "directory", extension: "", modified: 1 });
+  const entries = [file("가나.txt", 5), file("c10.txt", 5), folder("폴더A"), file("B.txt", 1), file("c2.txt", 5), folder("Docs"), file("a.txt", 9), file("1.txt", 3)];
+  const names = (list: FileEntry[]) => list.map((entry) => entry.name);
+  assert.deepEqual(names(sortEntries(entries, [], "name")), ["Docs", "폴더A", "1.txt", "a.txt", "B.txt", "c2.txt", "c10.txt", "가나.txt"]);
+  assert.deepEqual(names(sortEntries(entries, [], "name", true)), ["폴더A", "Docs", "가나.txt", "c10.txt", "c2.txt", "B.txt", "a.txt", "1.txt"]);
+  // 크기가 같은 c2·c10·가나는 이름순(자연 순서)으로 둔다. 내림차순이어도 같은 크기끼리는 이름 오름차순이다.
+  assert.deepEqual(names(sortEntries(entries, [], "size")), ["Docs", "폴더A", "B.txt", "1.txt", "c2.txt", "c10.txt", "가나.txt", "a.txt"]);
+  assert.deepEqual(names(sortEntries(entries, [], "size", true)), ["Docs", "폴더A", "a.txt", "c2.txt", "c10.txt", "가나.txt", "1.txt", "B.txt"]);
+});
+
+// 분류: 폴더 묶음은 맨 앞, 이름 첫 글자는 0–9·영문·초성(겹자음은 기본 자음), 같은 기준으로 정렬하면 묶음 순서도 정렬 방향을 따른다.
+test("grouping puts folders first, uses readable labels and follows the sort direction", () => {
+  const folder = (name: string): FileEntry => ({ id: name, rootId: "r", path: name, parent: "", name, kind: "directory", extension: "", modified: 1 });
+  const items = [folder("docs"), entry("b.pdf", 5, "pdf"), entry("a.txt", 0), entry("README", 3, ""), folder("자료")];
+  const labels = (rows: ReturnType<typeof groupedEntries>["rows"]) => rows.filter((row) => row.kind === "group").map((row) => row.kind === "group" ? `${row.label}:${row.count}` : "");
+  assert.deepEqual(labels(groupedEntries(items, "type").rows), ["폴더:2", "PDF 파일:1", "TXT 파일:1", "파일:1"]);
+  assert.deepEqual(labels(groupedEntries(items, "extension").rows), ["폴더:2", "PDF:1", "TXT:1", "확장자 없음:1"]);
+  assert.deepEqual(labels(groupedEntries([...items, { ...entry("ro"), readonly: true }], "attributes").rows), ["일반:5", "읽기 전용:1"]);
+  const names = ["2024 보고.txt", "10월.txt", "Alpha.txt", "까치.txt", "가방.txt", "_temp.txt"].map((name) => entry(name));
+  assert.deepEqual(labels(groupedEntries(names, "name").rows), ["#:1", "0–9:2", "A:1", "ㄱ:2"]);
+  // 크기: 폴더 맨 앞, 알 수 없음 맨 뒤. 크기 내림차순 정렬이면 큰 묶음부터.
+  const sizes = [folder("f"), entry("empty", 0), entry("small", 10), entry("big", 5 * 1024 * 1024), { ...entry("unknown"), size: undefined }];
+  assert.deepEqual(labels(groupedEntries(sizes, "size").rows), ["폴더:1", "빈 파일:1", "1KB 미만:1", "1MB–1GB:1", "알 수 없음:1"]);
+  assert.deepEqual(labels(groupedEntries(sizes, "size", [], Date.now(), { key: "size", descending: true }).rows), ["폴더:1", "1MB–1GB:1", "1KB 미만:1", "빈 파일:1", "알 수 없음:1"]);
+  // 날짜: 정렬 기준이 다르면 최근 것부터, 수정일 오름차순 정렬이면 오래된 것부터.
+  const now = new Date(2026, 9, 26, 11).getTime();
+  const dated = [{ ...entry("old"), modified: new Date(2026, 0, 1).getTime() }, { ...entry("today"), modified: new Date(2026, 9, 26, 9).getTime() }];
+  assert.deepEqual(labels(groupedEntries(dated, "modified", [], now).rows), ["오늘:1", "이전:1"]);
+  assert.deepEqual(labels(groupedEntries(dated, "modified", [], now, { key: "modified", descending: false }).rows), ["이전:1", "오늘:1"]);
+  assert.ok(!explorerGroupOptions.map((column): string => column.id).includes("fullPath"));
 });

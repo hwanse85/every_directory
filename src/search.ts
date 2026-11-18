@@ -11,7 +11,10 @@ import type {
   SearchResult,
 } from "./types";
 
-export const fileCollator = new Intl.Collator("ko", { numeric: true });
+// 파일 이름 비교: 숫자는 자연 순서(2 < 10), 기호 → 숫자 → 영문 → 한글 순서.
+// 한국어 규칙("ko")은 한글을 영문보다 앞에 두어 검색 결과(Rust)·Windows 탐색기와 순서가 달랐다.
+// "und"(언어 미지정)는 한국어 Windows에서 기본 언어인 ko-KR로 풀려 같은 문제가 남으므로 "en"을 명시한다.
+export const fileCollator = new Intl.Collator("en", { numeric: true });
 
 const extensions: Record<Exclude<FileCategory, "all" | "folder">, string[]> = {
   document: [

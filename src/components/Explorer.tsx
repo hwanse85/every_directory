@@ -62,7 +62,8 @@ import { TabMenu } from "./TabMenu";
 import { useTabReorder } from "../useTabReorder";
 import {TreeWidthHandle,treeWidth} from "./TreeWidthHandle";
 import {SearchColumnPicker} from "./SearchColumnPicker";
-import {defaultExplorerColumns,explorerViews} from "../explorerView";
+import {defaultExplorerColumns,explorerGroupOptions,explorerViews,groupedEntries,sortEntries} from "../explorerView";
+import { onViewportResize } from "../viewportResize";
 import {normalizeSearchColumns,normalizeTableSort,searchColumnOptions} from "../searchColumns";
 export { createTab, createPane } from "../tabs";
 
@@ -128,6 +129,8 @@ export function Explorer({
   const root = roots.find((r) => r.id === location.rootId);
   const explorerColumns=normalizeSearchColumns(pane.columns??defaultExplorerColumns);
   const explorerSort=pane.sort??normalizeTableSort(readPreference(`explorerColumnWidths:${pane.id}:sort`,null))??{key:"name" as const,descending:false};
+  // 예전 버전에서 저장한 분류 기준(전체 경로)은 지금은 고를 수 없으므로 분류 없음으로 본다.
+  const explorerGroup=pane.group&&explorerGroupOptions.some(column=>column.id===pane.group)?pane.group:"none";
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState<FileEntry>();
   const [selection, setSelection] = useState<FileEntry[]>([]);
@@ -179,6 +182,8 @@ export function Explorer({
   useEffect(()=>{savePreference(`folderTreeVisible:${pane.id}`,tree);},[tree,pane.id]);
   const [flyout, setFlyout] = useState<"sort" | "view">();
   const [flyoutStyle, setFlyoutStyle] = useState<CSSProperties>();
+  // 정렬 목록 상자는 스크롤 막대를 숨기므로(overflow: hidden) 모든 기준을 한 번에 보여야 한다.
+  // 예전에는 8줄로 잘라 액세스한 날짜·특성·전체 경로를 마우스로 고를 수 없었다. 창이 낮으면 메뉴 패널 전체가 스크롤된다.
   const flyoutRef = useRef<HTMLDivElement>(null);
   // 탐색창이 여러 개라 창이 낮아도 메뉴가 잘리지 않도록 화면 기준 위치에 띄우고, 아래 공간이 모자라면 위로 연다.
   function toggleFlyout(kind: "sort" | "view", trigger: HTMLElement) {
@@ -214,14 +219,13 @@ export function Explorer({
       flyoutRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus();
       setFlyout(undefined);
     };
-    const close = () => setFlyout(undefined);
+    const stopResize = onViewportResize(() => setFlyout(undefined));
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", close);
+      stopResize();
     };
   }, [flyout]);
   // 선택한 항목 하나를 목록 안에서 바로 이름 바꾸기 상태로 둔다.
@@ -349,6 +353,8 @@ export function Explorer({
       visibleFile(entry,{...preferences,showHidden}) &&
       matchesFilter(entry.name),
   );
+  // 화면에 보이는 순서(정렬·분류 적용). 전체 선택·선택 반전·목록 내보내기도 이 순서를 쓴다.
+  const orderedEntries = groupedEntries(sortEntries(visibleEntries, roots, explorerSort.key, explorerSort.descending), explorerGroup, roots, Date.now(), explorerSort).entries;
   useEffect(()=>setHiddenOverride(undefined),[preferences.showHidden]);
 
   useEffect(() => {
@@ -393,10 +399,10 @@ export function Explorer({
     )
       setAnalysis(action);
     else if (action === "selectAll") {
-      setSelection(visibleEntries);
-      setSelected(visibleEntries[0]);
+      setSelection(orderedEntries);
+      setSelected(orderedEntries[0]);
     } else if (action === "invertSelection") {
-      const inverse = visibleEntries.filter(
+      const inverse = orderedEntries.filter(
         (entry) => !selection.some((selected) => selected.id === entry.id),
       );
       setSelection(inverse);
@@ -410,7 +416,7 @@ export function Explorer({
           : location,
       );
     else if (action === "exportList")
-      void exportEntries(visibleEntries, roots).catch((cause) =>
+      void exportEntries(orderedEntries, roots).catch((cause) =>
         onError(String(cause)),
       );
     else if (action === "terminal")
@@ -1139,8 +1145,8 @@ export function Explorer({
         onPreview={onPreview}
         onMore={(x, y) => setContext({ x, y })}
         onSelectAll={() => {
-          setSelection(visibleEntries);
-          setSelected(visibleEntries[0]);
+          setSelection(orderedEntries);
+          setSelected(orderedEntries[0]);
         }}
         onCreated={(name, rename) => { createdName.current = { name, at: performance.now(), rename }; }}
         onRename={root && !root.demo ? startRename : undefined}
@@ -1151,9 +1157,9 @@ export function Explorer({
               <ArrowUpDown size={14} /><span>정렬</span><ChevronDown size={12} className="flyout-chevron" />
             </button>
             <div className="flyout-panel" role="group" aria-label={`탐색창 ${number} 정렬`} hidden={flyout !== "sort"} style={flyout === "sort" ? flyoutStyle : undefined}>
-              <label><span>정렬 기준</span><select size={Math.min(searchColumnOptions.length, 8)} aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+              <label><span>정렬 기준</span><select size={searchColumnOptions.length}aria-label={`탐색창 ${number} 정렬 기준`} value={explorerSort.key} onChange={event=>onChange({...pane,sort:{key:event.target.value as typeof explorerSort.key,descending:explorerSort.descending}})}>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
               <button className="sort-direction" aria-label={`탐색창 ${number} ${explorerSort.descending?"오름차순":"내림차순"}으로 정렬`} title={explorerSort.descending?"내림차순 · 클릭하여 오름차순":"오름차순 · 클릭하여 내림차순"} onClick={()=>onChange({...pane,sort:{...explorerSort,descending:!explorerSort.descending}})}>{explorerSort.descending?<ArrowDown size={13}/>:<ArrowUp size={13}/>}<span>{explorerSort.descending ? "내림차순" : "오름차순"}</span></button>
-              <label><span>분류(그룹)</span><select aria-label={`탐색창 ${number} 분류 기준`} value={pane.group??"none"} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{searchColumnOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
+              <label><span>분류(그룹)</span><select aria-label={`탐색창 ${number} 분류 기준`} value={explorerGroup} onChange={event=>onChange({...pane,group:event.target.value as ExplorerPane["group"]})}><option value="none">없음</option>{explorerGroupOptions.map(column=><option key={column.id} value={column.id}>{column.label}</option>)}</select></label>
             </div>
           </div>
           <div className="command-flyout">
@@ -1212,7 +1218,7 @@ export function Explorer({
           view={pane.view}
           columns={explorerColumns}
           onColumnsChange={columns=>onChange({...pane,columns})}
-          groupBy={pane.group??"none"}
+          groupBy={explorerGroup}
           sortState={explorerSort}
           onSortChange={sort=>onChange({...pane,sort:sort??{key:"name",descending:false}})}
           onSelect={setSelected}

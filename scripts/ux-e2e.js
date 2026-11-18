@@ -14,8 +14,17 @@
   const row=(text,n=1)=>rows(n).find(item=>nameOf(item)===text);
   const crumbs=(n=1)=>pane(n)?.querySelector('.breadcrumbs')?.textContent??'';
   // 목록을 다시 불러오는 동안은 파일 작업 단축키가 잠기므로 준비될 때까지 기다린다.
-  const ready=()=>until(()=>!pane(1).querySelector('.explorer-footer .spin')&&!pane(1).querySelector('.file-action-bar [title="붙여넣기 · Ctrl/⌘ V"]')?.disabled,'파일 작업 준비');
+  const ready=async()=>{
+    // 파일 감시의 후속 갱신까지 끝난 상태를 기다린다. 잠깐 활성화된 한 프레임을 준비 완료로 오인하지 않는다.
+    let since;
+    await until(()=>{
+      const available=!pane(1).querySelector('.explorer-footer .spin')&&!pane(1).querySelector('.file-action-bar [title="붙여넣기 · Ctrl/⌘ V"]')?.disabled;
+      if(!available){since=undefined;return false;}
+      since??=Date.now();return Date.now()-since>=200;
+    },'파일 작업 준비');
+  };
   const focused=()=>document.activeElement?.classList?.contains('file-row')?nameOf(document.activeElement):undefined;
+  const selectedAndFocused=name=>focused()===name&&row(name)?.classList.contains('selected');
   try{
     await until(()=>row('가 폴더'),'앱 초기화');
     const root=(await invoke('ed_request',{kind:'init',payload:{}}))[0];
@@ -28,18 +37,18 @@
     key(document.activeElement,'ArrowDown');await until(()=>row('하위')?.classList.contains('selected'),'첫 방향키 선택');
     verify('초점만 있는 상태에서 첫 ↓는 초점 항목을 선택',focused()==='하위');
     key(document.activeElement,'Backspace');
-    await until(()=>!crumbs().endsWith('가 폴더')&&focused()==='가 폴더','상위 이동 후 원래 폴더 초점');
+    await until(()=>!crumbs().endsWith('가 폴더')&&selectedAndFocused('가 폴더'),'상위 이동 후 원래 폴더 초점');
     verify('Backspace로 상위로 오면 방금 나온 폴더를 선택하고 초점 유지',row('가 폴더').classList.contains('selected'));
     key(document.activeElement,'ArrowLeft',{altKey:true});
     await until(()=>crumbs().endsWith('가 폴더')&&focused()==='하위','Alt+← 뒤로 이동 후 초점');
     verify('Alt+← 뒤로 이동 후에도 목록 초점 유지',true);
     key(document.activeElement,'ArrowUp',{altKey:true});
-    await until(()=>focused()==='가 폴더','Alt+↑ 상위 이동 후 초점');
+    await until(()=>selectedAndFocused('가 폴더'),'Alt+↑ 상위 이동 후 초점');
     verify('Alt+↑ 상위 이동 후 방금 나온 폴더 선택',row('가 폴더').classList.contains('selected'));
     row('가 폴더').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
     await until(()=>crumbs().endsWith('가 폴더')&&focused()==='하위','더블클릭 진입 후 초점');
     verify('더블클릭으로 들어가도 첫 항목에 초점',true);
-    key(document.activeElement,'Backspace');await until(()=>focused()==='가 폴더','상위 복귀');
+    key(document.activeElement,'Backspace');await until(()=>selectedAndFocused('가 폴더'),'상위 복귀');
     key(document.activeElement,'ArrowDown');await until(()=>focused()==='나 폴더','방향키 이동');
     const filter=pane(1).querySelector('.folder-filter input');
     verify('현재 폴더 검색 상자는 주소줄 오른쪽에 위치',!!filter.closest('.explorer-navigation'));
@@ -47,20 +56,20 @@
     verify('현재 폴더 검색 상자에서 ↓로 목록 진입',pane(1).querySelector('.file-scroll').contains(document.activeElement));
 
     // 2. 삭제·이름 바꾸기 뒤 선택이 사라지지 않는다.
-    await ready();const victim=row('사 삭제용.txt');victim.click();victim.focus();key(victim,'Delete');
+    await ready();const victim=row('사 삭제용.txt');victim.click();victim.focus();await until(()=>selectedAndFocused('사 삭제용.txt'),'삭제 대상 선택');await ready();key(victim,'Delete');
     const trash=await until(()=>document.querySelector('dialog[open] .button.danger'),'삭제 확인');trash.click();
-    await until(()=>!row('사 삭제용.txt')&&focused()==='아 이름변경.txt','삭제 후 다음 항목 초점',20000);
+    await until(()=>!row('사 삭제용.txt')&&selectedAndFocused('아 이름변경.txt'),'삭제 후 다음 항목 초점',20000);
     verify('삭제하면 같은 자리의 다음 항목을 선택하고 초점 유지',row('아 이름변경.txt').classList.contains('selected'));
     await ready();const renameTarget=row('아 이름변경.txt');renameTarget.focus();key(renameTarget,'F2');
     const name=await until(()=>pane(1).querySelector('.rename-field input'),'목록 안 이름 입력칸');
     set(name,'아 바뀐 이름.txt');key(name,'Enter');
-    await until(()=>focused()==='아 바뀐 이름.txt','이름 변경 후 초점',20000);
+    await until(()=>selectedAndFocused('아 바뀐 이름.txt'),'이름 변경 후 초점',20000);
     verify('이름을 바꾸면 새 이름 항목을 선택하고 초점 유지',row('아 바뀐 이름.txt').classList.contains('selected'));
 
     await ready();key(row('아 바뀐 이름.txt'),'n',{ctrlKey:true,metaKey:true,shiftKey:true});
     const folderName=await until(()=>pane(1).querySelector('.rename-field input'),'새 폴더 이름 입력칸');
     set(folderName,'차 새 폴더');key(folderName,'Enter');
-    await until(()=>focused()==='차 새 폴더','새 폴더 선택',20000);
+    await until(()=>selectedAndFocused('차 새 폴더'),'새 폴더 선택',20000);
     verify('새 폴더를 만들면 목록에서 새 폴더를 선택하고 초점',row('차 새 폴더').classList.contains('selected'));
 
     // 3. 검색창 Tab은 탐색창 1 → 2 → 검색창 순서로 이동한다.
@@ -78,7 +87,7 @@
     const search=document.querySelector('[aria-label="파일 검색"]');search.focus();set(search,'마 보고서');
     await until(()=>{const found=[...document.querySelectorAll('.search-table .file-row')];return found.length===1&&nameOf(found[0])?.includes('마 보고서');},'검색 결과');
     const places=()=>[...document.querySelectorAll('.explorer-pane .breadcrumbs')].map(item=>item.textContent).join('|');const placesBefore=places();
-    key(search,'ArrowDown');await until(()=>document.activeElement?.closest?.('.search-table'),'검색 결과 초점');
+    key(search,'ArrowDown');await until(()=>document.activeElement?.closest?.('.search-table')&&document.activeElement.classList.contains('selected'),'검색 결과 초점');
     verify('검색창에서 ↓로 첫 검색 결과에 선택과 초점',document.activeElement.classList.contains('selected')&&nameOf(document.activeElement)==='마 보고서.pdf');
     // 기본값(따라가기 꺼짐)에서는 선택해도 활성 탐색창 위치가 그대로다.
     const before=await invoke('preferences_control',{next:null});
@@ -163,6 +172,15 @@
     verify('정렬 메뉴에서 크기순 정렬 적용',pane(1).querySelector('[role="columnheader"][data-column="size"]').getAttribute('aria-sort')!=='none');
     set(sort,'name');document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
     verify('메뉴 바깥을 누르면 정렬 메뉴 닫기',sortButton.nextElementSibling.hidden);
+    // Windows WebView2는 창 크기가 그대로인데도 resize를 보낸다. 그때 열린 정렬·보기·도구 메뉴가 닫히면 클릭해도 반응이 없는 것처럼 보인다.
+    for(const [trigger,label] of [[sortButton,'정렬'],[viewButton,'보기']]){
+      trigger.click();await pause();window.dispatchEvent(new Event('resize'));await pause();
+      verify(`크기 변화 없는 resize에도 ${label} 메뉴 유지`,trigger.getAttribute('aria-expanded')==='true'&&!trigger.nextElementSibling.hidden);
+      document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
+    }
+    pane(1).querySelector('[aria-label="추가 파일 도구"]').click();await pause();window.dispatchEvent(new Event('resize'));await pause();
+    verify('크기 변화 없는 resize에도 도구 메뉴 유지',!!document.querySelector('.file-context-menu'));
+    key(document.activeElement??document.body,'Escape');document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await pause();
 
     // 5-1. 탐색창이 3개 이상이어도 보기 메뉴가 잘리지 않고 트리를 켤 수 있다.
     const paneCount=document.querySelector('[aria-label="탐색창 개수"]');set(paneCount,'3');await until(()=>document.querySelectorAll('.explorer-pane').length===3,'탐색창 세 개');

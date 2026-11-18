@@ -34,8 +34,20 @@
       const savedWidth=treeWidth(1);pane(1).querySelector('[role="tab"]').focus();key(document.activeElement,'t',{ctrlKey:true});await until(()=>pane(1).querySelectorAll('[role="tab"]').length===2,'새 탭');
       verify('새 탭에서 창의 트리 너비 유지',Math.abs(treeWidth(1)-savedWidth)<2);pane(1).querySelector('[role="tab"]').click();await pause();verify('이전 탭으로 돌아와도 트리 너비 유지',Math.abs(treeWidth(1)-savedWidth)<2);
       verify('Windows 형식의 보기 종류 여덟 개 제공',view.options.length===8);
+      // 정렬 목록은 스크롤 막대가 없으므로 모든 기준이 한 번에 보여야 마우스로 고를 수 있다.
+      verify('정렬 기준 목록이 잘리지 않고 모든 기준 표시',sort.size===sort.options.length&&sort.options.length>8);
       verify('폴더의 기본 유형 칼럼은 폴더로 표시',find('문서').querySelector('[data-column="extension"]').textContent==='폴더');
       for(const option of [...view.options]){set(view,option.value);await pause();verify(`${option.textContent} 보기 실제 적용`,pane(1).querySelector('.file-table').dataset.view===option.value&&rows().length>0);}
+      set(view,'list');set(sort,'name');await pause();
+      // 실제 행 순서: 폴더 먼저, 숫자는 자연 순서, 영문 이름이 한글 이름보다 앞(검색 결과·Windows 탐색기와 같은 순서)
+      const files=()=>rows().map(row=>row.title.split(/[\\/]/).pop()).filter(name=>/\.(txt|pdf|png)$/.test(name));
+      const ascending=['Notes 2.txt','Notes 10.txt','안내.pdf','업무 보고서.txt','이미지.png'];
+      if(files().join('|')!==ascending.join('|'))throw new Error('이름 오름차순 순서: '+files().join(','));
+      verify('이름 정렬: 폴더 먼저, 자연 순서(2 < 10), 영문이 한글보다 앞',rows()[0].title.split(/[\\/]/).pop()==='대상');
+      pane(1).querySelector('[role="columnheader"][data-column="name"] button').click();await pause();
+      if(files().join('|')!==[...ascending].reverse().join('|'))throw new Error('이름 내림차순 순서: '+files().join(','));
+      verify('이름 내림차순은 정확히 반대 순서',true);
+      pane(1).querySelector('[role="columnheader"][data-column="name"] button').click();await pause();
       set(view,'list');set(sort,'created');await pause();verify('만든 날짜 정렬 기준 제공',pane(1).querySelector('[data-column="name"]').getAttribute('aria-sort')==='none');
       pane(1).querySelector('[aria-label="탐색창 1 표시 항목"]').click();const picker=await until(()=>document.querySelector('.search-columns-picker'),'속성 칼럼 선택');
       for(const label of ['만든 날짜','액세스한 날짜','특성']){const row=[...picker.querySelectorAll('label')].find(row=>row.querySelector('strong')?.textContent===label);row.querySelector('input').click();await pause();}
@@ -47,6 +59,17 @@
       verify('헤더 우클릭에서도 속성 칼럼 선택 가능',document.querySelector('.column-menu-fields').textContent.includes('만든 날짜'));key(document.activeElement,'Escape');await pause();
       set(group,'type');await until(()=>pane(1).querySelector('.file-group-heading'),'유형 그룹');verify('유형별 분류 헤더와 항목 수 표시',pane(1).querySelector('.file-group-heading').textContent.includes('개'));
       rows()[0].focus();key(document.activeElement,'a',{ctrlKey:true});await pause();verify('분류 헤더를 제외한 모든 파일만 전체 선택',pane(1).querySelectorAll('.file-row.selected').length===rows().length&&!pane(1).querySelector('.file-group-heading.selected'));
+      // 분류 묶음: 폴더 묶음이 맨 앞, 묶음 안 항목 수 합계가 전체 항목 수와 같다. 전체 경로는 분류 기준에 없다.
+      const headings=()=>[...pane(1).querySelectorAll('.file-group-heading')].map(item=>({label:item.querySelector('strong').textContent,count:Number(item.querySelector('span').textContent.replace(/\D/g,''))}));
+      verify('유형 분류는 폴더 묶음을 맨 앞에 두고 모든 항목을 한 번씩 담음',headings()[0].label==='폴더'&&headings().reduce((sum,item)=>sum+item.count,0)===rows().length);
+      set(group,'extension');await pause();verify('확장자 분류도 폴더를 미지정이 아닌 폴더 묶음으로 표시',headings()[0].label==='폴더'&&!headings().some(item=>item.label==='미지정'));
+      verify('전체 경로는 분류 기준에서 제외',![...group.options].some(option=>option.value==='fullPath'));
+      set(group,'name');await pause();verify('이름 분류는 숫자 0–9·영문 대문자·한글 초성 묶음',headings().some(item=>item.label==='N')&&headings().some(item=>/^[ㄱ-ㅎ]$/.test(item.label)));
+      // 분류된 목록에서 End·Home은 화면 순서의 마지막·첫 항목으로 선택과 초점을 함께 옮긴다.
+      set(group,'type');await pause();rows()[0].click();rows()[0].focus();
+      key(document.activeElement,'End');await until(()=>document.activeElement===rows().at(-1)&&rows().at(-1).classList.contains('selected'),'분류 목록 End 초점');
+      key(document.activeElement,'Home');await until(()=>document.activeElement===rows()[0]&&rows()[0].classList.contains('selected'),'분류 목록 Home 초점');
+      verify('분류 목록에서 End·Home이 화면 순서로 선택과 초점 이동',true);
       set(group,'none');await pause();find('업무 보고서.txt').click();find('업무 보고서.txt').focus();key(document.activeElement,' ');
       const preview=await until(()=>document.querySelector('.preview-modal'),'Space 미리보기');await until(()=>preview.querySelector('pre'),'텍스트 미리보기');
       const bounds=preview.getBoundingClientRect();verify('Space 미리보기는 화면 높이 90% 이상과 넓은 폭 사용',bounds.height>=innerHeight*.9&&bounds.width>=Math.min(1200,innerWidth*.9));

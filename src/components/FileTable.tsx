@@ -1,12 +1,13 @@
+import { onViewportResize } from "../viewportResize";
 import {Highlight} from "./Highlight";
 import {usePreferences} from "../preferences";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, ArrowUpRight, Columns3, SearchX } from "lucide-react";
 import { FileIcon, formatSize } from "./FileIcon";
-import { fileCollator, choseong, categoryOf } from "../search";
+import { choseong, categoryOf } from "../search";
 import type { ConnectedRoot, ExplorerView, FileEntry, TableSort, SearchSortKey } from "../types";
-import {defaultExplorerColumns,groupedEntries} from "../explorerView";
+import {defaultExplorerColumns,groupedEntries,sortEntries} from "../explorerView";
 import { locationPath } from "../paths";
 import { validateName } from "../rename";
 import { isDesktop } from "../client";
@@ -232,38 +233,20 @@ export function FileTable({
     if(!columnMenu)return;
     const close=(event:PointerEvent) => {if(!columnMenuRef.current?.contains(event.target as Node)&&!menuTrigger.current?.contains(event.target as Node))setColumnMenu(undefined);};
     const key=(event:KeyboardEvent) => {if(event.key==="Escape"){event.stopPropagation();setColumnMenu(undefined);menuTrigger.current?.focus();}};
-    const resize=()=>setColumnMenu(undefined);
-    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key,true);window.addEventListener("resize",resize);
+    const stopResize=onViewportResize(()=>setColumnMenu(undefined));
+    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key,true);
     columnMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus({preventScroll:true});
     const bounds=columnMenuRef.current?.getBoundingClientRect();if(bounds&&bounds.bottom>innerHeight-8)setColumnMenu(previous=>previous?{...previous,y:Math.max(8,innerHeight-bounds.height-8)}:previous);
-    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key,true);window.removeEventListener("resize",resize);};
+    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key,true);stopResize();};
   },[columnMenu]);
   const ordered = useMemo(
     () =>
       (search&&onSortChange) || (search && !sort)
         ? entries
-        : [...entries].sort((a, b) => {
-            const first = searchColumnValue(
-              a,
-              rootById.get(a.rootId),
-              sort ?? "name",
-            );
-            const second = searchColumnValue(
-              b,
-              rootById.get(b.rootId),
-              sort ?? "name",
-            );
-            return (
-              Number(b.kind === "directory") - Number(a.kind === "directory") ||
-              (typeof first === "number" && typeof second === "number"
-                ? first - second
-                : fileCollator.compare(String(first), String(second))) *
-                (descending ? -1 : 1)
-            );
-          }),
-    [entries, search, sort, descending, rootById,onSortChange],
+        : sortEntries(entries, roots, sort ?? "name", descending),
+    [entries, search, sort, descending, roots, onSortChange],
   );
-  const grouped=useMemo(()=>groupedEntries(ordered,search?"none":groupBy,roots),[ordered,groupBy,search,roots]);
+  const grouped=useMemo(()=>groupedEntries(ordered,search?"none":groupBy,roots,Date.now(),{key:sort??"name",descending}),[ordered,groupBy,search,roots,sort,descending]);
   const sorted=grouped.entries,displayRows=grouped.rows;
   const positions=useMemo(()=>new Map(displayRows.flatMap((row,index)=>row.kind==="entry"?[[row.entry.id,index] as const]:[])),[displayRows]);
   useEffect(() => {
@@ -330,6 +313,14 @@ export function FileTable({
   useEffect(() => {
     previousSorted.current = sorted;
   }, [sorted]);
+  // 키보드로 먼 항목(Home·End·PageUp/Down·첫 글자 찾기)에 갈 때 쓴다. scroll 이벤트를 기다리지 않고 바로 상태를 맞춰,
+  // 다음 프레임에 초점을 줄 대상 행이 가상 목록에 그려져 있게 한다. 그렇지 않으면 선택만 옮겨지고 초점은 이전 행에 남았다.
+  function scrollListTo(top: number) {
+    const scroller = container.current;
+    if (!scroller) return;
+    scroller.scrollTop = Math.max(0, top);
+    setScroll(scroller.scrollTop);
+  }
   const start = grid ? 0 : Math.max(0, Math.floor(scroll / rowHeight) - 5);
   const end = grid
     ? Math.min(displayRows.length, gridLimit)
@@ -592,17 +583,9 @@ export function FileTable({
                       if(e.shiftKey)selectEntry(next,e.ctrlKey||e.metaKey,true);
                       else if (!e.ctrlKey && !e.metaKey) selectEntry(next);
                       if (grid) setGridLimit((previous) => Math.max(previous, Math.ceil(((positions.get(next.id)??nextIndex) + 1) / 300) * 300));
-                      else container.current?.scrollTo({
-                        top: Math.max(0, (positions.get(next.id)??nextIndex) * rowHeight - height / 2),
-                      });
-                      requestAnimationFrame(() => {
-                        const nextRow = container.current
-                          ?.querySelector<HTMLElement>(
-                            `[data-index="${nextIndex}"]`,
-                          );
-                        nextRow?.focus({ preventScroll: true });
-                        if (grid) nextRow?.scrollIntoView({ block: "nearest" });
-                      });
+                      else scrollListTo((positions.get(next.id)??nextIndex) * rowHeight - height / 2);
+                      // 대상 행이 아직 그려지지 않았으면 그려질 때까지 짧게 다시 시도해 초점을 옮긴다.
+                      focusEntry(next);
                     }
                   }else if(e.key.length===1&&e.key!==" "&&!e.altKey&&!e.ctrlKey&&!e.metaKey){
                     const time=performance.now(),old=time-typeAhead.current.time<900?typeAhead.current.text:"";
@@ -615,8 +598,8 @@ export function FileTable({
                     if(nextIndex!==undefined){
                       e.preventDefault();selectEntry(sorted[nextIndex]);
                       if(grid)setGridLimit(previous=>Math.max(previous,Math.ceil(((positions.get(sorted[nextIndex].id)??nextIndex)+1)/300)*300));
-                      else container.current?.scrollTo({top:Math.max(0,(positions.get(sorted[nextIndex].id)??nextIndex)*rowHeight-height/2)});
-                      requestAnimationFrame(()=>container.current?.querySelector<HTMLElement>(`[data-index="${nextIndex}"]`)?.focus({preventScroll:true}));
+                      else scrollListTo((positions.get(sorted[nextIndex].id)??nextIndex)*rowHeight-height/2);
+                      focusEntry(sorted[nextIndex]);
                     }
                   }
                 }}

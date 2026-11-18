@@ -1,3 +1,4 @@
+import { onViewportResize } from "../viewportResize";
 import {
   useEffect,
   useId,
@@ -408,15 +409,12 @@ export function FileContextMenu({
     function outside(event: PointerEvent) {
       if (!layer.current?.contains(event.target as Node)) onClose();
     }
-    // 화면 크기가 바뀌면 이전 좌표의 메뉴를 닫는다.
-    function dismiss() {
-      onClose();
-    }
+    // 화면 크기가 실제로 바뀌면 이전 좌표의 메뉴를 닫는다.
+    const stopResize = onViewportResize(onClose);
     document.addEventListener("pointerdown", outside);
-    window.addEventListener("resize", dismiss);
     return () => {
       document.removeEventListener("pointerdown", outside);
-      window.removeEventListener("resize", dismiss);
+      stopResize();
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [onClose]);
