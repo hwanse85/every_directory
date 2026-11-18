@@ -28,15 +28,21 @@
   verify('생성한 파일 자동 선택과 목록 갱신',true);
   pane(1).querySelector('.file-row.selected').focus();pane(1).querySelector('.file-row.selected').dispatchEvent(new KeyboardEvent('keydown',{key:'F2',bubbles:true,cancelable:true}));
   const renameInput=await until(()=>pane(1).querySelector('.rename-field input'),'이름 변경');verify('생성 파일은 F2로 목록 안에서 이름 변경 가능',renameInput.value===created.name&&!document.querySelector('dialog[open]'));renameInput.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await pause();
-  const afterFirst=await list('');await choose(1,'.txt');await until(async()=> (await list('')).length===afterFirst.length+1,'번호 사본');
+  const afterFirst=await list('');await choose(1,'.txt');const numbered=await until(async()=> (await list('')).find(entry=>!afterFirst.some(old=>old.id===entry.id)),'번호 사본');
+  await until(()=>[...pane(1).querySelectorAll('.file-row.selected')].some(row=>row.title.endsWith('\\'+numbered.name)),'번호 사본 선택과 새로 만들기 완료');
   verify('동일 형식 반복 생성은 Windows 번호 이름과 기존 파일 보존',(await list('')).some(entry=>entry.id===created.id));
-  const beforeFolder=await list('');await choose(1,'NewFolder');await until(async()=> (await list('')).some(entry=>entry.kind==='directory'&&!beforeFolder.some(old=>old.id===entry.id)),'Windows 폴더 생성');verify('네이티브 새 폴더 생성',true);
+  const beforeFolder=await list('');await choose(1,'NewFolder');const folder=await until(async()=> (await list('')).find(entry=>entry.kind==='directory'&&!beforeFolder.some(old=>old.id===entry.id)),'Windows 폴더 생성');
+  // 파일 시스템에 보인 직후에는 이전 Windows 명령의 UI 갱신이 아직 진행 중일 수 있다.
+  await until(()=>[...pane(1).querySelectorAll('.file-row.selected')].some(row=>row.title.endsWith('\\'+folder.name)),'새 폴더 선택과 새로 만들기 완료');verify('네이티브 새 폴더 생성',true);
   if(items.some(item=>item[2]==='.xlsx')){
    const beforeExcel=await list('');await choose(1,'.xlsx');const excel=await until(async()=> (await list('')).find(entry=>entry.extension==='xlsx'&&!beforeExcel.some(old=>old.id===entry.id)),'설치된 Excel 형식 생성');
+   await until(()=>[...pane(1).querySelectorAll('.file-row.selected')].some(row=>row.title.endsWith('\\'+excel.name)),'Excel 파일 선택과 새로 만들기 완료');
    verify('설치된 Office 형식은 시스템 서식으로 생성',excel.size>0);
   }
   const destination=[...pane(2).querySelectorAll('.file-row')].find(row=>row.title.endsWith('\\대상'));destination.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));await until(()=>pane(2).querySelector('.breadcrumbs').textContent.includes('대상'),'두 번째 창 위치');
-  await choose(2,'.txt');await until(async()=> (await list('대상')).some(entry=>entry.extension==='txt'),'다른 창에서 새 파일');verify('실행한 탐색창의 현재 폴더가 생성 대상',true);
+  await until(()=>!pane(2).querySelector('.explorer-footer .spin')&&pane(2).querySelector('.empty-files'),'두 번째 창의 빈 폴더 목록 준비');
+  await choose(2,'.txt');const other=await until(async()=> (await list('대상')).find(entry=>entry.extension==='txt'),'다른 창에서 새 파일');
+  await until(()=>[...pane(2).querySelectorAll('.file-row.selected')].some(row=>row.title.endsWith('\\'+other.name)),'두 번째 창의 새 파일 선택');verify('실행한 탐색창의 현재 폴더가 생성 대상',true);
   const beforeError=(await list('')).length;
   let invalid=false;try{await invoke('shell_new_menu',{location:{rootId:root.id,path:'업무 보고서.txt'},point:null});}catch{invalid=true;}verify('파일 경로는 생성 대상 폴더로 허용하지 않음',invalid);
   invalid=false;try{await invoke('shell_new_menu',{location:{rootId:root.id,path:'../outside'},point:null});}catch{invalid=true;}verify('연결 범위를 벗어나는 생성 대상 차단',invalid);

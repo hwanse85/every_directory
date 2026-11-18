@@ -130,8 +130,10 @@
     );
     row.click();
     row.focus();
+    await until(() => row.classList.contains("selected") && pane.querySelector(".selection-count"), "새로고침 전 선택 반영");
     key("F5");
     await new Promise((resolve) => setTimeout(resolve, 150));
+    await until(() => !pane.querySelector(".explorer-footer .spin") && pane.querySelector(".selection-count"), "새로고침 후 선택 복원");
     verify(
       "Windows F5는 다른 창 복사 대화상자를 열지 않고 새로고침",
       !document.querySelector("dialog[open]") &&

@@ -4,6 +4,7 @@
   "version": "0.13.0",
   "identifier": "com.everydirectory.desktop",
   "build": {
+    "removeUnusedCommands": true,
     "beforeDevCommand": "npm run dev:ui",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
