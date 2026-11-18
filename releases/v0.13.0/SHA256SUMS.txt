@@ -1,0 +1,2 @@
+6f8c342042f40daa21cb9c557a36a7c40679bfff7c8289f3d1969487ef40f3f4  EveryDirectory-0.13.0-windows-x64-portable.zip
+964fa45570d264bd962ee0351b8c8500eed7e80392e9020dfa521dcb1a68fa18  EveryDirectory-0.13.0-windows-x64-setup.exe

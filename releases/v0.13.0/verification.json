@@ -1,0 +1,28 @@
+{
+  "version": "0.13.0",
+  "verifiedAt": "2026-11-16T12:40:00+09:00",
+  "node": {
+    "passed": 81,
+    "failed": 0
+  },
+  "windowsE2E": {
+    "passed": true,
+    "platform": "Windows 11 x64, WebView2",
+    "suites": 20,
+    "checks": 501
+  },
+  "windowsBuild": {
+    "target": "x86_64-pc-windows-msvc",
+    "installer": "EveryDirectory-0.13.0-windows-x64-setup.exe",
+    "portable": "EveryDirectory-0.13.0-windows-x64-portable.zip",
+    "privacyCheck": true,
+    "portableSmoke": "portable.flag로 실행 파일 옆 portable-data 생성 확인",
+    "installerSmoke": "현재 사용자 설치, 시작 메뉴·바탕 화면 바로 가기, 로그인 자동 실행 경로 확인"
+  },
+  "notVerified": [
+    "Rust 단위 테스트(cargo test)는 이 빌드에서 다시 돌리지 않음",
+    "macOS 빌드와 E2E",
+    "분수 배율(125%·150%) Windows에서 크기 변화 없는 resize 동작"
+  ],
+  "artifacts": "SHA256SUMS.txt"
+}
